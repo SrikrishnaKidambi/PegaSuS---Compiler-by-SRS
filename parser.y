@@ -1,0 +1,161 @@
+%{
+#include <stdio.h>
+#include <stdlib.h>
+
+int yylex();
+void yyerror(const char *s);
+%}
+
+%union {
+    int ival;
+    float fval;
+    char cval;
+    char* sval;
+}
+
+%token INT FP CHR STRING BOOL
+%token IF ELIF ELSE FOR
+%token TRUE FALSE
+%token FEED SHOW
+
+%token IDENTIFIER
+%token INT_LITERAL FLOAT_LITERAL CHAR_LITERAL STRING_LITERAL
+
+%token PLUS MINUS MUL DIV MOD
+%token GT LT EQ
+%token AND OR NOT
+%token ASSIGN ADD_ASSIGN SUB_ASSIGN
+
+%token SEMICOLON COMMA
+%token LPAREN RPAREN
+%token LBRACE RBRACE
+
+%left OR
+%left AND
+%left EQ GT LT
+%left PLUS MINUS
+%left MUL DIV MOD
+%right NOT
+
+%%
+program
+    : stmt_list
+    ;
+
+stmt_list
+    : stmt_list statement
+    | statement
+    ;
+
+statement
+    : var_decl
+    | expr_stmt
+    | if_stmt
+    | for_stmt
+    | io_stmt
+    | block
+    ;
+
+block
+    : LBRACE stmt_list RBRACE
+    ;
+
+var_decl
+    : type IDENTIFIER SEMICOLON
+    | type IDENTIFIER ASSIGN expression SEMICOLON | 
+    ;
+
+type
+    : INT
+    | FP
+    | CHR
+    | STRING
+    | BOOL
+    ;
+
+expr_stmt
+    : expression SEMICOLON
+    ;
+
+if_stmt
+    : IF LPAREN expression RPAREN block elif_list else_opt
+    ;
+
+elif_list
+    : elif_list ELIF LPAREN expression RPAREN block
+    | 
+    ;
+
+else_opt
+    : ELSE block
+    | 
+    ;
+
+for_stmt
+    : FOR LPAREN expr_stmt expression SEMICOLON expression RPAREN block
+    ;
+
+io_stmt
+    : IDENTIFIER ASSIGN FEED LPAREN STRING_LITERAL RPAREN SEMICOLON
+    | SHOW LPAREN expression RPAREN SEMICOLON
+    ;
+
+expression
+    : assignment
+    ;
+
+assignment
+    : IDENTIFIER ASSIGN assignment
+    | IDENTIFIER ADD_ASSIGN assignment
+    | IDENTIFIER SUB_ASSIGN assignment
+    | logic_expr
+    ;
+
+logic_expr
+    : logic_expr OR logic_expr
+    | logic_expr AND logic_expr
+    | NOT logic_expr
+    | rel_expr
+    ;
+
+rel_expr
+    : rel_expr GT arith_expr
+    | rel_expr LT arith_expr
+    | rel_expr EQ arith_expr
+    | arith_expr
+    ;
+
+arith_expr
+    : arith_expr PLUS term
+    | arith_expr MINUS term
+    | term
+    ;
+
+term
+    : term MUL factor
+    | term DIV factor
+    | term MOD factor
+    | factor
+    ;
+
+factor
+    : IDENTIFIER
+    | INT_LITERAL
+    | FLOAT_LITERAL
+    | CHAR_LITERAL
+    | STRING_LITERAL
+    | TRUE
+    | FALSE
+    | LPAREN expression RPAREN
+    ;
+%%
+void yyerror(const char *s) {
+    printf("Syntax Error: %s\n", s);
+}
+
+int main() {
+    yyparse();
+    printf("Parsing Successful\n");
+    return 0;
+}
+
