@@ -1,9 +1,9 @@
 %{
 #include <stdio.h>
 #include <stdlib.h>
-
 int yylex();
 void yyerror(const char *s);
+extern FILE *yyin;
 %}
 
 %union {
@@ -13,22 +13,26 @@ void yyerror(const char *s);
     char* sval;
 }
 
-%token INT FP CHR STRING BOOL
+%token INT FP CHR STRING BOOL VOID
 %token IF ELIF ELSE FOR
 %token TRUE FALSE
 %token FEED SHOW
+%token SEQ1 SEQ2 FUNC
 
-%token IDENTIFIER
-%token INT_LITERAL FLOAT_LITERAL CHAR_LITERAL STRING_LITERAL
+%token <sval> IDENTIFIER
+%token <ival> INT_LITERAL
+%token <fval> FLOAT_LITERAL
+%token <cval> CHAR_LITERAL
+%token <sval> STRING_LITERAL
 
 %token PLUS MINUS MUL DIV MOD
 %token GT LT EQ
 %token AND OR NOT
 %token ASSIGN ADD_ASSIGN SUB_ASSIGN
-
 %token SEMICOLON COMMA
 %token LPAREN RPAREN
 %token LBRACE RBRACE
+%token LBRACKET RBRACKET
 
 %left OR
 %left AND
@@ -38,17 +42,20 @@ void yyerror(const char *s);
 %right NOT
 
 %%
+
 program
-    : stmt_list
+    : program element
+    | 
     ;
 
-stmt_list
-    : stmt_list statement
-    | statement
+element
+    : statement
+    | function_decl
     ;
 
 statement
     : var_decl
+    | array_decl
     | expr_stmt
     | if_stmt
     | for_stmt
@@ -58,11 +65,22 @@ statement
 
 block
     : LBRACE stmt_list RBRACE
+    | LBRACE RBRACE
+    ;
+
+stmt_list
+    : stmt_list statement
+    | statement
     ;
 
 var_decl
-    : type IDENTIFIER SEMICOLON
-    | type IDENTIFIER ASSIGN expression SEMICOLON | 
+    : type id_list SEMICOLON
+    | type IDENTIFIER ASSIGN expression SEMICOLON
+    ;
+
+id_list
+    : id_list COMMA IDENTIFIER
+    | IDENTIFIER
     ;
 
 type
@@ -73,31 +91,47 @@ type
     | BOOL
     ;
 
+array_decl
+    : type SEQ1 IDENTIFIER ASSIGN array_init SEMICOLON
+    | type SEQ1 IDENTIFIER LBRACKET INT_LITERAL RBRACKET SEMICOLON
+    | type SEQ2 IDENTIFIER LBRACKET INT_LITERAL RBRACKET LBRACKET INT_LITERAL RBRACKET SEMICOLON
+    ;
+
+array_init
+    : LBRACE expr_list RBRACE
+    ;
+
+expr_list
+    : expr_list COMMA expression
+    | expression
+    ;
+
+function_decl
+    : func_type FUNC IDENTIFIER LPAREN param_list_opt RPAREN block
+    ;
+
+func_type
+    : type
+    | VOID
+    ;
+
+param_list_opt
+    : param_list
+    | 
+    ;
+
+param_list
+    : param_list COMMA param
+    | param
+    ;
+
+param
+    : type IDENTIFIER
+    ;
+
 expr_stmt
     : expression SEMICOLON
-    ;
-
-if_stmt
-    : IF LPAREN expression RPAREN block elif_list else_opt
-    ;
-
-elif_list
-    : elif_list ELIF LPAREN expression RPAREN block
-    | 
-    ;
-
-else_opt
-    : ELSE block
-    | 
-    ;
-
-for_stmt
-    : FOR LPAREN expr_stmt expression SEMICOLON expression RPAREN block
-    ;
-
-io_stmt
-    : IDENTIFIER ASSIGN FEED LPAREN STRING_LITERAL RPAREN SEMICOLON
-    | SHOW LPAREN expression RPAREN SEMICOLON
+    | SEMICOLON
     ;
 
 expression
@@ -148,12 +182,38 @@ factor
     | FALSE
     | LPAREN expression RPAREN
     ;
+
+if_stmt
+    : IF LPAREN expression RPAREN block elif_list else_opt
+    ;
+
+elif_list
+    : elif_list ELIF LPAREN expression RPAREN block
+    | 
+    ;
+
+else_opt
+    : ELSE block
+    | 
+    ;
+
+for_stmt
+    : FOR LPAREN expression SEMICOLON expression SEMICOLON expression RPAREN block
+    ;
+
+io_stmt
+    : IDENTIFIER ASSIGN FEED LPAREN STRING_LITERAL RPAREN SEMICOLON
+    | SHOW LPAREN expression RPAREN SEMICOLON
+    ;
+
 %%
+
 void yyerror(const char *s) {
-    printf("Syntax Error: %s\n", s);
+    fprintf(stderr, "Syntax Error: %s\n", s);
 }
 
 int main() {
+    yyin = stdin;
     yyparse();
     printf("Parsing Successful\n");
     return 0;

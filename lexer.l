@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "y.tab.h"
+#include "parser.tab.h"
 %}
 
 DIGIT       [0-9]
@@ -19,6 +19,7 @@ STRING_CONST \"([^\\\"]|\\.)*\"
 "chr"       { return CHR; }
 "string"    { return STRING; }
 "bool"      { return BOOL; }
+"void"      { return VOID; }
 
 "if"        { return IF; }
 "elif"      { return ELIF; }
@@ -31,10 +32,13 @@ STRING_CONST \"([^\\\"]|\\.)*\"
 "feed"      { return FEED; }
 "show"      { return SHOW; }
 
+"1seq"      { return SEQ1; }
+"2seq"      { return SEQ2; }
+"_func"     { return FUNC; }
+
 "=="        { return EQ; }
 ">"         { return GT; }
 "<"         { return LT; }
-
 "&&"        { return AND; }
 "||"        { return OR; }
 "!"         { return NOT; }
@@ -55,20 +59,24 @@ STRING_CONST \"([^\\\"]|\\.)*\"
 ")"         { return RPAREN; }
 "{"         { return LBRACE; }
 "}"         { return RBRACE; }
+"["         { return LBRACKET; }
+"]"         { return RBRACKET; }
 
 {FLOAT_CONST}   { yylval.fval = atof(yytext); return FLOAT_LITERAL; }
 {INT_CONST}     { yylval.ival = atoi(yytext); return INT_LITERAL; }
 {CHAR_CONST}    { yylval.cval = yytext[1]; return CHAR_LITERAL; }
 {STRING_CONST}  { yylval.sval = strdup(yytext); return STRING_LITERAL; }
 
+
 {ID}            { yylval.sval = strdup(yytext); return IDENTIFIER; }
+
 
 [ \t\r\n]+      ;
 "//".*          ;
 
-. {
-    printf("Lexical Error: %s\n", yytext);
-}
+. { printf("Lexical Error: %s\n", yytext); }
+
 %%
-Int yywrap() { return 1; }
+
+int yywrap() { return 1; }
 
