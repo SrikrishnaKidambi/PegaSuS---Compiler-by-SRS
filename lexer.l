@@ -14,6 +14,7 @@ CHAR_CONST  \'(.|\\.)\'
 STRING_CONST \"([^\\\"]|\\.)*\"
 
 %%
+
 "int"       { return INT; }
 "fp"        { return FP; }
 "chr"       { return CHR; }
@@ -31,6 +32,8 @@ STRING_CONST \"([^\\\"]|\\.)*\"
 
 "feed"      { return FEED; }
 "show"      { return SHOW; }
+
+"return"    { return RETURN; }
 
 "1seq"      { return SEQ1; }
 "2seq"      { return SEQ2; }
@@ -67,9 +70,7 @@ STRING_CONST \"([^\\\"]|\\.)*\"
 {CHAR_CONST}    { yylval.cval = yytext[1]; return CHAR_LITERAL; }
 {STRING_CONST}  { yylval.sval = strdup(yytext); return STRING_LITERAL; }
 
-
 {ID}            { yylval.sval = strdup(yytext); return IDENTIFIER; }
-
 
 [ \t\r\n]+      ;
 "//".*          ;

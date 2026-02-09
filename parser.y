@@ -1,6 +1,7 @@
 %{
 #include <stdio.h>
 #include <stdlib.h>
+
 int yylex();
 void yyerror(const char *s);
 extern FILE *yyin;
@@ -17,6 +18,7 @@ extern FILE *yyin;
 %token IF ELIF ELSE FOR
 %token TRUE FALSE
 %token FEED SHOW
+%token RETURN
 %token SEQ1 SEQ2 FUNC
 
 %token <sval> IDENTIFIER
@@ -45,7 +47,7 @@ extern FILE *yyin;
 
 program
     : program element
-    | 
+    |
     ;
 
 element
@@ -60,6 +62,7 @@ statement
     | if_stmt
     | for_stmt
     | io_stmt
+    | return_stmt
     | block
     ;
 
@@ -117,7 +120,7 @@ func_type
 
 param_list_opt
     : param_list
-    | 
+    |
     ;
 
 param_list
@@ -129,6 +132,11 @@ param
     : type IDENTIFIER
     ;
 
+return_stmt
+    : RETURN expression SEMICOLON
+    | RETURN SEMICOLON
+    ;
+
 expr_stmt
     : expression SEMICOLON
     | SEMICOLON
@@ -138,10 +146,15 @@ expression
     : assignment
     ;
 
+indexed_id
+    : IDENTIFIER LBRACKET expression RBRACKET
+    ;
+
 assignment
     : IDENTIFIER ASSIGN assignment
     | IDENTIFIER ADD_ASSIGN assignment
     | IDENTIFIER SUB_ASSIGN assignment
+    | indexed_id ASSIGN assignment
     | logic_expr
     ;
 
@@ -174,6 +187,7 @@ term
 
 factor
     : IDENTIFIER
+    | indexed_id
     | INT_LITERAL
     | FLOAT_LITERAL
     | CHAR_LITERAL
@@ -189,12 +203,12 @@ if_stmt
 
 elif_list
     : elif_list ELIF LPAREN expression RPAREN block
-    | 
+    |
     ;
 
 else_opt
     : ELSE block
-    | 
+    |
     ;
 
 for_stmt
