@@ -71,12 +71,38 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 int yylex();
 void yyerror(const char *s);
 extern FILE *yyin;
 
-#line 80 "y.tab.c"
+// Structure of IR code representation
+
+typedef struct {
+	char op[10];
+	char arg1[20];
+	char arg2[20];
+	char result[20];
+} Quad;
+
+// Initialising the array for storing the Quadraples
+Quad IR[10000];
+
+// Index that points to the quadraple indicating representing the IR code
+int IR_idx = 0;
+
+// Variable that holds the count of number of temporary variables generated
+int tempVarCnt = 0;
+
+// Defining the function for generating new temporary variable
+char* genVar();
+
+// Function for emitting the IR code in the form of Quadruples
+void emit(char* op, char* arg1, char* arg2, char* result);
+
+
+#line 106 "y.tab.c"
 
 # ifndef YY_CAST
 #  ifdef __cplusplus
@@ -223,14 +249,14 @@ extern int yydebug;
 #if ! defined YYSTYPE && ! defined YYSTYPE_IS_DECLARED
 union YYSTYPE
 {
-#line 10 "parser.y"
+#line 36 "parser.y"
 
     int ival;
     float fval;
     char cval;
     char* sval;
 
-#line 234 "y.tab.c"
+#line 260 "y.tab.c"
 
 };
 typedef union YYSTYPE YYSTYPE;
@@ -720,15 +746,15 @@ static const yytype_int8 yytranslate[] =
 /* YYRLINE[YYN] -- Source line where rule number YYN was defined.  */
 static const yytype_uint8 yyrline[] =
 {
-       0,    49,    49,    50,    54,    55,    59,    60,    61,    62,
-      63,    64,    65,    66,    70,    71,    75,    76,    80,    81,
-      85,    86,    90,    91,    92,    93,    94,    98,    99,   100,
-     104,   108,   109,   113,   117,   118,   122,   123,   127,   128,
-     132,   136,   137,   141,   142,   146,   150,   154,   155,   156,
-     157,   158,   162,   163,   164,   165,   169,   170,   171,   172,
-     176,   177,   178,   182,   183,   184,   185,   189,   190,   191,
-     192,   193,   194,   195,   196,   197,   201,   205,   206,   210,
-     211,   215,   219,   220
+       0,    75,    75,    76,    80,    81,    85,    86,    87,    88,
+      89,    90,    91,    92,    96,    97,   101,   102,   106,   107,
+     111,   112,   116,   117,   118,   119,   120,   124,   125,   126,
+     130,   134,   135,   139,   143,   144,   148,   149,   153,   154,
+     158,   162,   163,   167,   168,   172,   176,   180,   181,   182,
+     183,   184,   188,   189,   190,   191,   195,   196,   197,   198,
+     202,   203,   204,   208,   209,   210,   211,   215,   216,   217,
+     218,   219,   220,   221,   222,   223,   227,   231,   232,   236,
+     237,   241,   245,   246
 };
 #endif
 
@@ -1417,14 +1443,8 @@ yyreduce:
   YY_REDUCE_PRINT (yyn);
   switch (yyn)
     {
-  case 3: /* program: %empty  */
-#line 50 "parser.y"
-                        { s = "hello"; }
-#line 1424 "y.tab.c"
-    break;
 
-
-#line 1428 "y.tab.c"
+#line 1448 "y.tab.c"
 
       default: break;
     }
@@ -1617,8 +1637,26 @@ yyreturnlab:
   return yyresult;
 }
 
-#line 223 "parser.y"
+#line 249 "parser.y"
 
+
+/* Implementing the helper functions "genVar" and "emit" for
+   generating IR code in the form of Quadruples
+*/
+
+char* genVar() {
+	char newVar[20];
+	sprintf(newVar, "t%d", tempVarCnt++);
+	return strdup(newVar);
+}
+
+void emit(char* op, char* arg1, char* arg2, char* result) {
+	strcpy(IR[IR_idx].op, op);
+	strcpy(IR[IR_idx].arg1, arg1);
+	strcpy(IR[IR_idx].arg2, arg2);
+	strcpy(IR[IR_idx].result, result);
+	IR_idx++;
+}
 
 void yyerror(const char *s) {
     fprintf(stderr, "Syntax Error: %s\n", s);
