@@ -1,10 +1,36 @@
 %{
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 int yylex();
 void yyerror(const char *s);
 extern FILE *yyin;
+
+// Structure of IR code representation
+
+typedef struct {
+	char op[10],
+	char arg1[20],
+	char arg2[20],
+	char result[20]
+} Quad;
+
+// Initialising the array for storing the Quadraples
+Quad IR[10000];
+
+// Index that points to the quadraple indicating representing the IR code
+int IR_idx = 0;
+
+// Variable that holds the count of number of temporary variables generated
+int tempVarCnt = 0;
+
+// Defining the function for generating new temporary variable
+char* genVar();
+
+// Function for emitting the IR code in the form of Quadruples
+void emit(char* op, char* arg1, char* arg2, char* result);
+
 %}
 
 %union {
@@ -47,7 +73,7 @@ extern FILE *yyin;
 
 program
     : program element
-    |
+    |			{ s = "hello"; }
     ;
 
 element
@@ -222,14 +248,35 @@ io_stmt
 
 %%
 
+/* Implementing the helper functions "genVar" and "emit" for
+   generating IR code in the form of Quadruples
+*/
+
+char* genVar() {
+	char newVar[20];
+	sprintf(newVar, "t%d", tempVarCnt++);
+	return strdup(newVar);
+}
+
+void emit(char* op, char* arg1, char* arg2, char* result) {
+	strcpy(IR[IR_idx].op, op);
+	strcpy(IR[IR_idx].arg1, arg1);
+	strcpy(IR[IR_idx].arg2, arg2);
+	strcpy(IR[IR_idx].result, result);
+	IR_idx++;
+}
+
 void yyerror(const char *s) {
     fprintf(stderr, "Syntax Error: %s\n", s);
 }
 
 int main() {
-    yyin = stdin;
-    yyparse();
-    printf("Parsing Successful\n");
-    return 0;
+    	yyin = stdin;
+	char* s = "hi";	
+    	// Starting the process of parsing the code. 
+    	yyparse();
+	printf("String s:%s\n", s);
+    	printf("Parsing Successful\n");
+    	return 0;
 }
 
