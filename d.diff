@@ -1,0 +1,26 @@
+diff --git a/lexer.l b/lexer.l
+index a8da8e5..78f0db0 100644
+--- a/lexer.l
++++ b/lexer.l
+@@ -70,5 +70,5 @@ STRING_CONST \"([^\\\"]|\\.)*\"
+     printf("Lexical Error: %s\n", yytext);
+ }
+ %%
+-Int yywrap() { return 1; }
++int yywrap() { return 1; }
+ 
+diff --git a/test.ps b/test.ps
+index 769cb8a..f60f911 100644
+--- a/test.ps
++++ b/test.ps
+@@ -2,8 +2,7 @@
+ int a;
+ int b;
+ int c;
+-a=b=c=10;
+ 
+-for(int i=0;i<5;i+=1){
+-	show(i);
++if(a == 0){
++	show(a);
+ }

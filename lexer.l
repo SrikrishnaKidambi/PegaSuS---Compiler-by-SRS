@@ -75,9 +75,9 @@ STRING_CONST \"([^\\\"]|\\.)*\"
 [ \t\r\n]+      ;
 "//".*          ;
 
-. { printf("Lexical Error: %s\n", yytext); }
-
+. {
+    printf("Lexical Error: %s\n", yytext);
+}
 %%
-
 int yywrap() { return 1; }
 
