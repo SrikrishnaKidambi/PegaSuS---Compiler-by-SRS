@@ -251,12 +251,13 @@ union YYSTYPE
 {
 #line 36 "parser.y"
 
-    int ival;
-    float fval;
-    char cval;
-    char* sval;
+    	int ival;
+    	float fval;
+    	char cval;
+    	char* sval;
+    	char* place;
 
-#line 260 "y.tab.c"
+#line 261 "y.tab.c"
 
 };
 typedef union YYSTYPE YYSTYPE;
@@ -744,17 +745,17 @@ static const yytype_int8 yytranslate[] =
 
 #if YYDEBUG
 /* YYRLINE[YYN] -- Source line where rule number YYN was defined.  */
-static const yytype_uint8 yyrline[] =
+static const yytype_int16 yyrline[] =
 {
-       0,    75,    75,    76,    80,    81,    85,    86,    87,    88,
-      89,    90,    91,    92,    96,    97,   101,   102,   106,   107,
-     111,   112,   116,   117,   118,   119,   120,   124,   125,   126,
-     130,   134,   135,   139,   143,   144,   148,   149,   153,   154,
-     158,   162,   163,   167,   168,   172,   176,   180,   181,   182,
-     183,   184,   188,   189,   190,   191,   195,   196,   197,   198,
-     202,   203,   204,   208,   209,   210,   211,   215,   216,   217,
-     218,   219,   220,   221,   222,   223,   227,   231,   232,   236,
-     237,   241,   245,   246
+       0,    78,    78,    79,    83,    84,    88,    89,    90,    91,
+      92,    93,    94,    95,    99,   100,   104,   105,   109,   110,
+     114,   115,   119,   120,   121,   122,   123,   127,   128,   129,
+     133,   137,   138,   142,   146,   147,   151,   152,   156,   157,
+     161,   165,   166,   170,   171,   175,   179,   183,   188,   195,
+     201,   202,   206,   207,   208,   209,   213,   214,   215,   216,
+     220,   226,   232,   239,   245,   251,   257,   264,   268,   269,
+     275,   281,   287,   291,   297,   303,   310,   314,   315,   319,
+     320,   324,   328,   329
 };
 #endif
 
@@ -1443,8 +1444,177 @@ yyreduce:
   YY_REDUCE_PRINT (yyn);
   switch (yyn)
     {
+  case 47: /* assignment: IDENTIFIER ASSIGN assignment  */
+#line 184 "parser.y"
+        {
+		emit("", (yyvsp[0].sval), "", (yyvsp[-2].sval));
+		(yyval.sval) = strdup((yyvsp[-2].sval));
+	}
+#line 1454 "y.tab.c"
+    break;
 
-#line 1448 "y.tab.c"
+  case 48: /* assignment: IDENTIFIER ADD_ASSIGN assignment  */
+#line 189 "parser.y"
+        {
+		char* temp = genVar();
+		emit("+", (yyvsp[-2].sval), (yyvsp[0].sval), temp);
+		emit("", temp, "", (yyvsp[-2].sval));
+	}
+#line 1464 "y.tab.c"
+    break;
+
+  case 49: /* assignment: IDENTIFIER SUB_ASSIGN assignment  */
+#line 196 "parser.y"
+        {
+                char* temp = genVar();
+                emit("-", (yyvsp[-2].sval), (yyvsp[0].sval), temp);
+                emit("", temp, "", (yyvsp[-2].sval));
+        }
+#line 1474 "y.tab.c"
+    break;
+
+  case 60: /* arith_expr: arith_expr PLUS term  */
+#line 221 "parser.y"
+        {
+		char* temp = genVar();
+		emit("+", (yyvsp[-2].sval), (yyvsp[0].sval), temp);
+		(yyval.sval) = temp;
+	}
+#line 1484 "y.tab.c"
+    break;
+
+  case 61: /* arith_expr: arith_expr MINUS term  */
+#line 227 "parser.y"
+        {
+		char* temp = genVar();
+		emit("-", (yyvsp[-2].sval), (yyvsp[0].sval), temp);
+		(yyval.sval) = temp;
+	}
+#line 1494 "y.tab.c"
+    break;
+
+  case 62: /* arith_expr: term  */
+#line 233 "parser.y"
+        {
+		(yyval.sval) = (yyvsp[0].sval);
+	}
+#line 1502 "y.tab.c"
+    break;
+
+  case 63: /* term: term MUL factor  */
+#line 240 "parser.y"
+        {
+		char* temp = genVar();
+		emit("*", (yyvsp[-2].sval), (yyvsp[0].sval), temp);
+		(yyval.sval) = temp;
+	}
+#line 1512 "y.tab.c"
+    break;
+
+  case 64: /* term: term DIV factor  */
+#line 246 "parser.y"
+        {
+		char* temp = genVar();
+		emit("/", (yyvsp[-2].sval), (yyvsp[0].sval), temp);
+		(yyval.sval) = temp;
+	}
+#line 1522 "y.tab.c"
+    break;
+
+  case 65: /* term: term MOD factor  */
+#line 252 "parser.y"
+        {
+		char* temp = genVar();
+		emit("%", (yyvsp[-2].sval), (yyvsp[0].sval), temp);
+		(yyval.sval) = temp;
+	}
+#line 1532 "y.tab.c"
+    break;
+
+  case 66: /* term: factor  */
+#line 258 "parser.y"
+        {
+		(yyval.sval) = (yyvsp[0].sval);
+	}
+#line 1540 "y.tab.c"
+    break;
+
+  case 67: /* factor: IDENTIFIER  */
+#line 265 "parser.y"
+        {
+		(yyval.sval) = strdup((yyvsp[0].sval));
+	}
+#line 1548 "y.tab.c"
+    break;
+
+  case 69: /* factor: INT_LITERAL  */
+#line 270 "parser.y"
+        {
+		char buffer[20];
+		sprintf(buffer, "%d", (yyvsp[0].ival));
+		(yyval.sval) = strdup(buffer);
+	}
+#line 1558 "y.tab.c"
+    break;
+
+  case 70: /* factor: FLOAT_LITERAL  */
+#line 276 "parser.y"
+        {
+		char buffer[20];
+		sprintf(buffer, "%f", (yyvsp[0].fval));
+		(yyval.sval) = strdup(buffer);
+	}
+#line 1568 "y.tab.c"
+    break;
+
+  case 71: /* factor: CHAR_LITERAL  */
+#line 282 "parser.y"
+        {
+		char buffer[20];
+		sprintf(buffer, "'%c'", (yyvsp[0].cval));
+		(yyval.sval) = strdup(buffer);
+	}
+#line 1578 "y.tab.c"
+    break;
+
+  case 72: /* factor: STRING_LITERAL  */
+#line 288 "parser.y"
+        {
+		(yyval.sval) = strdup((yyvsp[0].sval));
+	}
+#line 1586 "y.tab.c"
+    break;
+
+  case 73: /* factor: TRUE  */
+#line 292 "parser.y"
+        {
+                char buffer[20];
+                sprintf(buffer, "%d", 1);
+                (yyval.sval) = strdup(buffer);
+        }
+#line 1596 "y.tab.c"
+    break;
+
+  case 74: /* factor: FALSE  */
+#line 298 "parser.y"
+        {
+                char buffer[20];
+                sprintf(buffer, "%d", 0);
+                (yyval.sval) = strdup(buffer);
+        }
+#line 1606 "y.tab.c"
+    break;
+
+  case 75: /* factor: LPAREN expression RPAREN  */
+#line 304 "parser.y"
+        {
+		(yyval.sval) = (yyvsp[-1].sval);
+	}
+#line 1614 "y.tab.c"
+    break;
+
+
+#line 1618 "y.tab.c"
 
       default: break;
     }
@@ -1637,7 +1807,7 @@ yyreturnlab:
   return yyresult;
 }
 
-#line 249 "parser.y"
+#line 332 "parser.y"
 
 
 /* Implementing the helper functions "genVar" and "emit" for
@@ -1667,8 +1837,11 @@ int main() {
 	char* s = "hi";	
     	// Starting the process of parsing the code. 
     	yyparse();
-	printf("String s:%s\n", s);
     	printf("Parsing Successful\n");
+	printf("Generated three address code:\n");
+	for(int i = 0; i < IR_idx; i++){
+		printf("%s = %s %s %s\n", IR[i].result, IR[i].arg1, IR[i].op, IR[i].arg2);
+	}
     	return 0;
 }
 

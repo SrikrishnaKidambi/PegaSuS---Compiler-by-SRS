@@ -159,12 +159,13 @@ union YYSTYPE
 {
 #line 36 "parser.y"
 
-    int ival;
-    float fval;
-    char cval;
-    char* sval;
+    	int ival;
+    	float fval;
+    	char cval;
+    	char* sval;
+    	char* place;
 
-#line 168 "y.tab.h"
+#line 169 "y.tab.h"
 
 };
 typedef union YYSTYPE YYSTYPE;

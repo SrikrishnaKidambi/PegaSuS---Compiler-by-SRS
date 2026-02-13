@@ -34,10 +34,11 @@ void emit(char* op, char* arg1, char* arg2, char* result);
 %}
 
 %union {
-    int ival;
-    float fval;
-    char cval;
-    char* sval;
+    	int ival;
+    	float fval;
+    	char cval;
+    	char* sval;
+    	char* place;
 }
 
 %token INT FP CHR STRING BOOL VOID
@@ -61,6 +62,8 @@ void emit(char* op, char* arg1, char* arg2, char* result);
 %token LPAREN RPAREN
 %token LBRACE RBRACE
 %token LBRACKET RBRACKET
+
+%type <sval> expression arith_expr term factor assignment indexed_id logic_expr
 
 %left OR
 %left AND
@@ -178,8 +181,23 @@ indexed_id
 
 assignment
     : IDENTIFIER ASSIGN assignment
+	{
+		emit("", $3, "", $1);
+		$$ = strdup($1);
+	}
     | IDENTIFIER ADD_ASSIGN assignment
+	{
+		char* temp = genVar();
+		emit("+", $1, $3, temp);
+		emit("", temp, "", $1);
+	}
+
     | IDENTIFIER SUB_ASSIGN assignment
+	{
+                char* temp = genVar();
+                emit("-", $1, $3, temp);
+                emit("", temp, "", $1);
+        }
     | indexed_id ASSIGN assignment
     | logic_expr
     ;
@@ -199,28 +217,93 @@ rel_expr
     ;
 
 arith_expr
-    : arith_expr PLUS term
+    : arith_expr PLUS term  
+	{
+		char* temp = genVar();
+		emit("+", $1, $3, temp);
+		$$ = temp;
+	}
     | arith_expr MINUS term
+	{
+		char* temp = genVar();
+		emit("-", $1, $3, temp);
+		$$ = temp;
+	}
     | term
+	{
+		$$ = $1;
+	}
     ;
 
 term
     : term MUL factor
+	{
+		char* temp = genVar();
+		emit("*", $1, $3, temp);
+		$$ = temp;
+	}
     | term DIV factor
+	{
+		char* temp = genVar();
+		emit("/", $1, $3, temp);
+		$$ = temp;
+	}
     | term MOD factor
+	{
+		char* temp = genVar();
+		emit("%", $1, $3, temp);
+		$$ = temp;
+	}
     | factor
+	{
+		$$ = $1;
+	}
     ;
 
 factor
     : IDENTIFIER
+	{
+		$$ = strdup($1);
+	}
     | indexed_id
     | INT_LITERAL
+	{
+		char buffer[20];
+		sprintf(buffer, "%d", $1);
+		$$ = strdup(buffer);
+	}	
     | FLOAT_LITERAL
+	{
+		char buffer[20];
+		sprintf(buffer, "%f", $1);
+		$$ = strdup(buffer);
+	}
     | CHAR_LITERAL
+	{
+		char buffer[20];
+		sprintf(buffer, "'%c'", $1);
+		$$ = strdup(buffer);
+	}
     | STRING_LITERAL
-    | TRUE
+	{
+		$$ = strdup($1);
+	}
+    |TRUE
+	{
+                char buffer[20];
+                sprintf(buffer, "%d", 1);
+                $$ = strdup(buffer);
+        }
     | FALSE
+	{
+                char buffer[20];
+                sprintf(buffer, "%d", 0);
+                $$ = strdup(buffer);
+        }	
     | LPAREN expression RPAREN
+	{
+		$$ = $2;
+	}
     ;
 
 if_stmt
@@ -275,8 +358,11 @@ int main() {
 	char* s = "hi";	
     	// Starting the process of parsing the code. 
     	yyparse();
-	printf("String s:%s\n", s);
     	printf("Parsing Successful\n");
+	printf("Generated three address code:\n");
+	for(int i = 0; i < IR_idx; i++){
+		printf("%s = %s %s %s\n", IR[i].result, IR[i].arg1, IR[i].op, IR[i].arg2);
+	}
     	return 0;
 }
 
