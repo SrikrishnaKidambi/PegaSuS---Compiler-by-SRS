@@ -31,6 +31,33 @@ char* genVar();
 // Function for emitting the IR code in the form of Quadruples
 void emit(char* op, char* arg1, char* arg2, char* result);
 
+// Function for generating new labels
+char* getLabel();
+
+// variable that tracks the number of labels generated
+int labelCnt = 0;
+
+char* falseStack[100];
+char* endStack[100];
+int topPtr = -1;
+void pushIfLabels(char* falseLabel, char* endLabel) {
+	topPtr++;
+	falseStack[topPtr] = falseLabel;
+	endStack[topPtr] = endLabel;
+}
+
+char* topFalse() {
+	return falseStack[topPtr];
+}
+
+char* topEnd() {
+	return endStack[topPtr];
+}
+
+void popIfLabels() {
+	topPtr--;
+}
+
 %}
 
 %union {
@@ -307,16 +334,50 @@ factor
     ;
 
 if_stmt
-    : IF LPAREN expression RPAREN block elif_list else_opt
+    : IF LPAREN 
+	{
+		char* falseLabel = getLabel();
+		char* Lend = getLabel();
+		pushIfLabels(falseLabel, Lend);
+	}
+      expression 
+      RPAREN 
+      block
+	{
+		emit("goto", "", "", topEnd());
+		emit("label", "", "", topFalse());
+	}
+      elif_list
+      else_opt
+	{
+		emit("label", "", "", topEnd());
+		popIfLabels();
+	}
     ;
 
 elif_list
-    : elif_list ELIF LPAREN expression RPAREN block
+    : ELIF LPAREN 
+	{
+		char* prevFalseLabel = topFalse();
+		char* nextFalseLabel = getLabel();
+		
+		emit("goto", "", "", topEnd());
+		emit("label", "", "", prevFalseLabel);
+		
+		falseStack[topPtr] = nextFalseLabel;
+	}
+      expression RPAREN
+      block
+      elif_list
     |
     ;
 
 else_opt
-    : ELSE block
+    : ELSE 
+	{
+		emit("label", "", "", topFalse());
+	}
+      block
     |
     ;
 
@@ -339,6 +400,12 @@ char* genVar() {
 	char newVar[20];
 	sprintf(newVar, "t%d", tempVarCnt++);
 	return strdup(newVar);
+}
+
+char* getLabel() {
+	char newLabel[20];
+	sprintf(newLabel, "L%d", labelCnt++);
+	return strdup(newLabel);
 }
 
 void emit(char* op, char* arg1, char* arg2, char* result) {
