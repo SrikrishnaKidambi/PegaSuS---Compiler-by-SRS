@@ -59,39 +59,46 @@ extern int yydebug;
     CHR = 260,                     /* CHR  */
     STRING = 261,                  /* STRING  */
     BOOL = 262,                    /* BOOL  */
-    IF = 263,                      /* IF  */
-    ELIF = 264,                    /* ELIF  */
-    ELSE = 265,                    /* ELSE  */
-    FOR = 266,                     /* FOR  */
-    TRUE = 267,                    /* TRUE  */
-    FALSE = 268,                   /* FALSE  */
-    FEED = 269,                    /* FEED  */
-    SHOW = 270,                    /* SHOW  */
-    IDENTIFIER = 271,              /* IDENTIFIER  */
-    INT_LITERAL = 272,             /* INT_LITERAL  */
-    FLOAT_LITERAL = 273,           /* FLOAT_LITERAL  */
-    CHAR_LITERAL = 274,            /* CHAR_LITERAL  */
-    STRING_LITERAL = 275,          /* STRING_LITERAL  */
-    PLUS = 276,                    /* PLUS  */
-    MINUS = 277,                   /* MINUS  */
-    MUL = 278,                     /* MUL  */
-    DIV = 279,                     /* DIV  */
-    MOD = 280,                     /* MOD  */
-    GT = 281,                      /* GT  */
-    LT = 282,                      /* LT  */
-    EQ = 283,                      /* EQ  */
-    AND = 284,                     /* AND  */
-    OR = 285,                      /* OR  */
-    NOT = 286,                     /* NOT  */
-    ASSIGN = 287,                  /* ASSIGN  */
-    ADD_ASSIGN = 288,              /* ADD_ASSIGN  */
-    SUB_ASSIGN = 289,              /* SUB_ASSIGN  */
-    SEMICOLON = 290,               /* SEMICOLON  */
-    COMMA = 291,                   /* COMMA  */
-    LPAREN = 292,                  /* LPAREN  */
-    RPAREN = 293,                  /* RPAREN  */
-    LBRACE = 294,                  /* LBRACE  */
-    RBRACE = 295                   /* RBRACE  */
+    VOID = 263,                    /* VOID  */
+    IF = 264,                      /* IF  */
+    ELIF = 265,                    /* ELIF  */
+    ELSE = 266,                    /* ELSE  */
+    FOR = 267,                     /* FOR  */
+    TRUE = 268,                    /* TRUE  */
+    FALSE = 269,                   /* FALSE  */
+    FEED = 270,                    /* FEED  */
+    SHOW = 271,                    /* SHOW  */
+    RETURN = 272,                  /* RETURN  */
+    SEQ1 = 273,                    /* SEQ1  */
+    SEQ2 = 274,                    /* SEQ2  */
+    FUNC = 275,                    /* FUNC  */
+    IDENTIFIER = 276,              /* IDENTIFIER  */
+    INT_LITERAL = 277,             /* INT_LITERAL  */
+    FLOAT_LITERAL = 278,           /* FLOAT_LITERAL  */
+    CHAR_LITERAL = 279,            /* CHAR_LITERAL  */
+    STRING_LITERAL = 280,          /* STRING_LITERAL  */
+    PLUS = 281,                    /* PLUS  */
+    MINUS = 282,                   /* MINUS  */
+    MUL = 283,                     /* MUL  */
+    DIV = 284,                     /* DIV  */
+    MOD = 285,                     /* MOD  */
+    GT = 286,                      /* GT  */
+    LT = 287,                      /* LT  */
+    EQ = 288,                      /* EQ  */
+    AND = 289,                     /* AND  */
+    OR = 290,                      /* OR  */
+    NOT = 291,                     /* NOT  */
+    ASSIGN = 292,                  /* ASSIGN  */
+    ADD_ASSIGN = 293,              /* ADD_ASSIGN  */
+    SUB_ASSIGN = 294,              /* SUB_ASSIGN  */
+    SEMICOLON = 295,               /* SEMICOLON  */
+    COMMA = 296,                   /* COMMA  */
+    LPAREN = 297,                  /* LPAREN  */
+    RPAREN = 298,                  /* RPAREN  */
+    LBRACE = 299,                  /* LBRACE  */
+    RBRACE = 300,                  /* RBRACE  */
+    LBRACKET = 301,                /* LBRACKET  */
+    RBRACKET = 302                 /* RBRACKET  */
   };
   typedef enum yytokentype yytoken_kind_t;
 #endif
@@ -105,52 +112,60 @@ extern int yydebug;
 #define CHR 260
 #define STRING 261
 #define BOOL 262
-#define IF 263
-#define ELIF 264
-#define ELSE 265
-#define FOR 266
-#define TRUE 267
-#define FALSE 268
-#define FEED 269
-#define SHOW 270
-#define IDENTIFIER 271
-#define INT_LITERAL 272
-#define FLOAT_LITERAL 273
-#define CHAR_LITERAL 274
-#define STRING_LITERAL 275
-#define PLUS 276
-#define MINUS 277
-#define MUL 278
-#define DIV 279
-#define MOD 280
-#define GT 281
-#define LT 282
-#define EQ 283
-#define AND 284
-#define OR 285
-#define NOT 286
-#define ASSIGN 287
-#define ADD_ASSIGN 288
-#define SUB_ASSIGN 289
-#define SEMICOLON 290
-#define COMMA 291
-#define LPAREN 292
-#define RPAREN 293
-#define LBRACE 294
-#define RBRACE 295
+#define VOID 263
+#define IF 264
+#define ELIF 265
+#define ELSE 266
+#define FOR 267
+#define TRUE 268
+#define FALSE 269
+#define FEED 270
+#define SHOW 271
+#define RETURN 272
+#define SEQ1 273
+#define SEQ2 274
+#define FUNC 275
+#define IDENTIFIER 276
+#define INT_LITERAL 277
+#define FLOAT_LITERAL 278
+#define CHAR_LITERAL 279
+#define STRING_LITERAL 280
+#define PLUS 281
+#define MINUS 282
+#define MUL 283
+#define DIV 284
+#define MOD 285
+#define GT 286
+#define LT 287
+#define EQ 288
+#define AND 289
+#define OR 290
+#define NOT 291
+#define ASSIGN 292
+#define ADD_ASSIGN 293
+#define SUB_ASSIGN 294
+#define SEMICOLON 295
+#define COMMA 296
+#define LPAREN 297
+#define RPAREN 298
+#define LBRACE 299
+#define RBRACE 300
+#define LBRACKET 301
+#define RBRACKET 302
 
 /* Value type.  */
 #if ! defined YYSTYPE && ! defined YYSTYPE_IS_DECLARED
 union YYSTYPE
 {
-#line 9 "parser.y"
+#line 36 "parser.y"
 
-    int ival;
-    float fval;
-    char cval;
-    char* sval;
+    	int ival;
+    	float fval;
+    	char cval;
+    	char* sval;
+    	char* place;
 
-#line 154 "y.tab.h"
+#line 169 "y.tab.h"
 
 };
 typedef union YYSTYPE YYSTYPE;
