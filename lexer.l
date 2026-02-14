@@ -79,5 +79,8 @@ STRING_CONST \"([^\\\"]|\\.)*\"
     printf("Lexical Error: %s\n", yytext);
 }
 %%
-int yywrap() { return 1; }
+int yywrap() { 
+	printf("Done with token generation and parsing\n");
+	return 1; 
+}
 

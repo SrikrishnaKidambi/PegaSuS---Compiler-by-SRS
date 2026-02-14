@@ -13,29 +13,30 @@ extern FILE *yyin;
     char cval;
     char* sval;
 }
-
+// carry the syntax based tokens and not value based tokens
 %token INT FP CHR STRING BOOL VOID
 %token IF ELIF ELSE FOR
 %token TRUE FALSE
 %token FEED SHOW
 %token RETURN
 %token SEQ1 SEQ2 FUNC
-
+// carry value based tokens
 %token <sval> IDENTIFIER
 %token <ival> INT_LITERAL
 %token <fval> FLOAT_LITERAL
 %token <cval> CHAR_LITERAL
 %token <sval> STRING_LITERAL
-
+//operators
 %token PLUS MINUS MUL DIV MOD
 %token GT LT EQ
 %token AND OR NOT
 %token ASSIGN ADD_ASSIGN SUB_ASSIGN
+//seperators and brackets
 %token SEMICOLON COMMA
 %token LPAREN RPAREN
 %token LBRACE RBRACE
 %token LBRACKET RBRACKET
-
+//precedence and associativity setting
 %left OR
 %left AND
 %left EQ GT LT
@@ -139,7 +140,7 @@ return_stmt
 
 expr_stmt
     : expression SEMICOLON
-    | SEMICOLON
+    | SEMICOLON  // this is like do nothing statement
     ;
 
 expression
