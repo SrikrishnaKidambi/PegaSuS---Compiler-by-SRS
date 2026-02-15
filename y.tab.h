@@ -88,17 +88,19 @@ extern int yydebug;
     AND = 289,                     /* AND  */
     OR = 290,                      /* OR  */
     NOT = 291,                     /* NOT  */
-    ASSIGN = 292,                  /* ASSIGN  */
-    ADD_ASSIGN = 293,              /* ADD_ASSIGN  */
-    SUB_ASSIGN = 294,              /* SUB_ASSIGN  */
-    SEMICOLON = 295,               /* SEMICOLON  */
-    COMMA = 296,                   /* COMMA  */
-    LPAREN = 297,                  /* LPAREN  */
-    RPAREN = 298,                  /* RPAREN  */
-    LBRACE = 299,                  /* LBRACE  */
-    RBRACE = 300,                  /* RBRACE  */
-    LBRACKET = 301,                /* LBRACKET  */
-    RBRACKET = 302                 /* RBRACKET  */
+    BITAND = 292,                  /* BITAND  */
+    BITOR = 293,                   /* BITOR  */
+    ASSIGN = 294,                  /* ASSIGN  */
+    ADD_ASSIGN = 295,              /* ADD_ASSIGN  */
+    SUB_ASSIGN = 296,              /* SUB_ASSIGN  */
+    SEMICOLON = 297,               /* SEMICOLON  */
+    COMMA = 298,                   /* COMMA  */
+    LPAREN = 299,                  /* LPAREN  */
+    RPAREN = 300,                  /* RPAREN  */
+    LBRACE = 301,                  /* LBRACE  */
+    RBRACE = 302,                  /* RBRACE  */
+    LBRACKET = 303,                /* LBRACKET  */
+    RBRACKET = 304                 /* RBRACKET  */
   };
   typedef enum yytokentype yytoken_kind_t;
 #endif
@@ -141,23 +143,25 @@ extern int yydebug;
 #define AND 289
 #define OR 290
 #define NOT 291
-#define ASSIGN 292
-#define ADD_ASSIGN 293
-#define SUB_ASSIGN 294
-#define SEMICOLON 295
-#define COMMA 296
-#define LPAREN 297
-#define RPAREN 298
-#define LBRACE 299
-#define RBRACE 300
-#define LBRACKET 301
-#define RBRACKET 302
+#define BITAND 292
+#define BITOR 293
+#define ASSIGN 294
+#define ADD_ASSIGN 295
+#define SUB_ASSIGN 296
+#define SEMICOLON 297
+#define COMMA 298
+#define LPAREN 299
+#define RPAREN 300
+#define LBRACE 301
+#define RBRACE 302
+#define LBRACKET 303
+#define RBRACKET 304
 
 /* Value type.  */
 #if ! defined YYSTYPE && ! defined YYSTYPE_IS_DECLARED
 union YYSTYPE
 {
-#line 36 "parser.y"
+#line 69 "parser.y"
 
     	int ival;
     	float fval;
@@ -165,7 +169,7 @@ union YYSTYPE
     	char* sval;
     	char* place;
 
-#line 169 "y.tab.h"
+#line 173 "y.tab.h"
 
 };
 typedef union YYSTYPE YYSTYPE;

@@ -45,6 +45,8 @@ STRING_CONST \"([^\\\"]|\\.)*\"
 "&&"        { return AND; }
 "||"        { return OR; }
 "!"         { return NOT; }
+"&"         { return BITAND;}
+"|"         { return BITOR;}
 
 "+="        { return ADD_ASSIGN; }
 "-="        { return SUB_ASSIGN; }
