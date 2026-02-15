@@ -10,10 +10,10 @@ extern FILE *yyin;
 // Structure of IR code representation
 
 typedef struct {
-	char op[10];
-	char arg1[20];
-	char arg2[20];
-	char result[20];
+        char op[10];
+        char arg1[20];
+        char arg2[20];
+        char result[20];
 } Quad;
 
 // Initialising the array for storing the Quadraples
@@ -47,40 +47,44 @@ char* endStack[100];
 int topPtr = -1;
 
 void pushIfLabels(char* falseLabel, char* endLabel) {
-	topPtr++;
-	falseStack[topPtr] = falseLabel;
-	endStack[topPtr] = endLabel;
+        topPtr++;
+        falseStack[topPtr] = falseLabel;
+        endStack[topPtr] = endLabel;
 }
 
 char* topFalse() {
-	return falseStack[topPtr];
+        return falseStack[topPtr];
 }
 
 char* topEnd() {
-	return endStack[topPtr];
+        return endStack[topPtr];
 }
 
 void popIfLabels() {
-	topPtr--;
+        topPtr--;
 }
 
 %}
 
 %union {
-    	int ival;
-    	float fval;
-    	char cval;
-    	char* sval;
-    	char* place;
+        int ival;
+        float fval;
+        char cval;
+        char* sval;
+        char* place;
 }
-// carry the syntax based tokens and not value based tokens
+
 %token INT FP CHR STRING BOOL VOID
 %token IF ELIF ELSE FOR
 %token TRUE FALSE
 %token FEED SHOW
 %token RETURN
 %token SEQ1 SEQ2 FUNC
-// carry value based tokens
+
+
+%token ENTITY NEW PUBLIC PRIVATE THIS DOT
+
+
 %token <sval> IDENTIFIER
 %token <ival> INT_LITERAL
 %token <fval> FLOAT_LITERAL
@@ -120,6 +124,54 @@ program
 element
     : statement
     | function_decl
+    | entity_decl
+    | object_decl
+    ;
+
+entity_decl
+    : ENTITY IDENTIFIER LBRACE entity_body RBRACE
+    ;
+
+entity_body
+    : entity_body entity_member
+    |
+    ;
+
+entity_member
+    : constructor_decl
+    | method_decl
+    | access_var_decl
+    ;
+
+constructor_decl
+    : IDENTIFIER LPAREN param_list_opt RPAREN block
+    ;
+
+method_decl
+    : access_modifier type FUNC IDENTIFIER LPAREN param_list_opt RPAREN block   
+    ;
+
+access_var_decl
+    : access_modifier type IDENTIFIER SEMICOLON
+    ;
+
+access_modifier
+    : PUBLIC
+    | PRIVATE
+    ;
+
+object_decl
+    : IDENTIFIER IDENTIFIER ASSIGN NEW IDENTIFIER LPAREN arg_list_opt RPAREN SEMICOLON
+    ;
+
+arg_list_opt
+    : arg_list
+    |
+    ;
+
+arg_list
+    : arg_list COMMA expression
+    | expression
     ;
 
 statement
@@ -166,6 +218,7 @@ type
     | CHR
     | STRING
     | BOOL
+    | IDENTIFIER
     ;
 
 array_decl
@@ -239,13 +292,21 @@ assignment
 	}
 
     | IDENTIFIER SUB_ASSIGN assignment
-	{
+        {
                 char* temp = genVar();
                 emit("-", $1, $3, temp);
                 emit("=", temp, "", $1);
 		$$ = temp;
         }
     | indexed_id ASSIGN assignment
+    | THIS DOT IDENTIFIER ASSIGN assignment
+        {
+                emit("", $5, "", $3);  
+        }
+    | IDENTIFIER DOT IDENTIFIER ASSIGN assignment
+        {
+                emit("", $5, "", $3);
+        }
     | logic_expr
 	{
 		$$ = $1;
@@ -321,128 +382,128 @@ rel_expr
     ;
 
 arith_expr
-    : arith_expr PLUS term  
-	{
-		char* temp = genVar();
-		emit("+", $1, $3, temp);
-		$$ = temp;
-	}
+    : arith_expr PLUS term
+        {
+                char* temp = genVar();
+                emit("+", $1, $3, temp);
+                $$ = temp;
+        }
     | arith_expr MINUS term
-	{
-		char* temp = genVar();
-		emit("-", $1, $3, temp);
-		$$ = temp;
-	}
+        {
+                char* temp = genVar();
+                emit("-", $1, $3, temp);
+                $$ = temp;
+        }
     | term
-	{
-		$$ = $1;
-	}
+        {
+                $$ = $1;
+        }
     ;
 
 term
     : term MUL factor
-	{
-		char* temp = genVar();
-		emit("*", $1, $3, temp);
-		$$ = temp;
-	}
+        {
+                char* temp = genVar();
+                emit("*", $1, $3, temp);
+                $$ = temp;
+        }
     | term DIV factor
-	{
-		char* temp = genVar();
-		emit("/", $1, $3, temp);
-		$$ = temp;
-	}
+        {
+                char* temp = genVar();
+                emit("/", $1, $3, temp);
+                $$ = temp;
+        }
     | term MOD factor
-	{
-		char* temp = genVar();
-		emit("%", $1, $3, temp);
-		$$ = temp;
-	}
+        {
+                char* temp = genVar();
+                emit("%", $1, $3, temp);
+                $$ = temp;
+        }
     | factor
-	{
-		$$ = $1;
-	}
+        {
+                $$ = $1;
+        }
     ;
 
 factor
     : IDENTIFIER
-	{
-		$$ = strdup($1);
-	}
+        {
+                $$ = strdup($1);
+        }
     | indexed_id
     | INT_LITERAL
-	{
-		char buffer[20];
-		sprintf(buffer, "%d", $1);
-		$$ = strdup(buffer);
-	}	
+        {
+                char buffer[20];
+                sprintf(buffer, "%d", $1);
+                $$ = strdup(buffer);
+        }
     | FLOAT_LITERAL
-	{
-		char buffer[20];
-		sprintf(buffer, "%f", $1);
-		$$ = strdup(buffer);
-	}
+        {
+                char buffer[20];
+                sprintf(buffer, "%f", $1);
+                $$ = strdup(buffer);
+        }
     | CHAR_LITERAL
-	{
-		char buffer[20];
-		sprintf(buffer, "'%c'", $1);
-		$$ = strdup(buffer);
-	}
+        {
+                char buffer[20];
+                sprintf(buffer, "'%c'", $1);
+                $$ = strdup(buffer);
+        }
     | STRING_LITERAL
-	{
-		$$ = strdup($1);
-	}
+        {
+                $$ = strdup($1);
+        }
     |TRUE
-	{
+        {
                 char buffer[20];
                 sprintf(buffer, "%d", 1);
                 $$ = strdup(buffer);
         }
     | FALSE
-	{
+        {
                 char buffer[20];
                 sprintf(buffer, "%d", 0);
                 $$ = strdup(buffer);
-        }	
+        }
     | LPAREN expression RPAREN
-	{
-		$$ = $2;
-	}
+        {
+                $$ = $2;
+        }
     ;
 
 if_stmt
-    : IF LPAREN 
-	{
-		char* falseLabel = getLabel();
-		char* Lend = getLabel();
-		pushIfLabels(falseLabel, Lend);
-	}
-      expression 
-      RPAREN 
+    : IF LPAREN
+        {
+                char* falseLabel = getLabel();
+                char* Lend = getLabel();
+                pushIfLabels(falseLabel, Lend);
+        }
+      expression
+      RPAREN
       block
-	{
-		emit("goto", "", "", topEnd());
-		emit("label", "", "", topFalse());
-	}
+        {
+                emit("goto", "", "", topEnd());
+                emit("label", "", "", topFalse());
+        }
       elif_list
       else_opt
-	{
-		emit("label", "", "", topEnd());
-		popIfLabels();
-	}
+        {
+                emit("label", "", "", topEnd());
+                popIfLabels();
+        }
     ;
 
 elif_list
-    : ELIF LPAREN 
-	{
-		char* prevFalseLabel = topFalse();
-		char* nextFalseLabel = getLabel();
-		
-		emit("goto", "", "", topEnd());
-		emit("label", "", "", prevFalseLabel);
-		
-		falseStack[topPtr] = nextFalseLabel;
-	}
+    : ELIF LPAREN
+        {
+                char* prevFalseLabel = topFalse();
+                char* nextFalseLabel = getLabel();
+
+                emit("goto", "", "", topEnd());
+                emit("label", "", "", prevFalseLabel);
+
+                falseStack[topPtr] = nextFalseLabel;
+        }
       expression RPAREN
       block
       elif_list
@@ -450,10 +511,10 @@ elif_list
     ;
 
 else_opt
-    : ELSE 
-	{
-		emit("label", "", "", topFalse());
-	}
+    : ELSE
+        {
+                emit("label", "", "", topFalse());
+        }
       block
     |
     ;
@@ -513,15 +574,15 @@ io_stmt
 */
 
 char* genVar() {
-	char newVar[20];
-	sprintf(newVar, "t%d", tempVarCnt++);
-	return strdup(newVar);
+        char newVar[20];
+        sprintf(newVar, "t%d", tempVarCnt++);
+        return strdup(newVar);
 }
 
 char* getLabel() {
-	char newLabel[20];
-	sprintf(newLabel, "L%d", labelCnt++);
-	return strdup(newLabel);
+        char newLabel[20];
+        sprintf(newLabel, "L%d", labelCnt++);
+        return strdup(newLabel);
 }
 void emit_forinc(char* op, char* arg1, char* arg2, char* result){
 	strcpy(forIncBuff[forDepth][forIncIdx[forDepth]].op,op);
@@ -569,4 +630,3 @@ int main() {
 
     return 0;
 }
-
