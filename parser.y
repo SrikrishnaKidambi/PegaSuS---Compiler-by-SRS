@@ -481,12 +481,15 @@ if_stmt
                 pushIfLabels(falseLabel, Lend);
         }
       expression
+	{
+		emit("ifFalse",$4, "",topFalse());
+	}
       RPAREN
       block
-        {
-                emit("goto", "", "", topEnd());
-                emit("label", "", "", topFalse());
-        }
+	{
+		emit("goto", "", "", topEnd());
+		emit("label", "", "", topFalse());
+	}
       elif_list
       else_opt
         {
@@ -496,18 +499,24 @@ if_stmt
     ;
 
 elif_list
-    : ELIF LPAREN
-        {
-                char* prevFalseLabel = topFalse();
-                char* nextFalseLabel = getLabel();
-
-                emit("goto", "", "", topEnd());
-                emit("label", "", "", prevFalseLabel);
-
-                falseStack[topPtr] = nextFalseLabel;
-        }
-      expression RPAREN
+    : ELIF LPAREN 
+	{
+		char* prevFalseLabel = topFalse();
+		char* nextFalseLabel = getLabel();
+		
+		//emit("goto", "", "", topEnd());
+		//emit("label", "", "", prevFalseLabel);
+		falseStack[topPtr] = nextFalseLabel;
+	}
+      expression 
+	{
+		emit("ifFalse",$4,"",topFalse());
+	}
+      RPAREN
       block
+	{
+		emit("goto", "", "", topEnd());
+	}
       elif_list
     |
     ;
@@ -515,7 +524,7 @@ elif_list
 else_opt
     : ELSE
         {
-                emit("label", "", "", topFalse());
+     //           emit("label", "", "", topFalse());
         }
       block
     |
@@ -537,6 +546,45 @@ for_stmt
         expression
         {
                 emit("ifFalse",$6,"",topEnd());
+        }
+        SEMICOLON
+        {
+                forDepth++;
+                forIncIdx[forDepth] = 0;
+                inForIncrement[forDepth]=1;
+        }
+        expression
+        {
+                inForIncrement[forDepth]=0;
+        }
+        RPAREN block
+        {
+                for(int i=0;i<forIncIdx[forDepth];i++){
+                        strcpy(IR[IR_idx].op,forIncBuff[forDepth][i].op);
+                        strcpy(IR[IR_idx].arg1, forIncBuff[forDepth][i].arg1);
+                        strcpy(IR[IR_idx].arg2, forIncBuff[forDepth][i].arg2);
+                        strcpy(IR[IR_idx].result, forIncBuff[forDepth][i].result);
+                        IR_idx++;
+                }
+                forDepth--;
+                emit("goto","","",topFalse());
+                emit("label","","",topEnd());
+                popIfLabels();
+        }
+    | FOR LPAREN
+        type expression
+        {
+                char* Lbegin = getLabel();
+                char* Lend = getLabel();
+
+                pushIfLabels(Lbegin,Lend);
+
+                emit("label","","",Lbegin);
+        }
+        SEMICOLON
+        expression
+        {
+                emit("ifFalse",$7,"",topEnd());
         }
         SEMICOLON
         {
