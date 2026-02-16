@@ -148,7 +148,7 @@ constructor_decl
     ;
 
 method_decl
-    : access_modifier type FUNC IDENTIFIER LPAREN param_list_opt RPAREN block   
+    : access_modifier type FUNC IDENTIFIER LPAREN param_list_opt RPAREN block
     ;
 
 access_var_decl
@@ -162,6 +162,7 @@ access_modifier
 
 object_decl
     : IDENTIFIER IDENTIFIER ASSIGN NEW IDENTIFIER LPAREN arg_list_opt RPAREN SEMICOLON
+    | type IDENTIFIER ASSIGN IDENTIFIER DOT IDENTIFIER LPAREN arg_list RPAREN SEMICOLON
     ;
 
 arg_list_opt
@@ -182,6 +183,7 @@ statement
     | for_stmt
     | io_stmt
     | return_stmt
+    | object_decl
     | block
     ;
 
@@ -197,14 +199,14 @@ stmt_list
 
 var_decl
     : type id_list SEMICOLON
-	{
-		//no need to emit anything here and later stage add code for symbol table here
-	}
+        {
+                //no need to emit anything here and later stage add code for symbol table here
+        }
     | type IDENTIFIER ASSIGN expression SEMICOLON
-	{
-		//code for symbol table comes here
-		emit("=",$4,"",$2);
-	}
+        {
+                //code for symbol table comes here
+                emit("=",$4,"",$2);
+        }
     ;
 
 id_list
@@ -279,106 +281,106 @@ indexed_id
 
 assignment
     : IDENTIFIER ASSIGN assignment
-	{
-		emit("=", $3, "", $1);
-		$$ = strdup($1);
-	}
+        {
+                emit("=", $3, "", $1);
+                $$ = strdup($1);
+        }
     | IDENTIFIER ADD_ASSIGN assignment
-	{
-		char* temp = genVar();
-		emit("+", $1, $3, temp);
-		emit("=", temp, "", $1);
-		$$ = temp;
-	}
+        {
+                char* temp = genVar();
+                emit("+", $1, $3, temp);
+                emit("=", temp, "", $1);
+                $$ = temp;
+        }
 
     | IDENTIFIER SUB_ASSIGN assignment
         {
                 char* temp = genVar();
                 emit("-", $1, $3, temp);
                 emit("=", temp, "", $1);
-		$$ = temp;
+                $$ = temp;
         }
     | indexed_id ASSIGN assignment
     | THIS DOT IDENTIFIER ASSIGN assignment
         {
-                emit("", $5, "", $3);  
+                emit("", $5, "", $3);
         }
     | IDENTIFIER DOT IDENTIFIER ASSIGN assignment
         {
                 emit("", $5, "", $3);
         }
     | logic_expr
-	{
-		$$ = $1;
-	}
+        {
+                $$ = $1;
+        }
     ;
 
 logic_expr
     : logic_expr OR logic_expr
-	{
-		char* temp = genVar();
-		emit("||",$1,$3,temp); //temp = $1 || $2
-		$$ = temp;
-	}
+        {
+                char* temp = genVar();
+                emit("||",$1,$3,temp); //temp = $1 || $2
+                $$ = temp;
+        }
     | logic_expr AND logic_expr
-	{
+        {
                 char* temp = genVar();
                 emit("&&",$1,$3,temp); //temp = $1 && $2
                 $$ = temp;
         }
     | NOT logic_expr
-	{
+        {
                 char* temp = genVar();
                 emit("!",$2,"",temp); //temp = !$2
                 $$ = temp;
         }
     | bitwise_expr
-	{
-		$$ = $1;
-	}
+        {
+                $$ = $1;
+        }
     ;
 
 bitwise_expr
     : bitwise_expr BITAND bitwise_expr
-	{
-		char* temp = genVar();
-		emit("&", $1, $3 , temp); //temp = $1 & $3
-		$$ = temp;
-	}
+        {
+                char* temp = genVar();
+                emit("&", $1, $3 , temp); //temp = $1 & $3
+                $$ = temp;
+        }
     | bitwise_expr BITOR bitwise_expr
-	{
-		char* temp = genVar();
-		emit("|",$1,$3, temp);
-		$$ = temp;
-	}
+        {
+                char* temp = genVar();
+                emit("|",$1,$3, temp);
+                $$ = temp;
+        }
     | rel_expr
-	{
-		$$ = $1;
-	}
+        {
+                $$ = $1;
+        }
     ;
 rel_expr
     : arith_expr GT arith_expr
-	{
-		char* temp = genVar();
-		emit(">", $1, $3, temp); //temp = $1 > $3
-		$$ = temp;
-	}
+        {
+                char* temp = genVar();
+                emit(">", $1, $3, temp); //temp = $1 > $3
+                $$ = temp;
+        }
     | arith_expr LT arith_expr
-	{
-		char* temp = genVar();
-		emit("<",$1 , $3, temp); //temp = $1 < $3
-		$$ = temp;
-	}
+        {
+                char* temp = genVar();
+                emit("<",$1 , $3, temp); //temp = $1 < $3
+                $$ = temp;
+        }
     | arith_expr EQ arith_expr
-	{
-		char* temp = genVar();
-		emit("==",$1, $3, temp); //temp = $1 == $3
-		$$ = temp;
-	}
+        {
+                char* temp = genVar();
+                emit("==",$1, $3, temp); //temp = $1 == $3
+                $$ = temp;
+        }
     | arith_expr
-	{
-		$$ = $1;
-	}
+        {
+                $$ = $1;
+        }
     ;
 
 arith_expr
@@ -521,50 +523,52 @@ else_opt
 
 
 for_stmt
-    : FOR LPAREN 
-	expression 
-	{
-		char* Lbegin = getLabel();
-		char* Lend = getLabel();
-		
-		pushIfLabels(Lbegin,Lend);
-		
-		emit("label","","",Lbegin);
-	}		
-	SEMICOLON 
-	expression 
-	{
-		emit("ifFalse",$6,"",topEnd());
-	}
-	SEMICOLON 
-	{
-		forDepth++;
-		forIncIdx[forDepth] = 0;
-		inForIncrement[forDepth]=1;
-	}
-	expression
-	{
-		inForIncrement[forDepth]=0;
-	}
-	RPAREN block
-	{
-		for(int i=0;i<forIncIdx[forDepth];i++){
-			strcpy(IR[IR_idx].op,forIncBuff[forDepth][i].op);
-			strcpy(IR[IR_idx].arg1, forIncBuff[forDepth][i].arg1);
-                	strcpy(IR[IR_idx].arg2, forIncBuff[forDepth][i].arg2);
-                	strcpy(IR[IR_idx].result, forIncBuff[forDepth][i].result);
-                	IR_idx++;
-            	}
-            	forDepth--;
-		emit("goto","","",topFalse());
-		emit("label","","",topEnd());
-		popIfLabels();
-	}
+    : FOR LPAREN
+        expression
+        {
+                char* Lbegin = getLabel();
+                char* Lend = getLabel();
+
+                pushIfLabels(Lbegin,Lend);
+
+                emit("label","","",Lbegin);
+        }
+        SEMICOLON
+        expression
+        {
+                emit("ifFalse",$6,"",topEnd());
+        }
+        SEMICOLON
+        {
+                forDepth++;
+                forIncIdx[forDepth] = 0;
+                inForIncrement[forDepth]=1;
+        }
+        expression
+        {
+                inForIncrement[forDepth]=0;
+        }
+        RPAREN block
+        {
+                for(int i=0;i<forIncIdx[forDepth];i++){
+                        strcpy(IR[IR_idx].op,forIncBuff[forDepth][i].op);
+                        strcpy(IR[IR_idx].arg1, forIncBuff[forDepth][i].arg1);
+                        strcpy(IR[IR_idx].arg2, forIncBuff[forDepth][i].arg2);
+                        strcpy(IR[IR_idx].result, forIncBuff[forDepth][i].result);
+                        IR_idx++;
+                }
+                forDepth--;
+                emit("goto","","",topFalse());
+                emit("label","","",topEnd());
+                popIfLabels();
+        }
     ;
 
 io_stmt
     : IDENTIFIER ASSIGN FEED LPAREN STRING_LITERAL RPAREN SEMICOLON
+    | type IDENTIFIER ASSIGN FEED LPAREN STRING_LITERAL RPAREN SEMICOLON
     | SHOW LPAREN expression RPAREN SEMICOLON
+    | SHOW LPAREN expression LBRACKET expression RBRACKET RPAREN SEMICOLON
     ;
 
 %%
@@ -585,26 +589,26 @@ char* getLabel() {
         return strdup(newLabel);
 }
 void emit_forinc(char* op, char* arg1, char* arg2, char* result){
-	strcpy(forIncBuff[forDepth][forIncIdx[forDepth]].op,op);
-	strcpy(forIncBuff[forDepth][forIncIdx[forDepth]].arg1,arg1);
-	strcpy(forIncBuff[forDepth][forIncIdx[forDepth]].arg2, arg2);
-    	strcpy(forIncBuff[forDepth][forIncIdx[forDepth]].result, result);
-	forIncIdx[forDepth]++;
+        strcpy(forIncBuff[forDepth][forIncIdx[forDepth]].op,op);
+        strcpy(forIncBuff[forDepth][forIncIdx[forDepth]].arg1,arg1);
+        strcpy(forIncBuff[forDepth][forIncIdx[forDepth]].arg2, arg2);
+        strcpy(forIncBuff[forDepth][forIncIdx[forDepth]].result, result);
+        forIncIdx[forDepth]++;
 }
 
 void emit(char* op, char* arg1, char* arg2, char* result) {
-//	printf("EMIT called: %s %s %s %s  (flag=%d)\n",op,arg1,arg2,result,inForIncrement);	
-//	fflush(stdout);
-	if(forDepth >= 0 && inForIncrement[forDepth]){
-		emit_forinc(op,arg1,arg2,result);
-		return;
-	}
+//      printf("EMIT called: %s %s %s %s  (flag=%d)\n",op,arg1,arg2,result,inForIncrement);
+//      fflush(stdout);
+        if(forDepth >= 0 && inForIncrement[forDepth]){
+                emit_forinc(op,arg1,arg2,result);
+                return;
+        }
 
-	strcpy(IR[IR_idx].op, op);
-	strcpy(IR[IR_idx].arg1, arg1);
-	strcpy(IR[IR_idx].arg2, arg2);
-	strcpy(IR[IR_idx].result, result);
-	IR_idx++;
+        strcpy(IR[IR_idx].op, op);
+        strcpy(IR[IR_idx].arg1, arg1);
+        strcpy(IR[IR_idx].arg2, arg2);
+        strcpy(IR[IR_idx].result, result);
+        IR_idx++;
 }
 
 void yyerror(const char *s) {

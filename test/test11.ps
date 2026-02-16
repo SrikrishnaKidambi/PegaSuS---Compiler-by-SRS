@@ -1,0 +1,58 @@
+// Global variables
+int globalVar;
+fp pi = 3.14159;
+
+// Function definition
+int _func greater(int x,int y) {
+    if(x>y){
+	    return x;
+    }elif(x<y){
+	    return y;
+    }
+    else{
+	    show("equal numebrs");
+    }
+}
+
+// Entity definition
+Entity Calculator {
+    private int result;
+
+    Calculator() {
+        result = 0;
+    }
+
+    public int _func add(int a, int b) {
+        result = a + b;
+        return result;
+    }
+   }
+
+int _func main() {
+    int sum,i;
+
+    int x = feed("Enter first number: ");
+    int y = feed("Enter second number: ");
+
+    sum = x + y;
+    show("Sum is: ");
+    show(sum);
+
+    Calculator calc = new Calculator();
+    int result = calc.add(5,10);
+    
+    int 1seq numbers={1,2,3,4,5};
+    numbers[0]=1;
+    for(i=0;i<5;i+=1){
+	   show(numbers[i]);
+   } 
+
+    if (sum > 10) {
+        show("Large sum");
+    } elif (sum > 5) {
+        show("Medium sum");
+    } else {
+        show("Small sum");
+  
+    }
+    }
