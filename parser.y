@@ -479,11 +479,14 @@ if_stmt
                 pushIfLabels(falseLabel, Lend);
         }
       expression
+	{
+		emit("ifFalse",$4, "",topFalse());
+	}
       RPAREN
       block
 	{
 		emit("goto", "", "", topEnd());
-		// emit("label", "", "", topFalse());
+		emit("label", "", "", topFalse());
 	}
       elif_list
       else_opt
@@ -500,10 +503,14 @@ elif_list
 		char* nextFalseLabel = getLabel();
 		
 		//emit("goto", "", "", topEnd());
-		emit("label", "", "", prevFalseLabel);
+		//emit("label", "", "", prevFalseLabel);
 		falseStack[topPtr] = nextFalseLabel;
 	}
-      expression RPAREN
+      expression 
+	{
+		emit("ifFalse",$4,"",topFalse());
+	}
+      RPAREN
       block
 	{
 		emit("goto", "", "", topEnd());
