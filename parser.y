@@ -345,7 +345,7 @@ if_stmt
       block
 	{
 		emit("goto", "", "", topEnd());
-		emit("label", "", "", topFalse());
+		// emit("label", "", "", topFalse());
 	}
       elif_list
       else_opt
@@ -361,13 +361,15 @@ elif_list
 		char* prevFalseLabel = topFalse();
 		char* nextFalseLabel = getLabel();
 		
-		emit("goto", "", "", topEnd());
+		//emit("goto", "", "", topEnd());
 		emit("label", "", "", prevFalseLabel);
-		
 		falseStack[topPtr] = nextFalseLabel;
 	}
       expression RPAREN
       block
+	{
+		emit("goto", "", "", topEnd());
+	}
       elif_list
     |
     ;
