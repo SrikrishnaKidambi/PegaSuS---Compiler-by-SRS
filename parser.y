@@ -277,6 +277,32 @@ expression
 
 indexed_id
     : IDENTIFIER LBRACKET expression RBRACKET
+	{
+		char* t1 = genVar();
+		emit("*",$3,"type.width",t1);
+		
+		char* t2 = genVar();
+		emit("[]",$1,t1,t2);
+		
+		$$ = t2;
+	}
+    | IDENTIFIER LBRACKET expression RBRACKET LBRACKET expression RBRACKET
+	{
+		char* t1 = genVar();
+		emit("*",$3,"array.cols",t1);
+		
+		char* t2 = genVar();
+		emit("+",t1,$6,t2);
+
+		char* t3 = genVar();
+		emit("*",t2,"type.width",t3);
+		
+		char* t4 = genVar();
+		emit("[]",$1,t3,t4);
+
+		$$ = t4;
+	}
+		
     ;
 
 assignment
