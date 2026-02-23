@@ -100,6 +100,11 @@ statement
     | return_stmt
     | object_decl
     | block
+    | error SEMICOLON 
+	{
+		printf("Invalid statement at line %d\n", yylineno);
+		yyerrok;
+	}
     ;
 
 entity_decl
@@ -111,6 +116,14 @@ entity_decl
       {
         emit("end_entity",$2,"","");
       }
+    | ENTITY IDENTIFIER
+  	{ emit("entity",$2,"",""); }
+  	LBRACE error RBRACE
+  	{
+      	 printf("Invalid entity body at line %d\n", yylineno);
+     	 yyerrok;
+     	 emit("end_entity",$2,"","");
+  	}
     ;
 
 entity_body
@@ -133,6 +146,14 @@ constructor_decl
        {
         emit("end_constr",$1,"","");
        }
+    | IDENTIFIER
+ 	{ emit("constr", $1, "",""); }
+      LPAREN error RPAREN block
+  	{
+      	printf("Invalid constructor parameters at line %d\n", yylineno);
+      	yyerrok;
+      	emit("end_constr",$1,"","");
+  	}
     ;
 
 method_decl
@@ -190,6 +211,11 @@ arg_list
 block
     : LBRACE stmt_list RBRACE
     | LBRACE RBRACE
+    | LBRACE error RBRACE
+	{
+		printf("Error inside block at line %d\n", yylineno);
+		yyerrok;
+	}
     ;
 
 stmt_list
@@ -236,6 +262,23 @@ function_decl
         {
          emit("endfunc","","",""); 
         }
+    | func_type FUNC IDENTIFIER
+	{ emit("func",$3,"",""); }
+      LPAREN error RPAREN block
+	{
+		printf("Invalid parameter list at line %d\n",yylineno);
+		yyerrok;
+		emit("endfunc","","","");
+	}
+    | func_type FUNC IDENTIFIER
+	{
+		emit("func",$3,"","");}
+      LPAREN param_list_opt RPAREN error
+	{
+		printf("Invalid function body at line %d\n",yylineno);
+		yyerrok;
+		emit("endfunc","","","");
+	}
     ;
 
 func_type
