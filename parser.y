@@ -6,6 +6,7 @@
 int yylex();
 void yyerror(const char *s);
 extern FILE *yyin;
+extern int yylineno;
 
 typedef struct {
     char op[20];
