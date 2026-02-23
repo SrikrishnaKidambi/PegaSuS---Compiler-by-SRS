@@ -7,35 +7,22 @@ int yylex();
 void yyerror(const char *s);
 extern FILE *yyin;
 
-// Structure of IR code representation
-
 typedef struct {
-        char op[10];
-        char arg1[20];
-        char arg2[20];
-        char result[20];
+    char op[20];
+    char arg1[20];
+    char arg2[20];
+    char result[20];
 } Quad;
 
-// Initialising the array for storing the Quadraples
 Quad IR[10000];
-
-// Index that points to the quadraple indicating representing the IR code
 int IR_idx = 0;
-
-// Variable that holds the count of number of temporary variables generated
 int tempVarCnt = 0;
-
-// Defining the function for generating new temporary variable
-char* genVar();
-
-// Function for emitting the IR code in the form of Quadruples
-void emit(char* op, char* arg1, char* arg2, char* result);
-void emit_forinc(char* op,char* arg1, char* arg2, char* result);
-// Function for generating new labels
-char* getLabel();
-
-// variable that tracks the number of labels generated
 int labelCnt = 0;
+
+char* genVar();
+char* getLabel();
+void emit(char* op, char* arg1, char* arg2, char* result);
+void emit_forinc(char* op, char* arg1, char* arg2, char* result);
 
 int forDepth = -1;
 int inForIncrement[10];
@@ -47,64 +34,38 @@ char* endStack[100];
 int topPtr = -1;
 
 void pushIfLabels(char* falseLabel, char* endLabel) {
-        topPtr++;
-        falseStack[topPtr] = falseLabel;
-        endStack[topPtr] = endLabel;
+    topPtr++;
+    falseStack[topPtr] = strdup(falseLabel);
+    endStack[topPtr] = strdup(endLabel);
 }
 
-char* topFalse() {
-        return falseStack[topPtr];
-}
-
-char* topEnd() {
-        return endStack[topPtr];
-}
+char* topFalse() { return falseStack[topPtr]; }
+char* topEnd() { return endStack[topPtr]; }
 
 void popIfLabels() {
-        topPtr--;
+    free(falseStack[topPtr]);
+    free(endStack[topPtr]);
+    topPtr--;
 }
-
 %}
 
 %union {
-        int ival;
-        float fval;
-        char cval;
-        char* sval;
-        char* place;
+    int ival;
+    float fval;
+    char cval;
+    char* sval;
 }
 
 %token INT FP CHR STRING BOOL VOID
-%token IF ELIF ELSE FOR
-%token TRUE FALSE
-%token FEED SHOW
-%token RETURN
-%token SEQ1 SEQ2 FUNC
-
-
-%token ENTITY NEW PUBLIC PRIVATE THIS DOT
-
-
-%token <sval> IDENTIFIER
+%token IF ELIF ELSE FOR TRUE FALSE FEED SHOW RETURN
+%token SEQ1 SEQ2 FUNC ENTITY NEW PUBLIC PRIVATE THIS DOT
+%token LPAREN RPAREN LBRACE RBRACE LBRACKET RBRACKET SEMICOLON COMMA
+%token <sval> IDENTIFIER STRING_LITERAL
 %token <ival> INT_LITERAL
 %token <fval> FLOAT_LITERAL
 %token <cval> CHAR_LITERAL
-%token <sval> STRING_LITERAL
-//operators
-%token PLUS MINUS MUL DIV MOD
-%token GT LT EQ
-%token AND OR NOT
-%token BITAND BITOR
-%token ASSIGN ADD_ASSIGN SUB_ASSIGN
-//seperators and brackets
-%token SEMICOLON COMMA
-%token LPAREN RPAREN
-%token LBRACE RBRACE
-%token LBRACKET RBRACKET
-//precedence and associativity setting
 
-%type <sval> expression arith_expr term factor assignment indexed_id logic_expr rel_expr bitwise_expr
-
+%right ASSIGN ADD_ASSIGN SUB_ASSIGN
 %left OR
 %left AND
 %left BITOR
@@ -114,65 +75,19 @@ void popIfLabels() {
 %left MUL DIV MOD
 %right NOT
 
+%type <sval> expression arith_expr term factor assignment logic_expr rel_expr bitwise_expr indexed_id
+
 %%
 
 program
     : program element
-    |
+    | /* empty */
     ;
 
 element
     : statement
     | function_decl
     | entity_decl
-    | object_decl
-    ;
-
-entity_decl
-    : ENTITY IDENTIFIER LBRACE entity_body RBRACE
-    ;
-
-entity_body
-    : entity_body entity_member
-    |
-    ;
-
-entity_member
-    : constructor_decl
-    | method_decl
-    | access_var_decl
-    ;
-
-constructor_decl
-    : IDENTIFIER LPAREN param_list_opt RPAREN block
-    ;
-
-method_decl
-    : access_modifier type FUNC IDENTIFIER LPAREN param_list_opt RPAREN block
-    ;
-
-access_var_decl
-    : access_modifier type IDENTIFIER SEMICOLON
-    ;
-
-access_modifier
-    : PUBLIC
-    | PRIVATE
-    ;
-
-object_decl
-    : IDENTIFIER IDENTIFIER ASSIGN NEW IDENTIFIER LPAREN arg_list_opt RPAREN SEMICOLON
-    | type IDENTIFIER ASSIGN IDENTIFIER DOT IDENTIFIER LPAREN arg_list RPAREN SEMICOLON
-    ;
-
-arg_list_opt
-    : arg_list
-    |
-    ;
-
-arg_list
-    : arg_list COMMA expression
-    | expression
     ;
 
 statement
@@ -187,6 +102,91 @@ statement
     | block
     ;
 
+entity_decl
+    : ENTITY IDENTIFIER
+      {
+        emit("entity",$2,"","");
+      }
+      LBRACE entity_body RBRACE
+      {
+        emit("end_entity",$2,"","");
+      }
+    ;
+
+entity_body
+    : entity_body entity_member
+    | /* empty */
+    ;
+
+entity_member
+    : constructor_decl
+    | method_decl
+    | access_var_decl
+    ;
+
+constructor_decl
+    : IDENTIFIER
+      {
+       emit("constr",$1,"","");
+      }
+       LPAREN param_list_opt RPAREN block
+       {
+        emit("end_constr",$1,"","");
+       }
+    ;
+
+method_decl
+    : access_modifier type FUNC IDENTIFIER
+      {
+        emit("method",$4,"","");
+      }
+      LPAREN param_list_opt RPAREN block
+      {
+        emit("end_method",$4,"","");
+      }
+    ;
+
+access_var_decl
+    : access_modifier type IDENTIFIER SEMICOLON
+    ;
+
+access_modifier
+    : PUBLIC
+    | PRIVATE
+    ;
+
+object_decl
+    : IDENTIFIER IDENTIFIER ASSIGN NEW IDENTIFIER LPAREN arg_list_opt RPAREN SEMICOLON
+       {
+         emit("new",$5,"",$2);
+         emit("call_constr",$5,"",$2);
+       }
+    | type IDENTIFIER ASSIGN IDENTIFIER DOT IDENTIFIER LPAREN arg_list RPAREN SEMICOLON
+       {
+        char* t=genVar();
+        emit("push_ptr",$4,"","");
+        emit("call_method",$6,"",t);
+        emit("=",t,"",$2);
+       }
+    ;
+
+arg_list_opt
+    : arg_list
+    | /* empty */
+    ;
+
+arg_list
+    : arg_list COMMA expression
+      {
+       emit("arg",$3,"","");
+      }
+
+    | expression
+      {
+       emit("arg",$1,"","");
+      }
+    ;
+
 block
     : LBRACE stmt_list RBRACE
     | LBRACE RBRACE
@@ -199,14 +199,8 @@ stmt_list
 
 var_decl
     : type id_list SEMICOLON
-        {
-                //no need to emit anything here and later stage add code for symbol table here
-        }
     | type IDENTIFIER ASSIGN expression SEMICOLON
-        {
-                //code for symbol table comes here
-                emit("=",$4,"",$2);
-        }
+        { emit("=", $4, "", $2); }
     ;
 
 id_list
@@ -215,12 +209,7 @@ id_list
     ;
 
 type
-    : INT
-    | FP
-    | CHR
-    | STRING
-    | BOOL
-    | IDENTIFIER
+    : INT | FP | CHR | STRING | BOOL | IDENTIFIER
     ;
 
 array_decl
@@ -239,7 +228,14 @@ expr_list
     ;
 
 function_decl
-    : func_type FUNC IDENTIFIER LPAREN param_list_opt RPAREN block
+    : func_type FUNC IDENTIFIER
+       {
+         emit ("func",$3,"",""); 
+       }
+       LPAREN param_list_opt RPAREN block
+        {
+         emit("endfunc","","",""); 
+        }
     ;
 
 func_type
@@ -249,7 +245,7 @@ func_type
 
 param_list_opt
     : param_list
-    |
+    | /* empty */
     ;
 
 param_list
@@ -259,20 +255,29 @@ param_list
 
 param
     : type IDENTIFIER
+      {
+        emit("param",$2,"","");
+      }
     ;
 
 return_stmt
     : RETURN expression SEMICOLON
+      { 
+       emit("return",$2,"","");
+      }
     | RETURN SEMICOLON
+      {
+        emit("return","","","");
+      }
     ;
 
 expr_stmt
     : expression SEMICOLON
-    | SEMICOLON  // this is like do nothing statement
+    | SEMICOLON
     ;
 
 expression
-    : assignment
+    : assignment { $$ = $1; }
     ;
 
 indexed_id
@@ -307,404 +312,195 @@ indexed_id
 
 assignment
     : IDENTIFIER ASSIGN assignment
-        {
-                emit("=", $3, "", $1);
-                $$ = strdup($1);
-        }
+        { emit("=", $3, "", $1); $$ = strdup($1); }
     | IDENTIFIER ADD_ASSIGN assignment
-        {
-                char* temp = genVar();
-                emit("+", $1, $3, temp);
-                emit("=", temp, "", $1);
-                $$ = temp;
-        }
-
+        { char* t = genVar(); emit("+", $1, $3, t); emit("=", t, "", $1); $$ = t; }
     | IDENTIFIER SUB_ASSIGN assignment
-        {
-                char* temp = genVar();
-                emit("-", $1, $3, temp);
-                emit("=", temp, "", $1);
-                $$ = temp;
-        }
-    | indexed_id ASSIGN assignment
-    | THIS DOT IDENTIFIER ASSIGN assignment
-        {
-                emit("", $5, "", $3);
-        }
-    | IDENTIFIER DOT IDENTIFIER ASSIGN assignment
-        {
-                emit("", $5, "", $3);
-        }
-    | logic_expr
-        {
-                $$ = $1;
-        }
+        { char* t = genVar(); emit("-", $1, $3, t); emit("=", t, "", $1); $$ = t; }
+    | indexed_id ASSIGN assignment { $$ = $3; }
+    | THIS DOT IDENTIFIER ASSIGN assignment { emit("set_field", "this", $3, $5); $$ = $5; }
+    | IDENTIFIER DOT IDENTIFIER ASSIGN assignment { emit("set_field", $1, $3, $5); $$ = $5; }
+    | logic_expr { $$ = $1; }
     ;
 
 logic_expr
-    : logic_expr OR logic_expr
-        {
-                char* temp = genVar();
-                emit("||",$1,$3,temp); //temp = $1 || $2
-                $$ = temp;
-        }
-    | logic_expr AND logic_expr
-        {
-                char* temp = genVar();
-                emit("&&",$1,$3,temp); //temp = $1 && $2
-                $$ = temp;
-        }
-    | NOT logic_expr
-        {
-                char* temp = genVar();
-                emit("!",$2,"",temp); //temp = !$2
-                $$ = temp;
-        }
-    | bitwise_expr
-        {
-                $$ = $1;
-        }
+    : logic_expr OR logic_expr { char* t = genVar(); emit("||", $1, $3, t); $$ = t; }
+    | logic_expr AND logic_expr { char* t = genVar(); emit("&&", $1, $3, t); $$ = t; }
+    | NOT logic_expr { char* t = genVar(); emit("!", $2, "", t); $$ = t; }
+    | bitwise_expr { $$ = $1; }
     ;
 
 bitwise_expr
-    : bitwise_expr BITAND bitwise_expr
-        {
-                char* temp = genVar();
-                emit("&", $1, $3 , temp); //temp = $1 & $3
-                $$ = temp;
-        }
-    | bitwise_expr BITOR bitwise_expr
-        {
-                char* temp = genVar();
-                emit("|",$1,$3, temp);
-                $$ = temp;
-        }
-    | rel_expr
-        {
-                $$ = $1;
-        }
+    : bitwise_expr BITAND bitwise_expr { char* t = genVar(); emit("&", $1, $3, t); $$ = t; }
+    | bitwise_expr BITOR bitwise_expr { char* t = genVar(); emit("|", $1, $3, t); $$ = t; }
+    | rel_expr { $$ = $1; }
     ;
+
 rel_expr
-    : arith_expr GT arith_expr
-        {
-                char* temp = genVar();
-                emit(">", $1, $3, temp); //temp = $1 > $3
-                $$ = temp;
-        }
-    | arith_expr LT arith_expr
-        {
-                char* temp = genVar();
-                emit("<",$1 , $3, temp); //temp = $1 < $3
-                $$ = temp;
-        }
-    | arith_expr EQ arith_expr
-        {
-                char* temp = genVar();
-                emit("==",$1, $3, temp); //temp = $1 == $3
-                $$ = temp;
-        }
-    | arith_expr
-        {
-                $$ = $1;
-        }
+    : arith_expr GT arith_expr { char* t = genVar(); emit(">", $1, $3, t); $$ = t; }
+    | arith_expr LT arith_expr { char* t = genVar(); emit("<", $1, $3, t); $$ = t; }
+    | arith_expr EQ arith_expr { char* t = genVar(); emit("==", $1, $3, t); $$ = t; }
+    | arith_expr { $$ = $1; }
     ;
 
 arith_expr
-    : arith_expr PLUS term
-        {
-                char* temp = genVar();
-                emit("+", $1, $3, temp);
-                $$ = temp;
-        }
-    | arith_expr MINUS term
-        {
-                char* temp = genVar();
-                emit("-", $1, $3, temp);
-                $$ = temp;
-        }
-    | term
-        {
-                $$ = $1;
-        }
+    : arith_expr PLUS term { char* t = genVar(); emit("+", $1, $3, t); $$ = t; }
+    | arith_expr MINUS term { char* t = genVar(); emit("-", $1, $3, t); $$ = t; }
+    | term { $$ = $1; }
     ;
 
 term
-    : term MUL factor
-        {
-                char* temp = genVar();
-                emit("*", $1, $3, temp);
-                $$ = temp;
-        }
-    | term DIV factor
-        {
-                char* temp = genVar();
-                emit("/", $1, $3, temp);
-                $$ = temp;
-        }
-    | term MOD factor
-        {
-                char* temp = genVar();
-                emit("%", $1, $3, temp);
-                $$ = temp;
-        }
-    | factor
-        {
-                $$ = $1;
-        }
+    : term MUL factor { char* t = genVar(); emit("*", $1, $3, t); $$ = t; }
+    | term DIV factor { char* t = genVar(); emit("/", $1, $3, t); $$ = t; }
+    | term MOD factor { char* t = genVar(); emit("%", $1, $3, t); $$ = t; }
+    | factor { $$ = $1; }
     ;
 
 factor
-    : IDENTIFIER
-        {
-                $$ = strdup($1);
-        }
-    | indexed_id
-    | INT_LITERAL
-        {
-                char buffer[20];
-                sprintf(buffer, "%d", $1);
-                $$ = strdup(buffer);
-        }
-    | FLOAT_LITERAL
-        {
-                char buffer[20];
-                sprintf(buffer, "%f", $1);
-                $$ = strdup(buffer);
-        }
-    | CHAR_LITERAL
-        {
-                char buffer[20];
-                sprintf(buffer, "'%c'", $1);
-                $$ = strdup(buffer);
-        }
-    | STRING_LITERAL
-        {
-                $$ = strdup($1);
-        }
-    |TRUE
-        {
-                char buffer[20];
-                sprintf(buffer, "%d", 1);
-                $$ = strdup(buffer);
-        }
-    | FALSE
-        {
-                char buffer[20];
-                sprintf(buffer, "%d", 0);
-                $$ = strdup(buffer);
-        }
-    | LPAREN expression RPAREN
-        {
-                $$ = $2;
-        }
+    : IDENTIFIER LPAREN arg_list_opt RPAREN
+      {
+        char* t=genVar();
+        emit("call",$1,"",t);
+        $$=t;
+      } 
+    | IDENTIFIER { $$ = strdup($1); }
+    | indexed_id { $$ = $1; }
+    | INT_LITERAL { char b[20]; sprintf(b, "%d", $1); $$ = strdup(b); }
+    | FLOAT_LITERAL { char b[20]; sprintf(b, "%f", $1); $$ = strdup(b); }
+    | CHAR_LITERAL { char b[20]; sprintf(b, "'%c'", $1); $$ = strdup(b); }
+    | STRING_LITERAL { $$ = strdup($1); }
+    | TRUE { $$ = strdup("1"); }
+    | FALSE { $$ = strdup("0"); }
+    | LPAREN expression RPAREN { $$ = $2; }
     ;
 
 if_stmt
-    : IF LPAREN
-        {
-                char* falseLabel = getLabel();
-                char* Lend = getLabel();
-                pushIfLabels(falseLabel, Lend);
-        }
-      expression
-	{
-		emit("ifFalse",$4, "",topFalse());
-	}
-      RPAREN
-      block
-	{
-		emit("goto", "", "", topEnd());
-		emit("label", "", "", topFalse());
-	}
-      elif_list
-      else_opt
-        {
-                emit("label", "", "", topEnd());
-                popIfLabels();
-        }
+    : IF LPAREN 
+        { char* f = getLabel(); char* e = getLabel(); pushIfLabels(f, e); }
+      expression 
+        { emit("ifFalse", $4, "", topFalse()); }
+      RPAREN block
+        { emit("goto", "", "", topEnd()); emit("label", "", "", topFalse()); }
+      elif_list else_opt
+        { emit("label", "", "", topEnd()); popIfLabels(); }
     ;
 
 elif_list
     : ELIF LPAREN 
-	{
-		char* prevFalseLabel = topFalse();
-		char* nextFalseLabel = getLabel();
-		
-		//emit("goto", "", "", topEnd());
-		//emit("label", "", "", prevFalseLabel);
-		falseStack[topPtr] = nextFalseLabel;
-	}
+        { char* n = getLabel(); free(falseStack[topPtr]); falseStack[topPtr] = strdup(n); }
       expression 
-	{
-		emit("ifFalse",$4,"",topFalse());
-	}
-      RPAREN
-      block
-	{
-		emit("goto", "", "", topEnd());
-	}
+        { emit("ifFalse", $4, "", topFalse()); }
+      RPAREN block
+        { emit("goto", "", "", topEnd()); emit("label", "", "", topFalse()); }
       elif_list
-    |
+    | /* empty */
     ;
 
 else_opt
-    : ELSE
-        {
-     //           emit("label", "", "", topFalse());
-        }
-      block
-    |
+    : ELSE block
+    | /* empty */
     ;
 
-
 for_stmt
-    : FOR LPAREN
-        expression
+    : FOR LPAREN for_header block
         {
-                char* Lbegin = getLabel();
-                char* Lend = getLabel();
+            for(int i=0; i<forIncIdx[forDepth]; i++) {
+                emit(forIncBuff[forDepth][i].op, forIncBuff[forDepth][i].arg1, 
+                     forIncBuff[forDepth][i].arg2, forIncBuff[forDepth][i].result);
+            }
+            forDepth--;
+            emit("goto", "", "", topFalse());
+            emit("label", "", "", topEnd());
+            popIfLabels();
+        }
+    ;
 
-                pushIfLabels(Lbegin,Lend);
+for_header
+    : for_init SEMICOLON 
+        { char* b = getLabel(); char* e = getLabel(); pushIfLabels(b, e); emit("label", "", "", b); }
+      expression SEMICOLON
+        { emit("ifFalse", $4, "", topEnd()); forDepth++; forIncIdx[forDepth] = 0; inForIncrement[forDepth] = 1; }
+      expression
+        { inForIncrement[forDepth] = 0; }
+      RPAREN
+    ;
 
-                emit("label","","",Lbegin);
-        }
-        SEMICOLON
-        expression
-        {
-                emit("ifFalse",$6,"",topEnd());
-        }
-        SEMICOLON
-        {
-                forDepth++;
-                forIncIdx[forDepth] = 0;
-                inForIncrement[forDepth]=1;
-        }
-        expression
-        {
-                inForIncrement[forDepth]=0;
-        }
-        RPAREN block
-        {
-                for(int i=0;i<forIncIdx[forDepth];i++){
-                        strcpy(IR[IR_idx].op,forIncBuff[forDepth][i].op);
-                        strcpy(IR[IR_idx].arg1, forIncBuff[forDepth][i].arg1);
-                        strcpy(IR[IR_idx].arg2, forIncBuff[forDepth][i].arg2);
-                        strcpy(IR[IR_idx].result, forIncBuff[forDepth][i].result);
-                        IR_idx++;
-                }
-                forDepth--;
-                emit("goto","","",topFalse());
-                emit("label","","",topEnd());
-                popIfLabels();
-        }
-    | FOR LPAREN
-        type expression
-        {
-                char* Lbegin = getLabel();
-                char* Lend = getLabel();
+for_init
+    : var_decl_no_semi
+    | expression
+    | /* empty */
+    ;
 
-                pushIfLabels(Lbegin,Lend);
-
-                emit("label","","",Lbegin);
-        }
-        SEMICOLON
-        expression
-        {
-                emit("ifFalse",$7,"",topEnd());
-        }
-        SEMICOLON
-        {
-                forDepth++;
-                forIncIdx[forDepth] = 0;
-                inForIncrement[forDepth]=1;
-        }
-        expression
-        {
-                inForIncrement[forDepth]=0;
-        }
-        RPAREN block
-        {
-                for(int i=0;i<forIncIdx[forDepth];i++){
-                        strcpy(IR[IR_idx].op,forIncBuff[forDepth][i].op);
-                        strcpy(IR[IR_idx].arg1, forIncBuff[forDepth][i].arg1);
-                        strcpy(IR[IR_idx].arg2, forIncBuff[forDepth][i].arg2);
-                        strcpy(IR[IR_idx].result, forIncBuff[forDepth][i].result);
-                        IR_idx++;
-                }
-                forDepth--;
-                emit("goto","","",topFalse());
-                emit("label","","",topEnd());
-                popIfLabels();
-        }
+var_decl_no_semi
+    : type IDENTIFIER
+    | type IDENTIFIER ASSIGN expression { emit("=", $4, "", $2); }
     ;
 
 io_stmt
     : IDENTIFIER ASSIGN FEED LPAREN STRING_LITERAL RPAREN SEMICOLON
+      {
+        emit("in","","",$1);
+      }
     | type IDENTIFIER ASSIGN FEED LPAREN STRING_LITERAL RPAREN SEMICOLON
+      {
+        emit("in","","",$2);
+      }
     | SHOW LPAREN expression RPAREN SEMICOLON
+      {
+       emit("out",$3,"","");
+      }
     | SHOW LPAREN expression LBRACKET expression RBRACKET RPAREN SEMICOLON
+     {
+       char* t=genVar();
+       emit("[]",$3,$5,t);
+       emit("out",t,"","");
+     }
     ;
 
 %%
 
-/* Implementing the helper functions "genVar" and "emit" for
-   generating IR code in the form of Quadruples
-*/
-
 char* genVar() {
-        char newVar[20];
-        sprintf(newVar, "t%d", tempVarCnt++);
-        return strdup(newVar);
+    char newVar[20];
+    sprintf(newVar, "t%d", tempVarCnt++);
+    return strdup(newVar);
 }
 
 char* getLabel() {
-        char newLabel[20];
-        sprintf(newLabel, "L%d", labelCnt++);
-        return strdup(newLabel);
+    char newLabel[20];
+    sprintf(newLabel, "L%d", labelCnt++);
+    return strdup(newLabel);
 }
-void emit_forinc(char* op, char* arg1, char* arg2, char* result){
-        strcpy(forIncBuff[forDepth][forIncIdx[forDepth]].op,op);
-        strcpy(forIncBuff[forDepth][forIncIdx[forDepth]].arg1,arg1);
-        strcpy(forIncBuff[forDepth][forIncIdx[forDepth]].arg2, arg2);
-        strcpy(forIncBuff[forDepth][forIncIdx[forDepth]].result, result);
-        forIncIdx[forDepth]++;
+
+void emit_forinc(char* op, char* arg1, char* arg2, char* result) {
+    strcpy(forIncBuff[forDepth][forIncIdx[forDepth]].op, op);
+    strcpy(forIncBuff[forDepth][forIncIdx[forDepth]].arg1, arg1);
+    strcpy(forIncBuff[forDepth][forIncIdx[forDepth]].arg2, arg2);
+    strcpy(forIncBuff[forDepth][forIncIdx[forDepth]].result, result);
+    forIncIdx[forDepth]++;
 }
 
 void emit(char* op, char* arg1, char* arg2, char* result) {
-//      printf("EMIT called: %s %s %s %s  (flag=%d)\n",op,arg1,arg2,result,inForIncrement);
-//      fflush(stdout);
-        if(forDepth >= 0 && inForIncrement[forDepth]){
-                emit_forinc(op,arg1,arg2,result);
-                return;
-        }
+    if(forDepth >= 0 && inForIncrement[forDepth]){
+        emit_forinc(op, arg1, arg2, result);
+        return;
+      }
+     memset(&IR[IR_idx], 0, sizeof(Quad));  
 
-        strcpy(IR[IR_idx].op, op);
-        strcpy(IR[IR_idx].arg1, arg1);
-        strcpy(IR[IR_idx].arg2, arg2);
-        strcpy(IR[IR_idx].result, result);
-        IR_idx++;
+    strcpy(IR[IR_idx].op, op ? op : "");
+    strcpy(IR[IR_idx].arg1, arg1);
+    strcpy(IR[IR_idx].arg2, arg2);
+    strcpy(IR[IR_idx].result, result);
+    IR_idx++;
 }
 
-void yyerror(const char *s) {
-    fprintf(stderr, "Syntax Error: %s\n", s);
-}
+void yyerror(const char *s) { fprintf(stderr, "Syntax Error: %s\n", s); }
 
 int main() {
     yyin = stdin;
     yyparse();
-    //inForIncrement=0;
-    printf("Parsing Successful\n");
-    printf("Generated quadruple table:\n");
-
-    printf("%-10s %-10s %-10s %-10s\n", "OP", "ARG1", "ARG2", "RESULT");
- //   printf("%d",IR_idx);
-    for(int i = 0; i < IR_idx; i++){
-        printf("%-10s %-10s %-10s %-10s\n",
-               IR[i].op,
-               IR[i].arg1,
-               IR[i].arg2,
-               IR[i].result);
-    }
-
+    printf("Parsing Successful\nGenerated quadruple table:\n");
+    printf("%-15s %-15s %-15s %-15s\n", "OP", "ARG1", "ARG2", "RESULT");
+    for(int i = 0; i < IR_idx; i++)
+        printf("%-15s %-15s %-15s %-15s\n", IR[i].op, IR[i].arg1, IR[i].arg2, IR[i].result);
     return 0;
 }
