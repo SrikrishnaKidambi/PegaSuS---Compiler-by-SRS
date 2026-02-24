@@ -1,8 +1,9 @@
 // symtab.c
 #include "symtab.h"
 
-SymTable* global_scope  = NULL;
-SymTable* current_scope = NULL;
+SymTable* global_scope       = NULL;
+SymTable* current_scope      = NULL;
+DataType  current_decl_type  = DT_UNKNOWN;
 
 // ── djb2 hash ────────────────────────────
 static unsigned int hash_fn(const char* s) {
@@ -20,7 +21,7 @@ int datatype_size(DataType dt) {
         case DT_STRING: return 8;
         case DT_BOOL:   return 1;
         case DT_VOID:   return 0;
-        case DT_ENTITY: return 8;  // pointer to object
+        case DT_ENTITY: return 8;
         default:        return 0;
     }
 }
@@ -42,8 +43,9 @@ void add_param(ParamNode** list, int* count, const char* name, DataType dt) {
     strncpy(p->name, name, 63);
     p->datatype = dt;
     p->next     = NULL;
-    if (!*list) { *list = p; }
-    else {
+    if (!*list) {
+        *list = p;
+    } else {
         ParamNode* cur = *list;
         while (cur->next) cur = cur->next;
         cur->next = p;
@@ -56,8 +58,9 @@ void add_name(NameNode** list, const char* name) {
     NameNode* n = calloc(1, sizeof(NameNode));
     strncpy(n->name, name, 63);
     n->next = NULL;
-    if (!*list) { *list = n; }
-    else {
+    if (!*list) {
+        *list = n;
+    } else {
         NameNode* cur = *list;
         while (cur->next) cur = cur->next;
         cur->next = n;
@@ -73,15 +76,15 @@ Symbol* insert_symbol(SymTable* tbl, const char* name,
             line, name, tbl->name);
         return NULL;
     }
-    Symbol* sym     = calloc(1, sizeof(Symbol));
+    Symbol* sym      = calloc(1, sizeof(Symbol));
     strncpy(sym->name, name, 63);
     sym->kind        = kind;
     sym->datatype    = dt;
     sym->scope_level = tbl->level;
     sym->size        = datatype_size(dt);
     sym->offset      = tbl->next_offset;
+    sym->is_initialized = 0;
 
-    // only advance offset for memory-holding symbols
     if (kind == KIND_VAR   || kind == KIND_PARAM ||
         kind == KIND_ARRAY || kind == KIND_FIELD)
         tbl->next_offset += sym->size;
@@ -116,38 +119,56 @@ Symbol* lookup(SymTable* tbl, const char* name) {
 
 static const char* kind_names[] = {
     "VAR","ARRAY","FUNCTION","METHOD",
-    "FIELD","ENTITY","CONSTRUCTOR","PARAM"
+    "FIELD","ENTITY","CONSTRUCTOR","PARAM",
+    "FOR","IF","ELIF","ELSE"
 };
+
 static const char* dt_names[] = {
     "int","float","char","string","bool",
     "void","entity","unknown"
 };
+
 static const char* acc_names[] = { "---", "public", "private" };
+
+static const char* scope_kind_name(ScopeKind k) {
+    switch(k) {
+        case SCOPE_GLOBAL:      return "GLOBAL";
+        case SCOPE_FUNCTION:    return "FUNCTION";
+        case SCOPE_METHOD:      return "METHOD";
+        case SCOPE_CONSTRUCTOR: return "CONSTRUCTOR";
+        case SCOPE_ENTITY:      return "ENTITY";
+        case SCOPE_BLOCK:       return "BLOCK";
+        case SCOPE_FOR:         return "FOR";
+        case SCOPE_IF:          return "IF";
+        case SCOPE_ELIF:        return "ELIF";
+        case SCOPE_ELSE:        return "ELSE";
+        default:                return "UNKNOWN";
+    }
+}
 
 void print_table(SymTable* tbl) {
     printf("\n");
-    printf("┌─────────────────────────────────────────────────────────────────────┐\n");
-    printf("│  SCOPE: %-20s  kind=%-12s  level=%d            │\n",
+    printf("+-----------------------------------------------------------------+\n");
+    printf("|  SCOPE: %-15s  kind=%-12s  level=%-2d            |\n",
            tbl->name,
-           tbl->kind == SCOPE_GLOBAL       ? "GLOBAL"      :
-           tbl->kind == SCOPE_FUNCTION     ? "FUNCTION"    :
-           tbl->kind == SCOPE_METHOD       ? "METHOD"      :
-           tbl->kind == SCOPE_CONSTRUCTOR  ? "CONSTRUCTOR" :
-           tbl->kind == SCOPE_ENTITY       ? "ENTITY"      : "BLOCK",
+           scope_kind_name(tbl->kind),
            tbl->level);
-    printf("├──────────────┬─────────────┬─────────┬───────┬──────┬──────────────┤\n");
-    printf("│ %-12s │ %-11s │ %-7s │ %-5s │ %-4s │ %-12s │\n",
+    printf("+--------------+-------------+---------+-------+------+----------+\n");
+    printf("| %-12s | %-11s | %-7s | %-5s | %-4s | %-8s |\n",
            "NAME", "KIND", "DTYPE", "SIZE", "OFF", "EXTRA");
-    printf("├──────────────┼─────────────┼─────────┼───────┼──────┼──────────────┤\n");
+    printf("+--------------+-------------+---------+-------+------+----------+\n");
 
-    // collect all symbols from buckets into array for ordered print
-    Symbol* all[1000]; int cnt = 0;
+    /* collect all symbols */
+    Symbol* all[1000];
+    int cnt = 0;
     for (int b = 0; b < HASH_SIZE; b++)
         for (Symbol* s = tbl->buckets[b]; s; s = s->next)
             all[cnt++] = s;
 
     if (cnt == 0) {
-        printf("│  (empty)                                                            │\n");
+        printf("|  (empty)                                                        |\n");
+        printf("+--------------+-------------+---------+-------+------+----------+\n");
+        return;
     }
 
     for (int i = 0; i < cnt; i++) {
@@ -156,69 +177,109 @@ void print_table(SymTable* tbl) {
 
         switch (s->kind) {
             case KIND_FUNCTION: {
-                char params[64] = "";
+                char params[256] = "";
                 for (ParamNode* p = s->attr.func.param_list; p; p = p->next) {
-                    strcat(params, dt_names[p->datatype]);
-                    if (p->next) strcat(params, ",");
+                    char tmp[80];
+                    snprintf(tmp, sizeof(tmp), "%s:%s",
+                             p->name, dt_names[p->datatype]);
+                    if (params[0]) strncat(params, ",", sizeof(params)-strlen(params)-1);
+                    strncat(params, tmp, sizeof(params)-strlen(params)-1);
                 }
-                snprintf(extra, 128, "ret=%-4s params=[%s]",
-                         dt_names[s->attr.func.return_type], params);
+                snprintf(extra, 512, "ret=%s p=[%s] lbl=%s",
+                         dt_names[s->attr.func.return_type],
+                         params,
+                         s->attr.func.entry_label);
                 break;
             }
             case KIND_METHOD: {
-                char params[64] = "";
+                char params[256] = "";
                 for (ParamNode* p = s->attr.method.param_list; p; p = p->next) {
-                    strcat(params, dt_names[p->datatype]);
-                    if (p->next) strcat(params, ",");
+                    char tmp[80];
+                    snprintf(tmp, sizeof(tmp), "%s:%s",
+                             p->name, dt_names[p->datatype]);
+                    if (params[0]) strncat(params, ",", sizeof(params)-strlen(params)-1);
+                    strncat(params, tmp, sizeof(params)-strlen(params)-1);
                 }
-                snprintf(extra, 128, "%s cls=%s ret=%s",
+                snprintf(extra, 512, "%s cls=%s ret=%s p=[%s]",
                          acc_names[s->attr.method.access],
                          s->attr.method.belongs_to,
-                         dt_names[s->attr.method.return_type]);
+                         dt_names[s->attr.method.return_type],
+                         params);
                 break;
             }
             case KIND_FIELD:
-                snprintf(extra, 128, "%s  cls=%s",
+                snprintf(extra, 512, "%s cls=%s",
                          acc_names[s->attr.field.access],
                          s->attr.field.belongs_to);
                 break;
             case KIND_ARRAY:
-                snprintf(extra, 128, "dims=%d [%d][%d] init=%d",
+                snprintf(extra, 512, "dims=%d [%d][%d] init=%d",
                          s->attr.array.dimensions,
-                         s->attr.array.dim1, s->attr.array.dim2,
+                         s->attr.array.dim1,
+                         s->attr.array.dim2,
                          s->attr.array.is_initialized);
                 break;
             case KIND_ENTITY: {
                 char fl[256]="", ml[256]="", cl[256]="";
-                for (NameNode* n=s->attr.entity.fields_list; n; n=n->next) {
-                    strcat(fl,n->name); if(n->next) strcat(fl,",");
+                for (NameNode* n = s->attr.entity.fields_list; n; n = n->next) {
+                    if (fl[0]) strncat(fl, ",", sizeof(fl)-strlen(fl)-1);
+                    strncat(fl, n->name, sizeof(fl)-strlen(fl)-1);
                 }
-                for (NameNode* n=s->attr.entity.methods_list; n; n=n->next) {
-                    strcat(ml,n->name); if(n->next) strcat(ml,",");
+                for (NameNode* n = s->attr.entity.methods_list; n; n = n->next) {
+                    if (ml[0]) strncat(ml, ",", sizeof(ml)-strlen(ml)-1);
+                    strncat(ml, n->name, sizeof(ml)-strlen(ml)-1);
                 }
-                for (NameNode* n=s->attr.entity.constructors_list; n; n=n->next) {
-                    strcat(cl,n->name); if(n->next) strcat(cl,",");
+                for (NameNode* n = s->attr.entity.constructors_list; n; n = n->next) {
+                    if (cl[0]) strncat(cl, ",", sizeof(cl)-strlen(cl)-1);
+                    strncat(cl, n->name, sizeof(cl)-strlen(cl)-1);
                 }
                 snprintf(extra, 512, "sz=%d F:[%s] M:[%s] C:[%s]",
                          s->attr.entity.class_size, fl, ml, cl);
                 break;
             }
             case KIND_CONSTRUCTOR:
-                snprintf(extra, 128, "cls=%s params=%d",
+                snprintf(extra, 512, "cls=%s params=%d lbl=%s",
                          s->attr.ctor.belongs_to,
-                         s->attr.ctor.param_count);
+                         s->attr.ctor.param_count,
+                         s->attr.ctor.entry_label);
                 break;
             case KIND_PARAM:
-                snprintf(extra, 128, "idx=%d", s->offset / (s->size ? s->size : 1));
+                snprintf(extra, 512, "init=%d", s->is_initialized);
                 break;
-            default: break;
+            case KIND_VAR:
+                snprintf(extra, 512, "init=%d", s->is_initialized);
+                break;
+            case KIND_FOR:
+                snprintf(extra, 512, "start=%s end=%s",
+                         s->attr.forstmt.start_label,
+                         s->attr.forstmt.end_label);
+                break;
+            case KIND_IF:
+            case KIND_ELIF:
+                snprintf(extra, 512, "false=%s end=%s",
+                         s->attr.ifstmt.false_label,
+                         s->attr.ifstmt.end_label);
+                break;
+            default:
+                break;
         }
 
-        printf("│ %-12s │ %-11s │ %-7s │ %-5d │ %-4d │ %-12s │\n",
+        /* truncate extra for display */
+        char extra_short[32];
+        snprintf(extra_short, 32, "%.30s", extra);
+
+        printf("| %-12s | %-11s | %-7s | %-5d | %-4d | %-8s |\n",
                s->name,
                kind_names[s->kind],
                dt_names[s->datatype],
-               s->size, s->offset, extra);
+               s->size,
+               s->offset,
+               extra_short);
+
+        /* print full extra on next line if it's long */
+        if (strlen(extra) > 30) {
+            printf("|   >> %-59s|\n", extra);
+        }
     }
-    printf("└──────────────┴─────────────┴─────────┴───────┴──────┴──────────────┘\n");
+    printf("+--------------+-------------+---------+-------+------+----------+\n");
 }

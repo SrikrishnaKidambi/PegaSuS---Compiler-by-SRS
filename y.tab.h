@@ -173,14 +173,14 @@ extern int yydebug;
 #if ! defined YYSTYPE && ! defined YYSTYPE_IS_DECLARED
 union YYSTYPE
 {
-#line 54 "parser.y"
+#line 76 "parser.y"
 
-    int        ival;
-    float      fval;
-    char       cval;
-    char*      sval;
-    DataType   dtype;   
-    AccessMod  access;  
+    int       ival;
+    float     fval;
+    char      cval;
+    char*     sval;
+    DataType  dtype;
+    AccessMod access;
 
 #line 186 "y.tab.h"
 
