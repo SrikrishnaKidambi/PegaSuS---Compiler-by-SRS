@@ -6,6 +6,8 @@
 int yylex();
 void yyerror(const char *s);
 extern FILE *yyin;
+extern int yylineno;
+extern char* yytext;
 
 typedef struct {
     char op[20];
@@ -165,6 +167,15 @@ method_decl
       {
         emit("end_method",$4,"","");
       }
+      |
+	access_modifier type FUNC IDENTIFIER
+	{ emit("method", $4, "", ""); }
+	LPAREN error RPAREN block
+	{
+		printf("Invalid method parameters at line %d\n", yylineno);
+		yyerrok;
+		emit("end_method", $4, "","");
+	}
     ;
 
 access_var_decl
@@ -189,6 +200,11 @@ object_decl
         emit("call_method",$6,"",t);
         emit("=",t,"",$2);
        }
+/*    | error SEMICOLON
+	{
+		printf("Invalid object declaration at line %d\n", yylineno);
+		yyerrok;
+	}*/
     ;
 
 arg_list_opt
@@ -235,7 +251,7 @@ id_list
     ;
 
 type
-    : INT | FP | CHR | STRING | BOOL | IDENTIFIER
+    : INT | FP | CHR | STRING | BOOL
     ;
 
 array_decl
@@ -270,7 +286,7 @@ function_decl
 		yyerrok;
 		emit("endfunc","","","");
 	}
-    | func_type FUNC IDENTIFIER
+/*    | func_type FUNC IDENTIFIER
 	{
 		emit("func",$3,"","");}
       LPAREN param_list_opt RPAREN error
@@ -278,7 +294,7 @@ function_decl
 		printf("Invalid function body at line %d\n",yylineno);
 		yyerrok;
 		emit("endfunc","","","");
-	}
+	} */
     ;
 
 func_type
@@ -312,6 +328,11 @@ return_stmt
       {
         emit("return","","","");
       }
+    | RETURN error SEMICOLON
+	{
+		printf("Invalid Return statement at line %d\n");
+		yyerrok;
+	}
     ;
 
 expr_stmt
@@ -426,6 +447,11 @@ if_stmt
         { emit("goto", "", "", topEnd()); emit("label", "", "", topFalse()); }
       elif_list else_opt
         { emit("label", "", "", topEnd()); popIfLabels(); }
+	| IF LPAREN error RPAREN block
+	{
+		printf("Invalid IF condition at line %d\n", yylineno);
+		yyerrok;
+	}
     ;
 
 elif_list
@@ -456,6 +482,11 @@ for_stmt
             emit("label", "", "", topEnd());
             popIfLabels();
         }
+	| FOR LPAREN error RPAREN block
+	{
+		printf("Invalid FOR header at line %d\n", yylineno);
+		yyerrok;
+	}
     ;
 
 for_header
@@ -536,7 +567,10 @@ void emit(char* op, char* arg1, char* arg2, char* result) {
     IR_idx++;
 }
 
-void yyerror(const char *s) { fprintf(stderr, "Syntax Error: %s\n", s); }
+void yyerror(const char *s) {
+	//errorCount++;
+	fprintf(stderr, "\nSyntax Error at line %d near '%s'\n", yylineno, yytext);
+}
 
 int main() {
     yyin = stdin;

@@ -1,3 +1,4 @@
+%option yylineno
 %{
 #include <stdio.h>
 #include <stdlib.h>
@@ -74,7 +75,7 @@ STRING_CONST \"([^\\\"]|\\.)*\"
 
 [ \t\r\n]+      ;
 "//".*          ;
-.               { printf("Lexical Error: %s\n", yytext); }
+.               { fprintf(stderr, "Lexical Error at line %d: '%s'\n", yylineno, yytext); }
 
 %%
 int yywrap() { 
