@@ -1,5 +1,5 @@
-pegasus: y.tab.c lex.yy.c
-	gcc lex.yy.c y.tab.c -o pegasus -ll
+pegasus: y.tab.c lex.yy.c symtab.c
+	gcc lex.yy.c y.tab.c symtab.c -o pegasus -ll
 
 y.tab.c: parser.y
 	yacc -d parser.y

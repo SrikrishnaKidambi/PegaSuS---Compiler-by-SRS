@@ -1,4 +1,5 @@
 %{
+#include "symtab.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -51,10 +52,12 @@ void popIfLabels() {
 %}
 
 %union {
-    int ival;
-    float fval;
-    char cval;
-    char* sval;
+    int        ival;
+    float      fval;
+    char       cval;
+    char*      sval;
+    DataType   dtype;   
+    AccessMod  access;  
 }
 
 %token INT FP CHR STRING BOOL VOID
@@ -65,6 +68,8 @@ void popIfLabels() {
 %token <ival> INT_LITERAL
 %token <fval> FLOAT_LITERAL
 %token <cval> CHAR_LITERAL
+%type <dtype>  type func_type
+%type <access> access_modifier
 
 %right ASSIGN ADD_ASSIGN SUB_ASSIGN
 %left OR
@@ -105,13 +110,36 @@ statement
 
 entity_decl
     : ENTITY IDENTIFIER
-      {
-        emit("entity",$2,"","");
-      }
+        {
+            // 1. Insert entity into global scope
+            Symbol* sym = insert_symbol(current_scope, $2,
+                                        KIND_ENTITY, DT_ENTITY, yylineno);
+            if (sym) {
+                strncpy(sym->attr.entity.class_name, $2, 63);
+                sym->attr.entity.fields_list       = NULL;
+                sym->attr.entity.methods_list      = NULL;
+                sym->attr.entity.constructors_list = NULL;
+                sym->attr.entity.class_size        = 0;
+                sym->attr.entity.parent_class[0]   = '\0';
+            }
+            emit("entity", $2, "", "");
+
+            // 2. Open class scope
+            SymTable* es = create_scope(SCOPE_ENTITY, $2, current_scope);
+            current_scope = es;
+        }
       LBRACE entity_body RBRACE
-      {
-        emit("end_entity",$2,"","");
-      }
+        {
+            // 3. Record class_size = total offset used for fields
+            Symbol* sym = lookup(current_scope->parent,
+                                 current_scope->name);
+            if (sym && sym->kind == KIND_ENTITY)
+                sym->attr.entity.class_size = current_scope->next_offset;
+
+            print_table(current_scope);
+            current_scope = current_scope->parent;
+            emit("end_entity", $2, "", "");
+        }
     ;
 
 entity_body
@@ -127,33 +155,90 @@ entity_member
 
 constructor_decl
     : IDENTIFIER
-      {
-       emit("constr",$1,"","");
-      }
-       LPAREN param_list_opt RPAREN block
-       {
-        emit("end_constr",$1,"","");
-       }
+        {
+            Symbol* sym = insert_symbol(current_scope, $1,
+                                        KIND_CONSTRUCTOR, DT_VOID, yylineno);
+            if (sym) {
+                strncpy(sym->attr.ctor.belongs_to,
+                        current_scope->name, 63);
+                sym->attr.ctor.param_count = 0;
+                sym->attr.ctor.param_list  = NULL;
+                snprintf(sym->attr.ctor.entry_label, 32,
+                         "ctor_%s", $1);
+            }
+            // Add to entity's constructors_list
+            Symbol* entity_sym = lookup(current_scope->parent,
+                                        current_scope->name);
+            if (entity_sym && entity_sym->kind == KIND_ENTITY)
+                add_name(&entity_sym->attr.entity.constructors_list, $1);
+
+            emit("constr", $1, "", "");
+            SymTable* cs = create_scope(SCOPE_CONSTRUCTOR, $1,
+                                        current_scope);
+            current_scope = cs;
+        }
+      LPAREN param_list_opt RPAREN block
+        {
+            print_table(current_scope);
+            current_scope = current_scope->parent;
+            emit("end_constr", $1, "", "");
+        }
     ;
 
 method_decl
     : access_modifier type FUNC IDENTIFIER
-      {
-        emit("method",$4,"","");
-      }
+        {
+            Symbol* sym = insert_symbol(current_scope, $4,
+                                        KIND_METHOD, $2, yylineno);
+            if (sym) {
+                sym->attr.method.return_type = $2;
+                sym->attr.method.access      = $1;
+                sym->attr.method.param_count = 0;
+                sym->attr.method.param_list  = NULL;
+                strncpy(sym->attr.method.belongs_to,
+                        current_scope->name, 63);
+                snprintf(sym->attr.method.entry_label, 32,
+                         "%s_%s", current_scope->name, $4);
+            }
+            // Add to entity's methods_list
+            Symbol* entity_sym = lookup(current_scope->parent,
+                                        current_scope->name);
+            if (entity_sym && entity_sym->kind == KIND_ENTITY)
+                add_name(&entity_sym->attr.entity.methods_list, $4);
+
+            emit("method", $4, "", "");
+            SymTable* ms = create_scope(SCOPE_METHOD, $4, current_scope);
+            current_scope = ms;
+        }
       LPAREN param_list_opt RPAREN block
-      {
-        emit("end_method",$4,"","");
-      }
+        {
+            print_table(current_scope);
+            current_scope = current_scope->parent;
+            emit("end_method", $4, "", "");
+        }
     ;
 
 access_var_decl
     : access_modifier type IDENTIFIER SEMICOLON
+      {
+            Symbol* sym = insert_symbol(current_scope, $3,
+                                        KIND_FIELD, $2, yylineno);
+            if (sym) {
+                sym->attr.field.access = $1;
+                strncpy(sym->attr.field.belongs_to,
+                        current_scope->name, 63);
+            }
+            // Add to entity's fields_list
+            Symbol* entity_sym = lookup(current_scope->parent,
+                                        current_scope->name);
+            if (entity_sym && entity_sym->kind == KIND_ENTITY)
+                add_name(&entity_sym->attr.entity.fields_list, $3);
+        }
     ;
 
 access_modifier
-    : PUBLIC
-    | PRIVATE
+    : PUBLIC {$$ = ACC_PUBLIC;}
+    | PRIVATE {$$ = ACC_PRIVATE;}
     ;
 
 object_decl
@@ -189,7 +274,17 @@ arg_list
     ;
 
 block
-    : LBRACE stmt_list RBRACE
+    : LBRACE
+        {
+            SymTable* bs = create_scope(SCOPE_BLOCK, "block",
+                                        current_scope);
+            current_scope = bs;
+        }
+      stmt_list RBRACE
+        {
+            print_table(current_scope);
+            current_scope = current_scope->parent;
+        }
     | LBRACE RBRACE
     ;
 
@@ -201,7 +296,10 @@ stmt_list
 var_decl
     : type id_list SEMICOLON
     | type IDENTIFIER ASSIGN expression SEMICOLON
-        { emit("=", $4, "", $2); }
+        { emit("=", $4, "", $2);
+          Symbol* sym = insert_symbol(current_scope,$2,KIND_VAR,$1,yylineno);
+          if (sym) sym->var_initialized=1;
+          }
     ;
 
 id_list
@@ -210,13 +308,46 @@ id_list
     ;
 
 type
-    : INT | FP | CHR | STRING | BOOL | IDENTIFIER
+    : INT {$$ = DT_INT;} | FP {$$ = DT_FLOAT;} | CHR {$$ = DT_CHAR;} | STRING {$$ = DT_STRING;} | BOOL {$$ = DT_BOOL;} | IDENTIFIER {$$ = DT_ENTITY;}
     ;
 
 array_decl
-    : type SEQ1 IDENTIFIER ASSIGN array_init SEMICOLON
-    | type SEQ1 IDENTIFIER LBRACKET INT_LITERAL RBRACKET SEMICOLON
-    | type SEQ2 IDENTIFIER LBRACKET INT_LITERAL RBRACKET LBRACKET INT_LITERAL RBRACKET SEMICOLON
+    : type SEQ1 IDENTIFIER LBRACKET INT_LITERAL RBRACKET SEMICOLON
+        {
+            Symbol* sym = insert_symbol(current_scope, $3,
+                                        KIND_ARRAY, $1, yylineno);
+            if (sym) {
+                sym->attr.array.dimensions    = 1;
+                sym->attr.array.dim1          = $5;
+                sym->attr.array.dim2          = 0;
+                sym->attr.array.is_initialized = 0;
+                sym->size   = datatype_size($1) * $5;
+                sym->offset = current_scope->next_offset - sym->size;
+            }
+        }
+    | type SEQ2 IDENTIFIER LBRACKET INT_LITERAL RBRACKET
+                            LBRACKET INT_LITERAL RBRACKET SEMICOLON
+        {
+            Symbol* sym = insert_symbol(current_scope, $3,
+                                        KIND_ARRAY, $1, yylineno);
+            if (sym) {
+                sym->attr.array.dimensions    = 2;
+                sym->attr.array.dim1          = $5;
+                sym->attr.array.dim2          = $8;
+                sym->attr.array.is_initialized = 0;
+                sym->size   = datatype_size($1) * $5 * $8;
+                sym->offset = current_scope->next_offset - sym->size;
+            }
+        }
+    | type SEQ1 IDENTIFIER ASSIGN array_init SEMICOLON
+        {
+            Symbol* sym = insert_symbol(current_scope, $3,
+                                        KIND_ARRAY, $1, yylineno);
+            if (sym) {
+                sym->attr.array.dimensions    = 1;
+                sym->attr.array.is_initialized = 1;
+            }
+        }
     ;
 
 array_init
@@ -230,18 +361,40 @@ expr_list
 
 function_decl
     : func_type FUNC IDENTIFIER
-       {
-         emit ("func",$3,"",""); 
-       }
-       LPAREN param_list_opt RPAREN block
         {
-         emit("endfunc","","",""); 
+            // 1. Insert function into current scope
+            Symbol* sym = insert_symbol(current_scope, $3,
+                                        KIND_FUNCTION, $1, yylineno);
+            if (sym) {
+                sym->attr.func.return_type  = $1;
+                sym->attr.func.param_count  = 0;
+                sym->attr.func.param_list   = NULL;
+                // entry label for assembly
+                snprintf(sym->attr.func.entry_label, 32, "func_%s", $3);
+            }
+            emit("func", $3, "", "");
+
+            // 2. Open new scope for function body
+            SymTable* fs = create_scope(SCOPE_FUNCTION, $3, current_scope);
+            current_scope = fs;
+        }
+      LPAREN param_list_opt RPAREN block
+        {
+            // 3. After parsing body, record frame size in parent's symbol
+            Symbol* sym = lookup(current_scope->parent, $3);
+            // (frame size = next_offset of function's scope)
+            // print this function's scope table
+            print_table(current_scope);
+
+            // 4. Pop scope
+            current_scope = current_scope->parent;
+            emit("endfunc", "", "", "");
         }
     ;
 
 func_type
-    : type
-    | VOID
+    : type {$$ = $1;}
+    | VOID {$$ = DT_VOID;}
     ;
 
 param_list_opt
@@ -256,9 +409,32 @@ param_list
 
 param
     : type IDENTIFIER
-      {
-        emit("param",$2,"","");
-      }
+        {
+            emit("param", $2, "", "");
+
+            // Insert param into current (function/method) scope
+            Symbol* sym = insert_symbol(current_scope, $2,
+                                        KIND_PARAM, $1, yylineno);
+
+            // Also add to the owning function/method's param_list
+            // Find owning symbol in parent scope
+            Symbol* owner = lookup(current_scope->parent,
+                                   current_scope->name);
+            if (owner) {
+                if (owner->kind == KIND_FUNCTION)
+                    add_param(&owner->attr.func.param_list,
+                              &owner->attr.func.param_count,
+                              $2, $1);
+                else if (owner->kind == KIND_METHOD)
+                    add_param(&owner->attr.method.param_list,
+                              &owner->attr.method.param_count,
+                              $2, $1);
+                else if (owner->kind == KIND_CONSTRUCTOR)
+                    add_param(&owner->attr.ctor.param_list,
+                              &owner->attr.ctor.param_count,
+                              $2, $1);
+            }
+        }
     ;
 
 return_stmt
@@ -497,11 +673,22 @@ void emit(char* op, char* arg1, char* arg2, char* result) {
 void yyerror(const char *s) { fprintf(stderr, "Syntax Error: %s\n", s); }
 
 int main() {
+    // Initialize global scope BEFORE parsing
+    global_scope  = create_scope(SCOPE_GLOBAL, "global", NULL);
+    current_scope = global_scope;
+
     yyin = stdin;
     yyparse();
-    printf("Parsing Successful\nGenerated quadruple table:\n");
-    printf("%-15s %-15s %-15s %-15s\n", "OP", "ARG1", "ARG2", "RESULT");
+
+    // Print global scope table
+    printf("\n========== GLOBAL SCOPE ==========\n");
+    print_table(global_scope);
+
+    // Print quad table
+    printf("\nParsing Successful\nGenerated quadruple table:\n");
+    printf("%-15s %-15s %-15s %-15s\n", "OP","ARG1","ARG2","RESULT");
     for(int i = 0; i < IR_idx; i++)
-        printf("%-15s %-15s %-15s %-15s\n", IR[i].op, IR[i].arg1, IR[i].arg2, IR[i].result);
+        printf("%-15s %-15s %-15s %-15s\n",
+               IR[i].op, IR[i].arg1, IR[i].arg2, IR[i].result);
     return 0;
 }
