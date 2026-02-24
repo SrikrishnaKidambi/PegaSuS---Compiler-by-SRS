@@ -8,6 +8,7 @@ int yylex();
 void yyerror(const char *s);
 extern FILE *yyin;
 extern int yylineno;
+extern char* yytext;
 
 typedef struct {
     char op[20];
@@ -106,6 +107,11 @@ statement
     | return_stmt
     | object_decl
     | block
+    | error SEMICOLON 
+	{
+		printf("Invalid statement at line %d\n", yylineno);
+		yyerrok;
+	}
     ;
 
 entity_decl
@@ -140,6 +146,14 @@ entity_decl
             current_scope = current_scope->parent;
             emit("end_entity", $2, "", "");
         }
+    | ENTITY IDENTIFIER
+  	{ emit("entity",$2,"",""); }
+  	LBRACE error RBRACE
+  	{
+      	 printf("Invalid entity body at line %d\n", yylineno);
+     	 yyerrok;
+     	 emit("end_entity",$2,"","");
+  	}
     ;
 
 entity_body
@@ -183,6 +197,14 @@ constructor_decl
             current_scope = current_scope->parent;
             emit("end_constr", $1, "", "");
         }
+    | IDENTIFIER
+ 	{ emit("constr", $1, "",""); }
+      LPAREN error RPAREN block
+  	{
+      	printf("Invalid constructor parameters at line %d\n", yylineno);
+      	yyerrok;
+      	emit("end_constr",$1,"","");
+  	}
     ;
 
 method_decl
@@ -216,6 +238,15 @@ method_decl
             current_scope = current_scope->parent;
             emit("end_method", $4, "", "");
         }
+      |
+	access_modifier type FUNC IDENTIFIER
+	{ emit("method", $4, "", ""); }
+	LPAREN error RPAREN block
+	{
+		printf("Invalid method parameters at line %d\n", yylineno);
+		yyerrok;
+		emit("end_method", $4, "","");
+	}
     ;
 
 access_var_decl
@@ -254,6 +285,11 @@ object_decl
         emit("call_method",$6,"",t);
         emit("=",t,"",$2);
        }
+/*    | error SEMICOLON
+	{
+		printf("Invalid object declaration at line %d\n", yylineno);
+		yyerrok;
+	}*/
     ;
 
 arg_list_opt
@@ -286,6 +322,11 @@ block
             current_scope = current_scope->parent;
         }
     | LBRACE RBRACE
+    | LBRACE error RBRACE
+	{
+		printf("Error inside block at line %d\n", yylineno);
+		yyerrok;
+	}
     ;
 
 stmt_list
@@ -308,7 +349,7 @@ id_list
     ;
 
 type
-    : INT {$$ = DT_INT;} | FP {$$ = DT_FLOAT;} | CHR {$$ = DT_CHAR;} | STRING {$$ = DT_STRING;} | BOOL {$$ = DT_BOOL;} | IDENTIFIER {$$ = DT_ENTITY;}
+    : INT {$$ = DT_INT;} | FP {$$ = DT_FLOAT;} | CHR {$$ = DT_CHAR;} | STRING {$$ = DT_STRING;} | BOOL {$$ = DT_BOOL;} 
     ;
 
 array_decl
@@ -390,6 +431,23 @@ function_decl
             current_scope = current_scope->parent;
             emit("endfunc", "", "", "");
         }
+    | func_type FUNC IDENTIFIER
+	{ emit("func",$3,"",""); }
+      LPAREN error RPAREN block
+	{
+		printf("Invalid parameter list at line %d\n",yylineno);
+		yyerrok;
+		emit("endfunc","","","");
+	}
+/*    | func_type FUNC IDENTIFIER
+	{
+		emit("func",$3,"","");}
+      LPAREN param_list_opt RPAREN error
+	{
+		printf("Invalid function body at line %d\n",yylineno);
+		yyerrok;
+		emit("endfunc","","","");
+	} */
     ;
 
 func_type
@@ -446,6 +504,11 @@ return_stmt
       {
         emit("return","","","");
       }
+    | RETURN error SEMICOLON
+	{
+		printf("Invalid Return statement at line %d\n");
+		yyerrok;
+	}
     ;
 
 expr_stmt
@@ -560,6 +623,11 @@ if_stmt
         { emit("goto", "", "", topEnd()); emit("label", "", "", topFalse()); }
       elif_list else_opt
         { emit("label", "", "", topEnd()); popIfLabels(); }
+	| IF LPAREN error RPAREN block
+	{
+		printf("Invalid IF condition at line %d\n", yylineno);
+		yyerrok;
+	}
     ;
 
 elif_list
@@ -590,6 +658,11 @@ for_stmt
             emit("label", "", "", topEnd());
             popIfLabels();
         }
+	| FOR LPAREN error RPAREN block
+	{
+		printf("Invalid FOR header at line %d\n", yylineno);
+		yyerrok;
+	}
     ;
 
 for_header
@@ -670,7 +743,10 @@ void emit(char* op, char* arg1, char* arg2, char* result) {
     IR_idx++;
 }
 
-void yyerror(const char *s) { fprintf(stderr, "Syntax Error: %s\n", s); }
+void yyerror(const char *s) {
+	//errorCount++;
+	fprintf(stderr, "\nSyntax Error at line %d near '%s'\n", yylineno, yytext);
+}
 
 int main() {
     // Initialize global scope BEFORE parsing
