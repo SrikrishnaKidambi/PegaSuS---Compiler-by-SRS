@@ -321,11 +321,7 @@ Symbol* insert_symbol(SymTable* tbl, const char* name,
     //   in the enclosing scope's memory block.
     sym->offset = tbl->next_offset;
 
-    if (kind == KIND_VAR   ||
-        kind == KIND_PARAM ||
-        kind == KIND_FIELD) {
-        tbl->next_offset += sym->size;  // advance by exact byte count
-    }
+    tbl->next_offset += sym->size;  // advance by exact byte count
     // KIND_ARRAY  → parser does: current_scope->next_offset = sym->offset + sym->size
     // Everything else → next_offset stays, offset stays as a marker only
 
