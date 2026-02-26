@@ -21,7 +21,7 @@ int datatype_size(DataType dt) {
         case DT_STRING: return 8;
         case DT_BOOL:   return 1;
         case DT_VOID:   return 0;
-        case DT_ENTITY: return 8;
+        //case DT_ENTITY: return 8;
         default:        return 0;
     }
 }
@@ -82,12 +82,15 @@ Symbol* insert_symbol(SymTable* tbl, const char* name,
     sym->datatype    = dt;
     sym->scope_level = tbl->level;
     sym->size        = datatype_size(dt);
+    if(dt == DT_INT){
+	 //printf("Parent scope of %s is %s with code:%d\n", sym->name, tbl->parent->name, tbl->kind);
+    }	 
     sym->offset      = tbl->next_offset;
     sym->is_initialized = 0;
 
-    if (kind == KIND_VAR   || kind == KIND_PARAM ||
-        kind == KIND_ARRAY || kind == KIND_FIELD)
-        tbl->next_offset += sym->size;
+    /*if (kind == KIND_VAR   || kind == KIND_PARAM ||
+        kind == KIND_ARRAY || kind == KIND_FIELD)*/
+    tbl->next_offset += sym->size;
 
     unsigned int h    = hash_fn(name);
     sym->next         = tbl->buckets[h];
