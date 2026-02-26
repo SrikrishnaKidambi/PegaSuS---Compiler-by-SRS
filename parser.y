@@ -159,9 +159,18 @@ entity_decl
         }
       LBRACE entity_body RBRACE
         {
+            /* current_scope->next_offset is now the sum of ALL field sizes
+               because only KIND_FIELD entries advanced next_offset.
+               e.g.  entity Dog { int age; char x; }
+                     → next_offset = 4 + 1 = 5
+               Store this as class_size in the EntityAttr AND as sym->size
+               in the global scope symbol so it prints correctly.          */
+            int class_sz = current_scope->next_offset;
             Symbol* sym = lookup(current_scope->parent, current_scope->name);
-            if (sym && sym->kind == KIND_ENTITY)
-                sym->attr.entity.class_size = current_scope->next_offset;
+            if (sym && sym->kind == KIND_ENTITY) {
+                sym->attr.entity.class_size = class_sz;
+                sym->size = class_sz;   /* ← THIS is what prints in SIZE column */
+            }
             print_table(current_scope);
             current_scope = current_scope->parent;
             emit("end_entity", $2, "", "");
@@ -474,6 +483,12 @@ type
    ARRAY DECLARATION
    ═══════════════════════════════════════════ */
 array_decl
+    /* 1-D array with size:  int[] arr[10];
+       OFFSET FIX:
+         insert_symbol assigns offset = next_offset but does NOT
+         advance next_offset (KIND_ARRAY excluded from the condition).
+         We then set the REAL size = elem_size * dim1
+         and manually advance next_offset by that real size.       */
     : type SEQ1 IDENTIFIER LBRACKET INT_LITERAL RBRACKET SEMICOLON
         {
             Symbol* sym = insert_symbol(current_scope, $3,
@@ -483,11 +498,14 @@ array_decl
                 sym->attr.array.dim1           = $5;
                 sym->attr.array.dim2           = 0;
                 sym->attr.array.is_initialized = 0;
-                sym->size   = datatype_size($1) * $5;
-                sym->offset = current_scope->next_offset;
-                current_scope->next_offset    += sym->size;
+                /* offset was already set by insert_symbol to the correct
+                   position; now fix up size and advance next_offset      */
+                sym->size = datatype_size($1) * $5;
+                current_scope->next_offset = sym->offset + sym->size;
             }
         }
+    /* 2-D array:  int[][] mat[3][4];
+       Same pattern — fix size after insert, then advance counter.  */
     | type SEQ2 IDENTIFIER LBRACKET INT_LITERAL RBRACKET
                             LBRACKET INT_LITERAL RBRACKET SEMICOLON
         {
@@ -498,11 +516,13 @@ array_decl
                 sym->attr.array.dim1           = $5;
                 sym->attr.array.dim2           = $8;
                 sym->attr.array.is_initialized = 0;
-                sym->size   = datatype_size($1) * $5 * $8;
-                sym->offset = current_scope->next_offset;
-                current_scope->next_offset    += sym->size;
+                sym->size = datatype_size($1) * $5 * $8;
+                current_scope->next_offset = sym->offset + sym->size;
             }
         }
+    /* 1-D array with initializer:  int[] arr = {1,2,3};
+       Size unknown at parse time — left as element size,
+       offset counter NOT advanced (size indeterminate).           */
     | type SEQ1 IDENTIFIER ASSIGN array_init SEMICOLON
         {
             Symbol* sym = insert_symbol(current_scope, $3,
@@ -510,6 +530,7 @@ array_decl
             if (sym) {
                 sym->attr.array.dimensions     = 1;
                 sym->attr.array.is_initialized = 1;
+                /* size and offset will be determined at runtime */
             }
         }
     ;
@@ -537,6 +558,7 @@ function_decl
                 sym->attr.func.param_count = 0;
                 sym->attr.func.param_list  = NULL;
                 snprintf(sym->attr.func.entry_label, 32, "func_%s", $3);
+                /* size stays 0 — functions occupy no slot in parent scope */
             }
             emit("func", $3, "", "");
             SymTable* fs = create_scope(SCOPE_FUNCTION, $3, current_scope);
@@ -544,9 +566,9 @@ function_decl
         }
       LPAREN param_list_opt RPAREN block
         {
-            Symbol* sym = lookup(current_scope->parent, $3);
-            if (sym && sym->kind == KIND_FUNCTION)
-                sym->size = current_scope->next_offset;
+            /* Do NOT write next_offset into sym->size.
+               Function size in global scope = 0 always.
+               The frame size is visible in the function's own scope table. */
             print_table(current_scope);
             current_scope = current_scope->parent;
             emit("endfunc", "", "", "");
@@ -562,6 +584,7 @@ function_decl
                 sym->attr.func.param_count = 0;
                 sym->attr.func.param_list  = NULL;
                 snprintf(sym->attr.func.entry_label, 32, "func_%s", $3);
+                /* size stays 0 */
             }
             emit("func", $3, "", "");
             SymTable* fs = create_scope(SCOPE_FUNCTION, $3, current_scope);
@@ -569,9 +592,6 @@ function_decl
         }
       LPAREN param_list_opt RPAREN block
         {
-            Symbol* sym = lookup(current_scope->parent, $3);
-            if (sym && sym->kind == KIND_FUNCTION)
-                sym->size = current_scope->next_offset;
             print_table(current_scope);
             current_scope = current_scope->parent;
             emit("endfunc", "", "", "");
