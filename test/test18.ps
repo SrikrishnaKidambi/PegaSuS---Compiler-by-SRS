@@ -1,7 +1,15 @@
-Entity Student{
-	private int roll;
-	public string name;
+Entity Dog {
+    private int age;
+    public string name;
+    Dog(int a, string n) {
+        this.age = a;
+
+    }
+    public int _func getAge(int x,int y) {
+        return x+y;
+    }
 }
-Student S = new Student();
-s.roll=54;
-show("s.roll");
+int _func add(int x, int y) {
+    int result = x + y;
+    return result;
+}
