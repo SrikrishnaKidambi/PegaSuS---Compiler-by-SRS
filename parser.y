@@ -169,7 +169,8 @@ entity_decl
             Symbol* sym = lookup(current_scope->parent, current_scope->name);
             if (sym && sym->kind == KIND_ENTITY) {
                 sym->attr.entity.class_size = class_sz;
-                sym->size = class_sz;   /* ← THIS is what prints in SIZE column */
+                sym->size = class_sz;
+                current_scope->parent->next_offset = sym->offset + class_sz;  
             }
             print_table(current_scope);
             current_scope = current_scope->parent;

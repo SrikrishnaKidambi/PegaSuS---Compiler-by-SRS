@@ -64,7 +64,7 @@ int datatype_size(DataType dt) {
         case DT_STRING: return 8;
         case DT_BOOL:   return 1;
         case DT_VOID:   return 0;
-        case DT_ENTITY: return 8;
+        //case DT_ENTITY: return 8;
         default:        return 0;
     }
 }
@@ -290,7 +290,17 @@ Symbol* insert_symbol(SymTable* tbl, const char* name,
     sym->kind        = kind;
     sym->datatype    = dt;
     sym->scope_level = tbl->level;
-    sym->is_initialized = 0;   // default: not initialized
+    sym->size        = datatype_size(dt);
+    if(dt == DT_INT){
+	 //printf("Parent scope of %s is %s with code:%d\n", sym->name, tbl->parent->name, tbl->kind);
+    }	 
+    sym->offset      = tbl->next_offset;
+    sym->is_initialized = 0;
+
+    /*if (kind == KIND_VAR   || kind == KIND_PARAM ||
+        kind == KIND_ARRAY || kind == KIND_FIELD)*/
+    tbl->next_offset += sym->size;
+    //sym->is_initialized = 0;   // default: not initialized
 
     // ── Step 3: Assign size ─────────────────────────────────
     //
@@ -359,12 +369,7 @@ Symbol* insert_symbol(SymTable* tbl, const char* name,
     //   in the enclosing scope's memory block.
     sym->offset = tbl->next_offset;
 
-    if (kind == KIND_VAR   ||
-        kind == KIND_PARAM ||
-	kind == KIND_OBJECT||
-        kind == KIND_FIELD) {
-        tbl->next_offset += sym->size;  // advance by exact byte count
-    }
+    tbl->next_offset += sym->size;  // advance by exact byte count
     // KIND_ARRAY  → parser does: current_scope->next_offset = sym->offset + sym->size
     // Everything else → next_offset stays, offset stays as a marker only
 
