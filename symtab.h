@@ -33,7 +33,8 @@ typedef enum {
     KIND_FOR,         // 8 — a for loop construct
     KIND_IF,          // 9 — an if statement construct
     KIND_ELIF,        // 10 — an elif branch
-    KIND_ELSE         // 11 — an else branch
+    KIND_ELSE,         // 11 — an else branch
+    KIND_OBJECT,	// 12 - a object type
 } SymKind;
 
 // DataType — the BASE DATA TYPE of a symbol
@@ -46,7 +47,8 @@ typedef enum {
     DT_BOOL,     // 4 — bool     → 1 byte
     DT_VOID,     // 5 — void     → 0 bytes (functions only)
     DT_ENTITY,   // 6 — class    → 8 bytes (pointer to object)
-    DT_UNKNOWN   // 7 — error / not yet resolved
+    DT_OBJECT,   // 7 - object   size of the fields in the class
+    DT_UNKNOWN   // 8 — error / not yet resolved
 } DataType;
 
 // AccessMod — access modifier for class members
@@ -131,6 +133,10 @@ typedef struct {
     AccessMod access;           // ACC_PUBLIC or ACC_PRIVATE
 } FieldAttr;
 
+typedef struct {
+    char      entity_name[64];
+} ObjectAttr;
+
 // EntityAttr — extra info for KIND_ENTITY symbols (the class itself)
 typedef struct {
     char      class_name[64];        // name of the class, e.g. "Dog"
@@ -196,6 +202,7 @@ typedef struct Symbol {
         CtorAttr   ctor;     // used when kind == KIND_CONSTRUCTOR
         FieldAttr  field;    // used when kind == KIND_FIELD
         EntityAttr entity;   // used when kind == KIND_ENTITY
+	ObjectAttr object;   // used when kind == KIND_OBJECT
         ForAttr    forstmt;  // used when kind == KIND_FOR
         IfAttr     ifstmt;   // used when kind == KIND_IF or KIND_ELIF
     } attr;

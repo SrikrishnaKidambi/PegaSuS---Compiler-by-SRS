@@ -156,12 +156,57 @@ void add_name(NameNode** list, const char* name) {
     }
 }
 
+//for checking the access modifier
+
+void semantic_error(const char *msg){
+	printf("[Error]: %s\n",msg);
+	exit(1);
+}
+
+void check_field_access(char* obj_name, char* field_name) {
+    // 1. lookup the object variable
+    Symbol* obj = lookup(current_scope, obj_name);
+    if (!obj)
+        semantic_error("Undeclared object");
+
+    // 2. lookup the field symbol means search in all scopes
+    Symbol* field = lookup(global_scope, field_name);
+    if (!field || field->kind != KIND_FIELD)
+        semantic_error("Field not found");
+
+    // 3. check private access
+    if (field->attr.field.access == ACC_PRIVATE) {
+        // current_scope->name holds current function/method/class name
+        if (strcmp(current_scope->name, field->attr.field.belongs_to) != 0) {
+            semantic_error("Private field access is not allowed");
+        }
+    }
+}
+
+void check_method_access(char* obj_name, char* method_name) {
+    // 1. lookup the object variable
+    Symbol* obj = lookup(current_scope, obj_name);
+    if (!obj)
+        semantic_error("Undeclared object");
+
+    // 2. lookup the method symbol
+    Symbol* method = lookup(global_scope, method_name);
+    if (!method || method->kind != KIND_METHOD)
+        semantic_error("Method not found");
+
+    // 3. check private access
+    if (method->attr.method.access == ACC_PRIVATE) {
+        if (strcmp(current_scope->name, method->attr.method.belongs_to) != 0) {
+            semantic_error("Private method access is not allowed");
+        }
+    }
+}
 // ────────────────────────────────────────────────────────────
-//  SECTION 6: insert_symbol  ← THE MOST IMPORTANT FUNCTION
+//  SECTION 6: insert_symbol
 //
 //  Purpose: create a new Symbol and insert it into a scope.
 //  Called from parser actions whenever a new identifier is
-//  declared (variable, function, parameter, field, etc.)
+//  declared (variable, func/tion, parameter, field, etc.)
 //
 //  ── OFFSET CALCULATION (THE KEY LOGIC) ──────────────────
 //
@@ -291,6 +336,9 @@ Symbol* insert_symbol(SymTable* tbl, const char* name,
             sym->size = datatype_size(dt);
             break;
         case KIND_ENTITY:
+	case KIND_OBJECT:
+	    sym->size = 0; // for now later we update
+	    break;
         case KIND_FUNCTION:
         case KIND_METHOD:
         case KIND_CONSTRUCTOR:
