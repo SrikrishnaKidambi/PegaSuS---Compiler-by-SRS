@@ -143,7 +143,7 @@ statement
 entity_decl
     : ENTITY IDENTIFIER
         {
-            Symbol* sym = insert_symbol(current_scope, $2,
+            Symbol* sym = insert_symbol(global_scope, $2,
                                         KIND_ENTITY, DT_ENTITY, yylineno);
             if (sym) {
                 strncpy(sym->attr.entity.class_name, $2, 63);
@@ -352,11 +352,25 @@ access_modifier
 object_decl
     : IDENTIFIER IDENTIFIER ASSIGN NEW IDENTIFIER LPAREN arg_list_opt RPAREN SEMICOLON
         {
+	    Symbol* class_sym = lookup(current_scope,$5);
+	    if(!class_sym || class_sym != KIND_ENTITY){
+		char buf[256];
+	    	snprintf(buf, sizeof(buf),"line %d: Entity '%s' not found to instantiate",yylineno, $1);
+	    	semantic_error(buf);
+	    }
+	    Symbol* obj = insert_symbol(current_scope,$2,KIND_OBJECT,DT_OBJECT,yylineno);
+	    if(obj){
+		strncpy(obj->attr.object.entity_name,class_sym->attr.entity.class_name,63); //supports max class size as 63
+		obj->size = class_sym->attr.entity.class_size;
+		current_scope->next_offset = obj->offset + obj->size;
+	}
+		
             emit("new", $5, "", $2);
             emit("call_constr", $5, "", $2);
         }
     | type IDENTIFIER ASSIGN IDENTIFIER DOT IDENTIFIER LPAREN arg_list RPAREN SEMICOLON
         {
+	    check_method_access($4,$6);
             char* t = genVar();
             emit("push_ptr", $4, "", "");
             emit("call_method", $6, "", t);
@@ -720,9 +734,11 @@ assignment
     | indexed_id ASSIGN assignment
         { $$ = $3; }
     | THIS DOT IDENTIFIER ASSIGN assignment
-        { emit("set_field", "this", $3, $5); $$ = $5; }
+        { //check_field_access("this", $3); 
+	emit("set_field", "this", $3, $5); $$ = $5; }
     | IDENTIFIER DOT IDENTIFIER ASSIGN assignment
-        { emit("set_field", $1, $3, $5); $$ = $5; }
+        { check_field_access($1,$3); 
+	emit("set_field", $1, $3, $5); $$ = $5; }
     | logic_expr { $$ = $1; }
     ;
 
