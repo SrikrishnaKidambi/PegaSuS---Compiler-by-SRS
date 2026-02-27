@@ -246,16 +246,11 @@ Symbol* insert_symbol(SymTable* tbl, const char* name,
     sym->datatype    = dt;
     sym->scope_level = tbl->level;
     sym->size        = datatype_size(dt);
-    if(dt == DT_INT){
-	 //printf("Parent scope of %s is %s with code:%d\n", sym->name, tbl->parent->name, tbl->kind);
-    }	 
-    sym->offset      = tbl->next_offset;
+    //sym->offset      = tbl->next_offset;
     sym->is_initialized = 0;
 
-    /*if (kind == KIND_VAR   || kind == KIND_PARAM ||
-        kind == KIND_ARRAY || kind == KIND_FIELD)*/
-    tbl->next_offset += sym->size;
-    sym->is_initialized = 0;   // default: not initialized
+    //tbl->next_offset += sym->size;
+    //sym->is_initialized = 0;   // default: not initialized
 
     // ── Step 3: Assign size ─────────────────────────────────
     //
@@ -417,7 +412,7 @@ static const char* kind_names[] = {
     "FOR","IF","ELIF","ELSE"
 };
 
-static const char* dt_names[] = {
+const char* dt_names[] = {
     "int","float","char","string","bool",
     "void","entity","unknown"
 };

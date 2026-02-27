@@ -39,6 +39,15 @@ int topPtr = -1;
 static int if_cnt  = 0;
 static int for_cnt = 0;
 
+
+// Utilities for handling array declaration along with initialization
+static int arr2d_rows = 0;
+static int arr2d_cols = 0;
+
+DataType last_expr_type = DT_UNKNOWN;
+DataType current_array_elem_type = DT_UNKNOWN;
+int array_type_errors = 0;
+
 void pushIfLabels(char* falseLabel, char* endLabel) {
     topPtr++;
     falseStack[topPtr] = strdup(falseLabel);
@@ -96,6 +105,8 @@ void insert_var_list(char* names, DataType dt) {
 %type <sval>   expression arith_expr term factor assignment
 %type <sval>   logic_expr rel_expr bitwise_expr indexed_id
 %type <sval>   id_list   /* returns comma-separated name string */
+%type <ival>   expr_list array_init row_list 
+%type <ival> array_init2d
 
 %right ASSIGN ADD_ASSIGN SUB_ASSIGN
 %left  OR
@@ -503,6 +514,7 @@ array_decl
                    position; now fix up size and advance next_offset      */
                 sym->size = datatype_size($1) * $5;
                 current_scope->next_offset = sym->offset + sym->size;
+		
             }
         }
     /* 2-D array:  int[][] mat[3][4];
@@ -524,25 +536,91 @@ array_decl
     /* 1-D array with initializer:  int[] arr = {1,2,3};
        Size unknown at parse time — left as element size,
        offset counter NOT advanced (size indeterminate).           */
-    | type SEQ1 IDENTIFIER ASSIGN array_init SEMICOLON
+    | type SEQ1 IDENTIFIER ASSIGN 
+	{
+		current_array_elem_type = $1;
+		array_type_errors = 0;
+	}
+	array_init SEMICOLON
         {
             Symbol* sym = insert_symbol(current_scope, $3,
                                         KIND_ARRAY, $1, yylineno);
             if (sym) {
-                sym->attr.array.dimensions     = 1;
+                sym->attr.array.dimensions = 1;
                 sym->attr.array.is_initialized = 1;
-                /* size and offset will be determined at runtime */
+		sym->attr.array.dim1 = $6;	// the token or symbol array_init returns the number of elements present in the list
+		sym->attr.array.dim2 = 0;
+		sym->size = datatype_size($1) * $6;
+		current_scope->next_offset = sym->offset + sym->size;
             }
+		current_array_elem_type = DT_UNKNOWN;
         }
+     | type SEQ2 IDENTIFIER ASSIGN 
+	{
+		current_array_elem_type = $1;
+		array_type_errors = 0;
+		arr2d_rows = 0;
+		arr2d_cols = 0;
+	}
+	array_init2d SEMICOLON
+	{
+		Symbol* sym = insert_symbol(current_scope, $3, KIND_ARRAY, $1, yylineno);
+		if(sym) {
+			sym->attr.array.dimensions = 2;
+			sym->attr.array.dim1 = arr2d_rows;
+			sym->attr.array.dim2 = arr2d_cols;
+			sym->attr.array.is_initialized = 1;
+			sym->size = datatype_size($1) * arr2d_rows * arr2d_cols;
+			current_scope->next_offset = sym->offset + sym->size;
+		}
+		current_array_elem_type = DT_UNKNOWN;
+	} 
     ;
 
 array_init
-    : LBRACE expr_list RBRACE
+    : LBRACE expr_list RBRACE { $$ = $2; }
     ;
 
+array_init2d:
+	    LBRACE row_list RBRACE { $$ = $2; }
+	;
+
+row_list:
+	row_list COMMA LBRACE expr_list RBRACE 
+	{ 
+		arr2d_rows++;
+		arr2d_cols = $4;
+		$$ = $1 + $4; 
+	}
+	| LBRACE expr_list RBRACE 	
+	{ 
+		arr2d_rows = 1;
+		arr2d_cols = $2;
+		$$ = $2; 
+	}
+	;
+
 expr_list
-    : expr_list COMMA expression
+    : expr_list COMMA expression 
+	{
+		if(current_array_elem_type != DT_UNKNOWN && last_expr_type != DT_UNKNOWN && last_expr_type != current_array_elem_type){
+			{
+				fprintf(stderr, "ERROR line %d: array initializer type mismatch - expected %s, got %s\n", yylineno, dt_names[current_array_elem_type], dt_names[last_expr_type]);
+				array_type_errors++;
+			} 
+		}
+		$$ = $1 + 1;
+	}
     | expression
+	{
+                if(current_array_elem_type != DT_UNKNOWN && last_expr_type != DT_UNKNOWN && last_expr_type != current_array_elem_type){
+                        {
+                                fprintf(stderr, "ERROR line %d: array initializer type mismatch - expected %s, got %s\n", yylineno, dt_names[current_array_elem_type], dt_names[last_expr_type]);
+                                array_type_errors++;
+                        }
+        	}
+		$$ = 1;
+	}
     ;
 
 /* ═══════════════════════════════════════════
@@ -776,14 +854,19 @@ term
 factor
     : IDENTIFIER LPAREN arg_list_opt RPAREN
         { char* t = genVar(); emit("call", $1, "", t); $$ = t; }
-    | IDENTIFIER      { $$ = strdup($1); }
+    | IDENTIFIER      
+	{ 
+		Symbol* s = lookup(current_scope, $1);
+		last_expr_type = s ? s->datatype : DT_UNKNOWN;
+		$$ = strdup($1); 
+	}
     | indexed_id      { $$ = $1; }
-    | INT_LITERAL     { char b[20]; sprintf(b, "%d",   $1); $$ = strdup(b); }
-    | FLOAT_LITERAL   { char b[20]; sprintf(b, "%f",   $1); $$ = strdup(b); }
-    | CHAR_LITERAL    { char b[20]; sprintf(b, "'%c'", $1); $$ = strdup(b); }
-    | STRING_LITERAL  { $$ = strdup($1); }
-    | TRUE            { $$ = strdup("1"); }
-    | FALSE           { $$ = strdup("0"); }
+    | INT_LITERAL     { char b[20]; sprintf(b, "%d",   $1); $$ = strdup(b); last_expr_type = DT_INT; }
+    | FLOAT_LITERAL   { char b[20]; sprintf(b, "%f",   $1); $$ = strdup(b);  last_expr_type = DT_FLOAT; }
+    | CHAR_LITERAL    { char b[20]; sprintf(b, "'%c'", $1); $$ = strdup(b); last_expr_type = DT_CHAR; }
+    | STRING_LITERAL  { $$ = strdup($1);  last_expr_type = DT_STRING; }
+    | TRUE            { $$ = strdup("1"); last_expr_type = DT_BOOL; }
+    | FALSE           { $$ = strdup("0"); last_expr_type = DT_BOOL; }
     | LPAREN expression RPAREN { $$ = $2; }
     ;
 

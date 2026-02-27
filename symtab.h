@@ -305,4 +305,5 @@ extern SymTable* current_scope;   // points to whatever scope we are currently i
 extern DataType  current_decl_type; // NOT USED ANYMORE — kept for compatibility
                                     // was used for mid-rule actions (now removed)
 
+extern const char* dt_names[];
 #endif /* SYMTAB_H */
