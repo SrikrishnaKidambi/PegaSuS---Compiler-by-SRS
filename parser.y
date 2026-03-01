@@ -87,6 +87,45 @@ void insert_var_list(char* names, DataType dt) {
         tok = strtok(NULL, ",");
     }
 }
+/* Returns 1 if the string is a numeric constant, 0 otherwise */
+int isConstant(char* s) {
+    if (!s || *s == '\0') return 0;
+    char* end;
+    strtod(s, &end);
+    return (*end == '\0');
+}
+
+/* Folds two constants with a given operator. Returns heap string or NULL. */
+char* foldConstants(char* op, char* arg1, char* arg2) {
+    if (!isConstant(arg1) || !isConstant(arg2)) return NULL;
+
+    double a = atof(arg1);
+    double b = atof(arg2);
+    double result;
+
+    if      (strcmp(op, "+")  == 0) result = a + b;
+    else if (strcmp(op, "-")  == 0) result = a - b;
+    else if (strcmp(op, "*")  == 0) result = a * b;
+    else if (strcmp(op, "/")  == 0) {
+        if (b == 0) return NULL;   
+        result = a / b;
+    }
+    else if (strcmp(op, "%")  == 0) {
+        if ((int)b == 0) return NULL;
+        result = (int)a % (int)b;
+    }
+    else if (strcmp(op, ">")  == 0) result = (a >  b);
+    else if (strcmp(op, "<")  == 0) result = (a <  b);
+    else if (strcmp(op, "==") == 0) result = (a == b);
+    else return NULL;
+
+    char* buf = malloc(32);
+    if (result == (int)result)
+        sprintf(buf, "%d", (int)result);
+    else
+        sprintf(buf, "%f", result);
+    return buf;
+}
 %}
 
 %union {
@@ -977,29 +1016,93 @@ bitwise_expr
 
 rel_expr
     : arith_expr GT arith_expr
-        { char* t = genVar(); emit(">",  $1, $3, t); $$ = t; }
+        {
+            char* folded = foldConstants(">", $1, $3);
+            if (folded) {
+                $$ = folded;
+            } else {
+                char* t = genVar(); emit(">", $1, $3, t); $$ = t;
+            }
+        }
     | arith_expr LT arith_expr
-        { char* t = genVar(); emit("<",  $1, $3, t); $$ = t; }
+        {
+            char* folded = foldConstants("<", $1, $3);
+            if (folded) {
+                $$ = folded;
+            } else {
+                char* t = genVar(); emit("<", $1, $3, t); $$ = t;
+            }
+        }
     | arith_expr EQ arith_expr
-        { char* t = genVar(); emit("==", $1, $3, t); $$ = t; }
+        {
+            char* folded = foldConstants("==", $1, $3);
+            if (folded) {
+                $$ = folded;
+            } else {
+                char* t = genVar(); emit("==", $1, $3, t); $$ = t;
+            }
+        }
     | arith_expr { $$ = $1; }
     ;
 
 arith_expr
     : arith_expr PLUS term
-        { char* t = genVar(); emit("+", $1, $3, t); $$ = t; }
+        {  char* folded = foldConstants("+", $1, $3);
+            if (folded) {
+                $$ = folded;                       
+            } else {
+                char* t = genVar();
+                emit("+", $1, $3, t);
+                $$ = t;
+            } 
+        }
     | arith_expr MINUS term
-        { char* t = genVar(); emit("-", $1, $3, t); $$ = t; }
+        {   char* folded = foldConstants("-", $1, $3);
+            if (folded) {
+                $$ = folded;
+            } else {
+                char* t = genVar();
+                emit("-", $1, $3, t);
+                $$ = t;
+            } 
+        }
     | term { $$ = $1; }
     ;
 
 term
     : term MUL factor
-        { char* t = genVar(); emit("*", $1, $3, t); $$ = t; }
+        {
+            char* folded = foldConstants("*", $1, $3);
+            if (folded) {
+                $$ = folded;
+            } else {
+                char* t = genVar();
+                emit("*", $1, $3, t);
+                $$ = t;
+            }
+        }
     | term DIV factor
-        { char* t = genVar(); emit("/", $1, $3, t); $$ = t; }
+        {
+            char* folded = foldConstants("/", $1, $3);
+            if (folded) {
+                $$ = folded;
+            } else {
+                char* t = genVar();
+                emit("/", $1, $3, t);
+                $$ = t;
+            }
+        }
     | term MOD factor
-        { char* t = genVar(); emit("%", $1, $3, t); $$ = t; }
+        {
+            char* folded = foldConstants("%", $1, $3);
+            if (folded) {
+                $$ = folded;
+            } else {
+                char* t = genVar();
+                emit("%", $1, $3, t);
+                $$ = t;
+            }
+        }
     | factor { $$ = $1; }
     ;
 
