@@ -433,12 +433,18 @@ object_decl
     | type IDENTIFIER ASSIGN IDENTIFIER DOT IDENTIFIER LPAREN arg_list_opt RPAREN SEMICOLON
         {
 	    	check_method_access($4,$6,yylineno);
+		
 	    	Symbol* msym = lookup(current_scope, $6);
 		if(msym && msym->kind == KIND_METHOD){
 			if(msym->attr.method.return_type != $1){
 				fprintf(stderr, "ERROR line %d: cannot assign result of method '%s' (returns %s) to '%s' (declared as %s).\n", yylineno, $6, dt_names[msym->attr.method.return_type], $2, dt_names[$1]);
 			}
 		}
+		Symbol* sym = insert_symbol(current_scope, $2,
+                                KIND_VAR, $1, yylineno);
+   		 if (sym) {
+        		sym->is_initialized = 1;
+   	 	}
             	char* t = genVar();
             	emit("push_ptr", $4, "", "");
             	emit("call_method", $6, "", t);
@@ -969,7 +975,7 @@ assignment
 	}
     | IDENTIFIER DOT IDENTIFIER ASSIGN assignment
         { 
-		check_field_access($1,$3); 
+		check_field_access($1,$3,yylineno); 
 		Symbol* obj = lookup(current_scope, $1);
 		if(!obj || obj->kind != KIND_OBJECT){
 			fprintf(stderr, "ERROR line %d: '%s' is not an object.\n", yylineno, $1);
