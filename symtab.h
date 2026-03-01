@@ -13,6 +13,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define MAX_ENTITIES 256
+
 // ────────────────────────────────────────────────────────────
 //  SECTION 1: ENUMERATIONS
 //  Enums give human-readable names to integer constants.
@@ -33,7 +35,8 @@ typedef enum {
     KIND_FOR,         // 8 — a for loop construct
     KIND_IF,          // 9 — an if statement construct
     KIND_ELIF,        // 10 — an elif branch
-    KIND_ELSE         // 11 — an else branch
+    KIND_ELSE,         // 11 — an else branch
+    KIND_OBJECT,	// 12 - a object type
 } SymKind;
 
 // DataType — the BASE DATA TYPE of a symbol
@@ -46,7 +49,8 @@ typedef enum {
     DT_BOOL,     // 4 — bool     → 1 byte
     DT_VOID,     // 5 — void     → 0 bytes (functions only)
     DT_ENTITY,   // 6 — class    → 8 bytes (pointer to object)
-    DT_UNKNOWN   // 7 — error / not yet resolved
+    DT_OBJECT,   // 7 - object   size of the fields in the class
+    DT_UNKNOWN   // 8 — error / not yet resolved
 } DataType;
 
 // AccessMod — access modifier for class members
@@ -131,6 +135,12 @@ typedef struct {
     AccessMod access;           // ACC_PUBLIC or ACC_PRIVATE
 } FieldAttr;
 
+typedef struct {
+    char      entity_name[64];
+} ObjectAttr;
+
+typedef struct SymTable SymTable;
+
 // EntityAttr — extra info for KIND_ENTITY symbols (the class itself)
 typedef struct {
     char      class_name[64];        // name of the class, e.g. "Dog"
@@ -141,6 +151,7 @@ typedef struct {
                                      // = sum of all field sizes
     char      parent_class[64];      // name of parent class if inheritance (stretch goal)
                                      // empty string "" if no parent
+    SymTable* scope;
 } EntityAttr;
 
 // ForAttr — extra info for KIND_FOR symbols
@@ -196,6 +207,7 @@ typedef struct Symbol {
         CtorAttr   ctor;     // used when kind == KIND_CONSTRUCTOR
         FieldAttr  field;    // used when kind == KIND_FIELD
         EntityAttr entity;   // used when kind == KIND_ENTITY
+	ObjectAttr object;   // used when kind == KIND_OBJECT
         ForAttr    forstmt;  // used when kind == KIND_FOR
         IfAttr     ifstmt;   // used when kind == KIND_IF or KIND_ELIF
     } attr;
@@ -237,7 +249,7 @@ typedef enum {
 // Symbols that hash to the same bucket form a linked list.
 #define HASH_SIZE 64
 
-typedef struct SymTable {
+struct SymTable {
     ScopeKind        kind;              // what kind of scope this is
     char             name[64];          // human-readable name, e.g. "global", "add", "Dog"
     int              level;             // nesting depth: global=0, function=1, block inside function=2
@@ -250,7 +262,7 @@ typedef struct SymTable {
                                         // at end of scope = total bytes needed (frame size)
     struct SymTable* parent;            // pointer to the enclosing scope
                                         // NULL only for the global scope
-} SymTable;
+};
 
 // ────────────────────────────────────────────────────────────
 //  SECTION 6: FUNCTION DECLARATIONS (the API)
@@ -290,6 +302,22 @@ void      add_name      (NameNode** list, const char* name);
 void      print_table   (SymTable* tbl);
                          // prints the scope table in a formatted box
 
+// Function for iteratiing through all the fields of an entity and return the Symbol of that entity.
+//Symbol* lookup_field(const char* field_name, const char* entity_name);
+
+// Store the pointer of an entity's Symbol table (i.e., Scope)
+
+void register_entity_scope(SymTable* scope);
+
+// Search through the entity scopes to find the required entity using the name
+SymTable* find_entity_scope(const char* entity_name);
+
+void semantic_error(const char* msg);
+
+void check_field_access(char* obj_name, char* field_name);
+
+void check_method_access(char* obj_name, char* method_name);
+
 // ────────────────────────────────────────────────────────────
 //  SECTION 7: GLOBAL VARIABLES
 //  Declared here, defined in symtab.c
@@ -302,7 +330,11 @@ extern SymTable* current_scope;   // points to whatever scope we are currently i
                                   // changes as we enter/leave functions, blocks, etc.
                                   // parser actions always use current_scope
 
+extern SymTable* entity_scopes[MAX_ENTITIES];
+extern int entity_scope_count;
+
 extern DataType  current_decl_type; // NOT USED ANYMORE — kept for compatibility
                                     // was used for mid-rule actions (now removed)
 
+extern const char* dt_names[];
 #endif /* SYMTAB_H */

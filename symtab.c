@@ -15,6 +15,27 @@
 SymTable* global_scope      = NULL;       // set in main() before yyparse()
 SymTable* current_scope     = NULL;       // updated by parser as scopes open/close
 DataType  current_decl_type = DT_UNKNOWN; // legacy — no longer used actively
+//static Symbol* current_function = NULL;		// A global variable that is used for storing the function(a symbol right!!) so that we can know what is the expected 
+						// return type
+
+SymTable* entity_scopes[MAX_ENTITIES];
+int entity_scope_count = 0;
+
+void register_entity_scope(SymTable* scope){
+	if(entity_scope_count < MAX_ENTITIES){
+		entity_scopes[entity_scope_count++] = scope;
+	}
+}
+
+SymTable* find_entity_scope(const char* entity_name){
+	for(int i=0; i<entity_scope_count; i++){
+		if(strcmp(entity_scopes[i]->name, entity_name) == 0){
+			return entity_scopes[i];
+		}
+	}
+	return NULL;
+}
+
 
 // ────────────────────────────────────────────────────────────
 //  SECTION 1: HASH FUNCTION
@@ -156,12 +177,60 @@ void add_name(NameNode** list, const char* name) {
     }
 }
 
+//for checking the access modifier
+
+void semantic_error(const char *msg){
+	printf("[Error]: %s\n",msg);
+	exit(1);
+}
+
+void check_field_access(char* obj_name, char* field_name) {
+    // 1. lookup the object variable
+    Symbol* obj = lookup(current_scope, obj_name);
+    if (!obj)
+        semantic_error("Undeclared object");
+
+    // 2. lookup the field symbol means search in all scopes
+    Symbol* field = lookup(global_scope, field_name);
+    if (!field || field->kind != KIND_FIELD)
+        semantic_error("Field not found");
+
+    // 3. check private access
+    if (field->attr.field.access == ACC_PRIVATE) {
+        // current_scope->name holds current function/method/class name
+        if (strcmp(current_scope->name, field->attr.field.belongs_to) != 0) {
+            semantic_error("Private field access is not allowed");
+        }
+    }
+}
+
+void check_method_access(char* obj_name, char* method_name) {
+    // 1. lookup the object variable
+    Symbol* obj = lookup(current_scope, obj_name);
+    if (!obj)
+        semantic_error("Undeclared object");
+
+    // 2. lookup the method symbol
+    Symbol* method = lookup(global_scope, method_name);
+    if (!method || method->kind != KIND_METHOD)
+        semantic_error("Method not found");
+
+    // 3. check private access
+    if (method->attr.method.access == ACC_PRIVATE) {
+        if (strcmp(current_scope->name, method->attr.method.belongs_to) != 0) {
+            semantic_error("Private method access is not allowed");
+        }
+    }
+}
+
+	
+
 // ────────────────────────────────────────────────────────────
-//  SECTION 6: insert_symbol  ← THE MOST IMPORTANT FUNCTION
+//  SECTION 6: insert_symbol
 //
 //  Purpose: create a new Symbol and insert it into a scope.
 //  Called from parser actions whenever a new identifier is
-//  declared (variable, function, parameter, field, etc.)
+//  declared (variable, func/tion, parameter, field, etc.)
 //
 //  ── OFFSET CALCULATION (THE KEY LOGIC) ──────────────────
 //
@@ -246,16 +315,11 @@ Symbol* insert_symbol(SymTable* tbl, const char* name,
     sym->datatype    = dt;
     sym->scope_level = tbl->level;
     sym->size        = datatype_size(dt);
-    if(dt == DT_INT){
-	 //printf("Parent scope of %s is %s with code:%d\n", sym->name, tbl->parent->name, tbl->kind);
-    }	 
-    sym->offset      = tbl->next_offset;
+    //sym->offset      = tbl->next_offset;
     sym->is_initialized = 0;
 
-    /*if (kind == KIND_VAR   || kind == KIND_PARAM ||
-        kind == KIND_ARRAY || kind == KIND_FIELD)*/
-    tbl->next_offset += sym->size;
-    sym->is_initialized = 0;   // default: not initialized
+    //tbl->next_offset += sym->size;
+    //sym->is_initialized = 0;   // default: not initialized
 
     // ── Step 3: Assign size ─────────────────────────────────
     //
@@ -296,6 +360,9 @@ Symbol* insert_symbol(SymTable* tbl, const char* name,
             sym->size = datatype_size(dt);
             break;
         case KIND_ENTITY:
+	case KIND_OBJECT:
+	    sym->size = 0; // for now later we update
+	    break;
         case KIND_FUNCTION:
         case KIND_METHOD:
         case KIND_CONSTRUCTOR:
@@ -321,7 +388,9 @@ Symbol* insert_symbol(SymTable* tbl, const char* name,
     //   in the enclosing scope's memory block.
     sym->offset = tbl->next_offset;
 
-    tbl->next_offset += sym->size;  // advance by exact byte count
+    if(kind == KIND_VAR || kind == KIND_PARAM || kind == KIND_FIELD){
+	    tbl->next_offset += sym->size; 
+    }	// advance by exact byte count
     // KIND_ARRAY  → parser does: current_scope->next_offset = sym->offset + sym->size
     // Everything else → next_offset stays, offset stays as a marker only
 
@@ -414,12 +483,12 @@ Symbol* lookup(SymTable* tbl, const char* name) {
 static const char* kind_names[] = {
     "VAR","ARRAY","FUNCTION","METHOD",
     "FIELD","ENTITY","CONSTRUCTOR","PARAM",
-    "FOR","IF","ELIF","ELSE"
+    "FOR","IF","ELIF","ELSE", "OBJECT"
 };
 
-static const char* dt_names[] = {
+const char* dt_names[] = {
     "int","float","char","string","bool",
-    "void","entity","unknown"
+    "void","entity", "object", "unknown"
 };
 
 static const char* acc_names[] = { "---", "public", "private" };

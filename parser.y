@@ -39,6 +39,22 @@ int topPtr = -1;
 static int if_cnt  = 0;
 static int for_cnt = 0;
 
+
+// Utilities for handling array declaration along with initialization
+static int arr2d_rows = 0;
+static int arr2d_cols = 0;
+
+DataType last_expr_type = DT_UNKNOWN;
+DataType current_array_elem_type = DT_UNKNOWN;
+int array_type_errors = 0;
+
+// Utitilies for handling semantic errors in functions and function calls
+static Symbol* current_function = NULL;         // A global variable that is used for storing the function(a symbol right!!) so that we can know what is the expected
+                                                // return type
+static DataType call_arg_types[64];	// Array for storing the type of argument in each function call
+static int call_arg_count = 0;		// Store the number of arguments collected till now
+
+
 void pushIfLabels(char* falseLabel, char* endLabel) {
     topPtr++;
     falseStack[topPtr] = strdup(falseLabel);
@@ -135,6 +151,8 @@ char* foldConstants(char* op, char* arg1, char* arg2) {
 %type <sval>   expression arith_expr term factor assignment
 %type <sval>   logic_expr rel_expr bitwise_expr indexed_id
 %type <sval>   id_list   /* returns comma-separated name string */
+%type <ival>   expr_list array_init row_list 
+%type <ival> array_init2d
 
 %right ASSIGN ADD_ASSIGN SUB_ASSIGN
 %left  OR
@@ -182,7 +200,7 @@ statement
 entity_decl
     : ENTITY IDENTIFIER
         {
-            Symbol* sym = insert_symbol(current_scope, $2,
+            Symbol* sym = insert_symbol(global_scope, $2,
                                         KIND_ENTITY, DT_ENTITY, yylineno);
             if (sym) {
                 strncpy(sym->attr.entity.class_name, $2, 63);
@@ -194,6 +212,10 @@ entity_decl
             }
             emit("entity", $2, "", "");
             SymTable* es = create_scope(SCOPE_ENTITY, $2, current_scope);
+	    register_entity_scope(es);
+	    if(sym){
+		sym->attr.entity.scope = es;
+	    }
             current_scope = es;
         }
       LBRACE entity_body RBRACE
@@ -392,26 +414,57 @@ access_modifier
 object_decl
     : IDENTIFIER IDENTIFIER ASSIGN NEW IDENTIFIER LPAREN arg_list_opt RPAREN SEMICOLON
         {
+	    Symbol* class_sym = lookup(current_scope,$5);
+	    if(!class_sym || class_sym->kind != KIND_ENTITY){
+		char buf[256];
+	    	snprintf(buf, sizeof(buf),"line %d: Entity '%s' not found to instantiate",yylineno, $1);
+	    	semantic_error(buf);
+	    }
+	    Symbol* obj = insert_symbol(current_scope,$2,KIND_OBJECT,DT_OBJECT,yylineno);
+	    if(obj){
+		strncpy(obj->attr.object.entity_name,class_sym->attr.entity.class_name,63); //supports max class size as 63
+		obj->size = class_sym->attr.entity.class_size;
+		current_scope->next_offset = obj->offset + obj->size;
+	}
+		
             emit("new", $5, "", $2);
             emit("call_constr", $5, "", $2);
         }
     | type IDENTIFIER ASSIGN IDENTIFIER DOT IDENTIFIER LPAREN arg_list RPAREN SEMICOLON
         {
-            char* t = genVar();
-            emit("push_ptr", $4, "", "");
-            emit("call_method", $6, "", t);
-            emit("=", t, "", $2);
+	    	check_method_access($4,$6);
+	    	Symbol* msym = lookup(current_scope, $6);
+		if(msym && msym->kind == KIND_METHOD){
+			if(msym->attr.method.return_type != $1){
+				fprintf(stderr, "ERROR line %d: cannot assign result of method '%s' (returns %s) to '%s' (declared as %s).\n", yylineno, $6, dt_names[msym->attr.method.return_type], $2, dt_names[$1]);
+			}
+		}
+            	char* t = genVar();
+            	emit("push_ptr", $4, "", "");
+            	emit("call_method", $6, "", t);
+            	emit("=", t, "", $2);
         }
     ;
 
 arg_list_opt
     : arg_list
-    | /* empty */
+    | /* empty */ 	{ call_arg_count = 0; }     // Set the number of arguments being passed to zero
     ;
 
 arg_list
-    : arg_list COMMA expression { emit("arg", $3, "", ""); }
-    | expression                { emit("arg", $1, "", ""); }
+    : arg_list COMMA expression 
+	{
+		if(call_arg_count < 64){
+			call_arg_types[call_arg_count++] = last_expr_type;
+		} 
+		emit("arg", $3, "", ""); 
+	}
+    | expression                
+	{ 
+		call_arg_count = 0;
+		call_arg_types[call_arg_count++] = last_expr_type;
+		emit("arg", $1, "", ""); 
+	}
     ;
 
 /* ═══════════════════════════════════════════
@@ -465,6 +518,10 @@ var_decl
     /* int a = 10; */
     | type IDENTIFIER ASSIGN expression SEMICOLON
         {
+	    if(last_expr_type != DT_UNKNOWN && last_expr_type != $1){
+		//printf("==== $1 = %d and last_expr_type = %d\n", $1, last_expr_type);
+		fprintf(stderr, "ERROR hih line %d: Cannot initialize '%s' (declared as %s) with value of type %s.\n", yylineno, $2, dt_names[$1], dt_names[last_expr_type]);
+	    }
             emit("=", $4, "", $2);
             Symbol* sym = insert_symbol(current_scope, $2,
                                         KIND_VAR, $1, yylineno);
@@ -481,10 +538,11 @@ var_decl
     /* Dog d = expr; */
     | IDENTIFIER IDENTIFIER ASSIGN expression SEMICOLON
         {
-            emit("=", $4, "", $2);
-            Symbol* sym = insert_symbol(current_scope, $2,
-                                        KIND_VAR, DT_ENTITY, yylineno);
-            if (sym) sym->is_initialized = 1;
+		fprintf(stderr, "ERROR line %d: cannot initialize entity variable '%s' with value of type %s.\n", yylineno, $2, dt_names[last_expr_type]);
+		emit("=", $4, "", $2);
+		Symbol* sym = insert_symbol(current_scope, $2,
+						KIND_VAR, DT_ENTITY, yylineno);
+		if (sym) sym->is_initialized = 1;
         }
     ;
 
@@ -542,6 +600,7 @@ array_decl
                    position; now fix up size and advance next_offset      */
                 sym->size = datatype_size($1) * $5;
                 current_scope->next_offset = sym->offset + sym->size;
+		
             }
         }
     /* 2-D array:  int[][] mat[3][4];
@@ -563,25 +622,91 @@ array_decl
     /* 1-D array with initializer:  int[] arr = {1,2,3};
        Size unknown at parse time — left as element size,
        offset counter NOT advanced (size indeterminate).           */
-    | type SEQ1 IDENTIFIER ASSIGN array_init SEMICOLON
+    | type SEQ1 IDENTIFIER ASSIGN 
+	{
+		current_array_elem_type = $1;
+		array_type_errors = 0;
+	}
+	array_init SEMICOLON
         {
             Symbol* sym = insert_symbol(current_scope, $3,
                                         KIND_ARRAY, $1, yylineno);
             if (sym) {
-                sym->attr.array.dimensions     = 1;
+                sym->attr.array.dimensions = 1;
                 sym->attr.array.is_initialized = 1;
-                /* size and offset will be determined at runtime */
+		sym->attr.array.dim1 = $6;	// the token or symbol array_init returns the number of elements present in the list
+		sym->attr.array.dim2 = 0;
+		sym->size = datatype_size($1) * $6;
+		current_scope->next_offset = sym->offset + sym->size;
             }
+		current_array_elem_type = DT_UNKNOWN;
         }
+     | type SEQ2 IDENTIFIER ASSIGN 
+	{
+		current_array_elem_type = $1;
+		array_type_errors = 0;
+		arr2d_rows = 0;
+		arr2d_cols = 0;
+	}
+	array_init2d SEMICOLON
+	{
+		Symbol* sym = insert_symbol(current_scope, $3, KIND_ARRAY, $1, yylineno);
+		if(sym) {
+			sym->attr.array.dimensions = 2;
+			sym->attr.array.dim1 = arr2d_rows;
+			sym->attr.array.dim2 = arr2d_cols;
+			sym->attr.array.is_initialized = 1;
+			sym->size = datatype_size($1) * arr2d_rows * arr2d_cols;
+			current_scope->next_offset = sym->offset + sym->size;
+		}
+		current_array_elem_type = DT_UNKNOWN;
+	} 
     ;
 
 array_init
-    : LBRACE expr_list RBRACE
+    : LBRACE expr_list RBRACE { $$ = $2; }
     ;
 
+array_init2d:
+	    LBRACE row_list RBRACE { $$ = $2; }
+	;
+
+row_list:
+	row_list COMMA LBRACE expr_list RBRACE 
+	{ 
+		arr2d_rows++;
+		arr2d_cols = $4;
+		$$ = $1 + $4; 
+	}
+	| LBRACE expr_list RBRACE 	
+	{ 
+		arr2d_rows = 1;
+		arr2d_cols = $2;
+		$$ = $2; 
+	}
+	;
+
 expr_list
-    : expr_list COMMA expression
+    : expr_list COMMA expression 
+	{
+		if(current_array_elem_type != DT_UNKNOWN && last_expr_type != DT_UNKNOWN && last_expr_type != current_array_elem_type){
+			{
+				fprintf(stderr, "ERROR line %d: array initializer type mismatch - expected %s, got %s\n", yylineno, dt_names[current_array_elem_type], dt_names[last_expr_type]);
+				array_type_errors++;
+			} 
+		}
+		$$ = $1 + 1;
+	}
     | expression
+	{
+                if(current_array_elem_type != DT_UNKNOWN && last_expr_type != DT_UNKNOWN && last_expr_type != current_array_elem_type){
+                        {
+                                fprintf(stderr, "ERROR line %d: array initializer type mismatch - expected %s, got %s\n", yylineno, dt_names[current_array_elem_type], dt_names[last_expr_type]);
+                                array_type_errors++;
+                        }
+        	}
+		$$ = 1;
+	}
     ;
 
 /* ═══════════════════════════════════════════
@@ -600,6 +725,7 @@ function_decl
                 snprintf(sym->attr.func.entry_label, 32, "func_%s", $3);
                 /* size stays 0 — functions occupy no slot in parent scope */
             }
+	    current_function = sym;	// Storing the current function we are in when we are entering the function declaration
             emit("func", $3, "", "");
             SymTable* fs = create_scope(SCOPE_FUNCTION, $3, current_scope);
             current_scope = fs;
@@ -611,6 +737,7 @@ function_decl
                The frame size is visible in the function's own scope table. */
             print_table(current_scope);
             current_scope = current_scope->parent;
+	    current_function = NULL; 	// Clearing the variable when we are at the end of the current function declaration 
             emit("endfunc", "", "", "");
         }
 
@@ -626,6 +753,7 @@ function_decl
                 snprintf(sym->attr.func.entry_label, 32, "func_%s", $3);
                 /* size stays 0 */
             }
+	    current_function = sym; 	// Storing the current function symbol being parsed to handle correct type of value(or variable) being returned
             emit("func", $3, "", "");
             SymTable* fs = create_scope(SCOPE_FUNCTION, $3, current_scope);
             current_scope = fs;
@@ -634,6 +762,7 @@ function_decl
         {
             print_table(current_scope);
             current_scope = current_scope->parent;
+	    current_function = NULL;
             emit("endfunc", "", "", "");
         }
 
@@ -712,8 +841,32 @@ param
    RETURN
    ═══════════════════════════════════════════ */
 return_stmt
-    : RETURN expression SEMICOLON { emit("return", $2, "", ""); }
-    | RETURN SEMICOLON            { emit("return", "", "", ""); }
+    : RETURN expression SEMICOLON 
+	{ 
+		if(current_function) {
+			DataType expected = current_function->attr.func.return_type;
+			if(expected == DT_VOID){
+				fprintf(stderr, "ERROR line %d: void function '%s' cannot return a value.\n", yylineno, current_function->name);
+			}
+			else if(last_expr_type != DT_UNKNOWN && last_expr_type != expected){
+				fprintf(stderr, "ERROR line %d: function '%s' expected to return %s"
+					" but returns %s", yylineno, current_function->name, dt_names[expected], dt_names[last_expr_type]); 
+			}
+		}
+		emit("return", $2, "", ""); 
+	}
+    | RETURN SEMICOLON            
+	{
+		if(current_function){
+			DataType expected = current_function->attr.func.return_type;
+			if(expected != DT_VOID){
+				fprintf(stderr, "ERROR line %d: Function '%s' is non-void (returns %s)"
+					" but has empty return.\n", yylineno, current_function->name, dt_names[expected]);
+			}
+		} 
+		emit("return", "", "", ""); 
+	}
+
     | RETURN error SEMICOLON
         {
             printf("Invalid return statement at line %d\n", yylineno);
@@ -752,17 +905,94 @@ indexed_id
 
 assignment
     : IDENTIFIER ASSIGN assignment
-        { emit("=", $3, "", $1); $$ = strdup($1); }
+        {
+		// Checking the type before assignment
+		Symbol* lhs = lookup(current_scope, $1);
+		if(lhs && last_expr_type != DT_UNKNOWN){
+			if(lhs->datatype != last_expr_type){
+				fprintf(stderr, "ERROR line %d: cannot assign %s to '%s' "
+				"(declared as %s).\n", yylineno, dt_names[last_expr_type], $1, dt_names[lhs->datatype]);
+			}
+		} 
+		emit("=", $3, "", $1); 
+		$$ = strdup($1); 
+	}
     | IDENTIFIER ADD_ASSIGN assignment
-        { char* t = genVar(); emit("+", $1, $3, t); emit("=", t, "", $1); $$ = t; }
+        { 
+		Symbol* lhs = lookup(current_scope, $1);
+		if(lhs && last_expr_type != DT_UNKNOWN && lhs->datatype != last_expr_type){
+			fprintf(stderr, "ERROR line %d: type mismatch in '+=' : '%s' is %s but RHS is %s.\n", yylineno, $1, dt_names[lhs->datatype], dt_names[last_expr_type]);
+		}
+		char* t = genVar(); 
+		emit("+", $1, $3, t); 
+		emit("=", t, "", $1); 
+		$$ = t; 
+	}
     | IDENTIFIER SUB_ASSIGN assignment
-        { char* t = genVar(); emit("-", $1, $3, t); emit("=", t, "", $1); $$ = t; }
+        { 	
+		Symbol* lhs = lookup(current_scope, $1);
+		if(lhs && last_expr_type != DT_UNKNOWN && lhs->datatype != last_expr_type){
+			fprintf(stderr, "ERROR line %d: type mismatch in '-=' : '%s' is %s but RHS is %s.\n", yylineno, $1, dt_names[lhs->datatype], dt_names[last_expr_type]);
+		}
+			
+		char* t = genVar(); 
+		emit("-", $1, $3, t); 
+		emit("=", t, "", $1); 	
+		$$ = t; 
+	}
     | indexed_id ASSIGN assignment
         { $$ = $3; }
     | THIS DOT IDENTIFIER ASSIGN assignment
-        { emit("set_field", "this", $3, $5); $$ = $5; }
+        { //check_field_access("this", $3); 
+		//Symbol* method_sym = lookup(current_scope, current_scope->name);
+		const char* entity_name = NULL;
+		if(current_function && current_function->kind == KIND_METHOD){
+			entity_name = current_function->attr.method.belongs_to;
+		}
+		if(entity_name){
+			Symbol* entity_sym = lookup(global_scope, entity_name);
+			if(entity_sym && entity_sym->kind == KIND_ENTITY){
+				Symbol* field = lookup(global_scope, $3);
+				while(field){
+					if(field->kind == KIND_FIELD && strcmp(field->attr.field.belongs_to, entity_name) == 0){
+						break;
+					}
+				field = field->next;
+				}
+				if(field && last_expr_type != DT_UNKNOWN && field->datatype != last_expr_type){
+					fprintf(stderr, "ERROR line %d: Cannot assign %s to field '%s.%s' (declared as %s).\n", yylineno, dt_names[last_expr_type], entity_name, $3, dt_names[field->datatype]);
+				}
+			}
+		}	
+		emit("set_field", "this", $3, $5); 
+		$$ = $5; 
+	}
     | IDENTIFIER DOT IDENTIFIER ASSIGN assignment
-        { emit("set_field", $1, $3, $5); $$ = $5; }
+        { 
+		check_field_access($1,$3); 
+		Symbol* obj = lookup(current_scope, $1);
+		if(!obj || obj->kind != KIND_OBJECT){
+			fprintf(stderr, "ERROR line %d: '%s' is not an object.\n", yylineno, $1);
+		}
+		else{
+			const char* entity_name = obj->attr.object.entity_name;
+			SymTable* ent_scope = find_entity_scope(entity_name);
+			if(!ent_scope){
+				fprintf(stderr, "ERROR line %d: Entity %s never defined.\n", yylineno, entity_name);
+			}
+			else{
+				Symbol* field = lookup_local(ent_scope, $3);
+				if(!field || field->kind != KIND_FIELD){
+					fprintf(stderr, "ERROR line %d: '%s' is not a field of entity '%s'.\n", yylineno, $3, entity_name);
+				}
+				else if(last_expr_type != DT_UNKNOWN && field->datatype != last_expr_type){
+					fprintf(stderr, "ERROR line %d: cannot assign %s to '%s.%s' (declared as %s).\n", yylineno, dt_names[last_expr_type], entity_name, $3, dt_names[field->datatype]);
+				}
+			}
+		}
+		emit("set_field", $1, $3, $5); 
+		$$ = $5; 
+	}
     | logic_expr { $$ = $1; }
     ;
 
@@ -878,15 +1108,119 @@ term
 
 factor
     : IDENTIFIER LPAREN arg_list_opt RPAREN
-        { char* t = genVar(); emit("call", $1, "", t); $$ = t; }
-    | IDENTIFIER      { $$ = strdup($1); }
+        { 
+		char* t = genVar(); 
+		Symbol* fsym = lookup(current_scope, $1);
+		if(!fsym) {
+			fprintf(stderr, 
+				"ERROR line %d: call to undeclared function '%s'.\n",yylineno, $1);
+			last_expr_type = DT_UNKNOWN;
+		}
+		else if(fsym->kind != KIND_FUNCTION && fsym->kind != KIND_METHOD){
+			fprintf(stderr, "ERROR line %d: '%s' is not a function.\n", yylineno, $1);
+			last_expr_type = DT_UNKNOWN;
+		}
+		else{
+			ParamNode* ep = (fsym->kind == KIND_FUNCTION) ? fsym->attr.func.param_list : fsym->attr.method.param_list;
+			int expected_count = (fsym->kind == KIND_FUNCTION) ? fsym->attr.func.param_count : fsym->attr.method.param_count;
+			if(call_arg_count != expected_count) {
+				fprintf(stderr, "ERROR line %d:, function '%s' expects %d arg(s), got %d.\n", yylineno, $1, expected_count, call_arg_count);
+			}
+			else{
+				for(int i = 0; i < call_arg_count && ep; i++, ep=ep->next) {
+					if(call_arg_types[i] != DT_UNKNOWN && call_arg_types[i] != ep->datatype) {
+						fprintf(stderr, "ERROR line %d: function '%s' argument %d - expected %s, but got %s.\n", yylineno, $1, i+1, dt_names[ep->datatype], dt_names[call_arg_types[i]]);
+					}
+				}
+			}
+			last_expr_type = (fsym->kind == KIND_FUNCTION) ? fsym->attr.func.return_type : fsym->attr.method.return_type;
+		}
+		emit("call", $1, "", t);
+		$$ = t; 
+	}
+    | IDENTIFIER DOT IDENTIFIER
+    {
+        char* t = genVar();
+        last_expr_type = DT_UNKNOWN;  /* safe default */
+
+        /* Step 1: look up the object variable */
+        Symbol* obj = lookup(current_scope, $1);
+        if (!obj) {
+            fprintf(stderr,
+                "ERROR line %d: undeclared identifier '%s'.\n",
+                yylineno, $1);
+        }
+        else if (obj->kind != KIND_OBJECT) {
+            fprintf(stderr,
+                "ERROR line %d: '%s' is not an object.\n",
+                yylineno, $1);
+        }
+        else {
+            /* Step 2: get entity name safely */
+            const char* entity_name = obj->attr.object.entity_name;
+            if (!entity_name || entity_name[0] == '\0') {
+                fprintf(stderr,
+                    "ERROR line %d: object '%s' has no entity type.\n",
+                    yylineno, $1);
+            }
+            else {
+                /* Step 3: look up the entity symbol in global scope */
+                Symbol* cls = lookup(global_scope, entity_name);
+                if (!cls || cls->kind != KIND_ENTITY) {
+                    fprintf(stderr,
+                        "ERROR line %d: entity '%s' not defined.\n",
+                        yylineno, entity_name);
+                }
+                else {
+                    /* Step 4: get the entity's scope (stored in EntityAttr) */
+                    SymTable* escope = cls->attr.entity.scope;
+                    if (!escope) {
+                        fprintf(stderr,
+                            "ERROR line %d: entity '%s' has no scope.\n",
+                            yylineno, entity_name);
+                    }
+                    else {
+                        /* Step 5: look up the field inside entity scope */
+                        Symbol* field = lookup_local(escope, $3);
+                        if (!field || field->kind != KIND_FIELD) {
+                            fprintf(stderr,
+                                "ERROR line %d: '%s' is not a field of '%s'.\n",
+                                yylineno, $3, entity_name);
+                        }
+                        else {
+                            /* Step 6: check private access */
+                            if (field->attr.field.access == ACC_PRIVATE &&
+                                strcmp(current_scope->name, entity_name) != 0) {
+                                fprintf(stderr,
+                                    "ERROR line %d: field '%s' of '%s' is private.\n",
+                                    yylineno, $3, entity_name);
+                            }
+                            else {
+                                last_expr_type = field->datatype;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        emit("get_field", $1, $3, t);
+        $$ = t;
+    }
+    | IDENTIFIER      
+
+	{ 
+		Symbol* s = lookup(current_scope, $1);
+		last_expr_type = s ? s->datatype : DT_UNKNOWN;
+		$$ = strdup($1); 
+	}
     | indexed_id      { $$ = $1; }
-    | INT_LITERAL     { char b[20]; sprintf(b, "%d",   $1); $$ = strdup(b); }
-    | FLOAT_LITERAL   { char b[20]; sprintf(b, "%f",   $1); $$ = strdup(b); }
-    | CHAR_LITERAL    { char b[20]; sprintf(b, "'%c'", $1); $$ = strdup(b); }
-    | STRING_LITERAL  { $$ = strdup($1); }
-    | TRUE            { $$ = strdup("1"); }
-    | FALSE           { $$ = strdup("0"); }
+    | INT_LITERAL     { char b[20]; sprintf(b, "%d",   $1); $$ = strdup(b); last_expr_type = DT_INT; }
+    | FLOAT_LITERAL   { char b[20]; sprintf(b, "%f",   $1); $$ = strdup(b);  last_expr_type = DT_FLOAT; }
+    | CHAR_LITERAL    { char b[20]; sprintf(b, "'%c'", $1); $$ = strdup(b); last_expr_type = DT_CHAR; }
+    | STRING_LITERAL  { $$ = strdup($1);  last_expr_type = DT_STRING; }
+    | TRUE            { $$ = strdup("1"); last_expr_type = DT_BOOL; }
+    | FALSE           { $$ = strdup("0"); last_expr_type = DT_BOOL; }
     | LPAREN expression RPAREN { $$ = $2; }
     ;
 
@@ -1045,10 +1379,13 @@ var_decl_no_semi
         }
     | type IDENTIFIER ASSIGN expression
         {
-            emit("=", $4, "", $2);
-            Symbol* sym = insert_symbol(current_scope, $2,
+	    	if(last_expr_type != DT_UNKNOWN && last_expr_type != $1){
+			fprintf(stderr, "ERROR line %d: Cannot initialize '%s' (declared as %s) with value of type %s.\n", yylineno, $2, dt_names[$1], dt_names[last_expr_type]);
+		}
+            	emit("=", $4, "", $2);
+           	Symbol* sym = insert_symbol(current_scope, $2,
                                         KIND_VAR, $1, yylineno);
-            if (sym) sym->is_initialized = 1;
+            	if (sym) sym->is_initialized = 1;
         }
     ;
 
@@ -1057,7 +1394,13 @@ var_decl_no_semi
    ═══════════════════════════════════════════ */
 io_stmt
     : IDENTIFIER ASSIGN FEED LPAREN STRING_LITERAL RPAREN SEMICOLON
-        { emit("in", "", "", $1); }
+        {
+		Symbol* var = lookup(current_scope, $1);
+		if(!var){
+			fprintf(stderr, "ERROR line %d: assignment to undeclared variable '%s'.\n", yylineno, $1);
+		}
+		emit("in", "", "", $1); 
+	}
     | type IDENTIFIER ASSIGN FEED LPAREN STRING_LITERAL RPAREN SEMICOLON
         { emit("in", "", "", $2); }
     | SHOW LPAREN expression RPAREN SEMICOLON
