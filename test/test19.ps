@@ -1,12 +1,16 @@
 Entity A {
+	A(){
+	}
 	private int x;
-	private int _func f(){
+	public int y;
+	public int _func f(){
 		this.x = 10;
 		return x;
 	}
 }
 
 A obj = new A();
-obj.x = 10;
+int a;
+obj.y = 10;
 
-//int x = obj.f();
+int x = obj.f();

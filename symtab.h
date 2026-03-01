@@ -21,6 +21,7 @@
 
 // SymKind — what KIND of symbol is this table entry?
 // Every symbol in the table has exactly one of these.
+typedef struct SymTable SymTable;
 typedef enum {
     KIND_VAR,         // 0 — a plain variable:        int x;
     KIND_ARRAY,       // 1 — an array:                int[] arr[10];
@@ -147,6 +148,7 @@ typedef struct {
                                      // = sum of all field sizes
     char      parent_class[64];      // name of parent class if inheritance (stretch goal)
                                      // empty string "" if no parent
+    SymTable* scope;
 } EntityAttr;
 
 // ForAttr — extra info for KIND_FOR symbols
@@ -297,6 +299,9 @@ void      add_name      (NameNode** list, const char* name);
 void      print_table   (SymTable* tbl);
                          // prints the scope table in a formatted box
 
+void	 check_field_access (char* obj_name, char* field_name,int lineno);
+void 	 check_method_access (char* obj_name, char* method_name,int lineno);
+void	 semantic_error (const char* msg);
 // ────────────────────────────────────────────────────────────
 //  SECTION 7: GLOBAL VARIABLES
 //  Declared here, defined in symtab.c

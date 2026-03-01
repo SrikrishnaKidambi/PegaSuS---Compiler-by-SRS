@@ -163,41 +163,112 @@ void semantic_error(const char *msg){
 	exit(1);
 }
 
-void check_field_access(char* obj_name, char* field_name) {
-    // 1. lookup the object variable
+void check_field_access(char* obj_name, char* field_name, int lineno) {
+    char msg[256];
+
+    // 1. lookup object variable
     Symbol* obj = lookup(current_scope, obj_name);
-    if (!obj)
-        semantic_error("Undeclared object");
+    if (!obj) {
+        snprintf(msg, sizeof(msg),
+                 "line %d: Undeclared object '%s'", lineno, obj_name);
+        semantic_error(msg);
+        return;
+    }
 
-    // 2. lookup the field symbol means search in all scopes
-    Symbol* field = lookup(global_scope, field_name);
-    if (!field || field->kind != KIND_FIELD)
-        semantic_error("Field not found");
+    // 2. get class name from object
+    char* class_name = obj->attr.object.entity_name;
 
-    // 3. check private access
-    if (field->attr.field.access == ACC_PRIVATE) {
-        // current_scope->name holds current function/method/class name
-        if (strcmp(current_scope->name, field->attr.field.belongs_to) != 0) {
-            semantic_error("Private field access is not allowed");
+    // 3. lookup class symbol
+    Symbol* cls = lookup(global_scope, class_name);
+    if (!cls || cls->kind != KIND_ENTITY) {
+        snprintf(msg, sizeof(msg),
+                 "line %d: Class '%s' not found", lineno, class_name);
+        semantic_error(msg);
+        return;
+    }
+
+    // 4. find field inside class
+    NameNode* f = cls->attr.entity.fields_list;
+    Symbol* field_sym = NULL;
+
+    while (f) {
+        if (strcmp(f->name, field_name) == 0) {
+            field_sym = lookup(cls->attr.entity.scope, field_name);
+            break;
+        }
+        f = f->next;
+    }
+
+    if (!field_sym || field_sym->kind != KIND_FIELD) {
+        snprintf(msg, sizeof(msg),
+                 "line %d: Field '%s' not found in class '%s'",
+                 lineno, field_name, class_name);
+        semantic_error(msg);
+        return;
+    }
+
+    // 5. check private access
+    if (field_sym->attr.field.access == ACC_PRIVATE) {
+        if (strcmp(current_scope->name, class_name) != 0) {
+            snprintf(msg, sizeof(msg),
+                     "line %d: Private field '%s' of class '%s' is not accessible",
+                     lineno, field_name, class_name);
+            semantic_error(msg);
         }
     }
 }
 
-void check_method_access(char* obj_name, char* method_name) {
-    // 1. lookup the object variable
+void check_method_access(char* obj_name, char* method_name, int lineno) {
+    char msg[256];
+
+    // 1. lookup object variable
     Symbol* obj = lookup(current_scope, obj_name);
-    if (!obj)
-        semantic_error("Undeclared object");
+    if (!obj) {
+        snprintf(msg, sizeof(msg),
+                 "line %d: Undeclared object '%s'", lineno, obj_name);
+        semantic_error(msg);
+        return;
+    }
 
-    // 2. lookup the method symbol
-    Symbol* method = lookup(global_scope, method_name);
-    if (!method || method->kind != KIND_METHOD)
-        semantic_error("Method not found");
+    // 2. get class name
+    char* class_name = obj->attr.object.entity_name;
 
-    // 3. check private access
-    if (method->attr.method.access == ACC_PRIVATE) {
-        if (strcmp(current_scope->name, method->attr.method.belongs_to) != 0) {
-            semantic_error("Private method access is not allowed");
+    // 3. lookup class symbol
+    Symbol* cls = lookup(global_scope, class_name);
+    if (!cls || cls->kind != KIND_ENTITY) {
+        snprintf(msg, sizeof(msg),
+                 "line %d: Class '%s' not found", lineno, class_name);
+        semantic_error(msg);
+        return;
+    }
+
+    // 4. find method inside class
+    NameNode* m = cls->attr.entity.methods_list;
+    Symbol* method_sym = NULL;
+
+    while (m) {
+        if (strcmp(m->name, method_name) == 0) {
+            method_sym = lookup(cls->attr.entity.scope, method_name);
+            break;
+        }
+        m = m->next;
+    }
+
+    if (!method_sym || method_sym->kind != KIND_METHOD) {
+        snprintf(msg, sizeof(msg),
+                 "line %d: Method '%s' not found in class '%s'",
+                 lineno, method_name, class_name);
+        semantic_error(msg);
+        return;
+    }
+
+    // 5. check private access
+    if (method_sym->attr.method.access == ACC_PRIVATE) {
+        if (strcmp(current_scope->name, class_name) != 0) {
+            snprintf(msg, sizeof(msg),
+                     "line %d: Private method '%s' of class '%s' is not accessible",
+                     lineno, method_name, class_name);
+            semantic_error(msg);
         }
     }
 }
@@ -291,15 +362,15 @@ Symbol* insert_symbol(SymTable* tbl, const char* name,
     sym->datatype    = dt;
     sym->scope_level = tbl->level;
     sym->size        = datatype_size(dt);
-    if(dt == DT_INT){
-	 //printf("Parent scope of %s is %s with code:%d\n", sym->name, tbl->parent->name, tbl->kind);
-    }	 
+    if(strcmp(sym->name, "x") == 0){
+	    printf("Found that the current offset is %d\n", tbl->next_offset);
+    }
     sym->offset      = tbl->next_offset;
     sym->is_initialized = 0;
 
     /*if (kind == KIND_VAR   || kind == KIND_PARAM ||
         kind == KIND_ARRAY || kind == KIND_FIELD)*/
-    tbl->next_offset += sym->size;
+    //tbl->next_offset += sym->size;
     //sym->is_initialized = 0;   // default: not initialized
 
     // ── Step 3: Assign size ─────────────────────────────────
@@ -351,6 +422,8 @@ Symbol* insert_symbol(SymTable* tbl, const char* name,
         case KIND_IF:
         case KIND_ELIF:
         case KIND_ELSE:
+	    sym->size = 0;
+	    break;
         default:
             sym->size = 0;   /* size set/updated by parser after body parsed */
             break;
@@ -467,7 +540,7 @@ static const char* kind_names[] = {
 
 static const char* dt_names[] = {
     "int","float","char","string","bool",
-    "void","entity","unknown"
+    "void","entity","object","unknown"
 };
 
 static const char* acc_names[] = { "---", "public", "private" };
@@ -597,7 +670,13 @@ void print_table(SymTable* tbl) {
                          s->attr.ctor.param_count,
                          s->attr.ctor.entry_label);
                 break;
-
+	    case KIND_OBJECT:
+    		snprintf(extra, 512, "dt=%s class=%s size=%d offset=%d",
+             		dt_names[s->datatype],
+             		s->attr.object.entity_name,
+             		s->size,
+             		s->offset);
+    		break;
             case KIND_PARAM:
             case KIND_VAR:
                 // Show: whether it was initialized at declaration

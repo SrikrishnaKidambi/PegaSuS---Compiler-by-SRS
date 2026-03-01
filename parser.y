@@ -155,6 +155,7 @@ entity_decl
             }
             emit("entity", $2, "", "");
             SymTable* es = create_scope(SCOPE_ENTITY, $2, current_scope);
+	    sym->attr.entity.scope = es; 
             current_scope = es;
         }
       LBRACE entity_body RBRACE
@@ -354,7 +355,7 @@ object_decl
     : IDENTIFIER IDENTIFIER ASSIGN NEW IDENTIFIER LPAREN arg_list_opt RPAREN SEMICOLON
         {
 	    Symbol* class_sym = lookup(current_scope,$5);
-	    if(!class_sym || class_sym != KIND_ENTITY){
+	    if(!class_sym || class_sym->kind != KIND_ENTITY){
 		char buf[256];
 	    	snprintf(buf, sizeof(buf),"line %d: Entity '%s' not found to instantiate",yylineno, $1);
 	    	semantic_error(buf);
@@ -363,15 +364,20 @@ object_decl
 	    if(obj){
 		strncpy(obj->attr.object.entity_name,class_sym->attr.entity.class_name,63); //supports max class size as 63
 		obj->size = class_sym->attr.entity.class_size;
-		current_scope->next_offset = obj->offset + obj->size;
+		current_scope->next_offset += obj->size;
 	}
 		
             emit("new", $5, "", $2);
             emit("call_constr", $5, "", $2);
         }
-    | type IDENTIFIER ASSIGN IDENTIFIER DOT IDENTIFIER LPAREN arg_list RPAREN SEMICOLON
+    | type IDENTIFIER ASSIGN IDENTIFIER DOT IDENTIFIER LPAREN arg_list_opt RPAREN SEMICOLON
         {
-	    check_method_access($4,$6);
+	    check_method_access($4,$6,yylineno);
+
+	    Symbol* sym = insert_symbol(current_scope,$2, KIND_VAR,$1,yylineno);
+	    if(sym){
+		sym->is_initialized = 1;
+	    }
             char* t = genVar();
             emit("push_ptr", $4, "", "");
             emit("call_method", $6, "", t);
@@ -738,7 +744,7 @@ assignment
         { //check_field_access("this", $3); 
 	emit("set_field", "this", $3, $5); $$ = $5; }
     | IDENTIFIER DOT IDENTIFIER ASSIGN assignment
-        { check_field_access($1,$3); 
+        { check_field_access($1,$3,yylineno); 
 	emit("set_field", $1, $3, $5); $$ = $5; }
     | logic_expr { $$ = $1; }
     ;
