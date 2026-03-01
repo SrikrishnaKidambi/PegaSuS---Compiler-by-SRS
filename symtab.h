@@ -13,6 +13,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define MAX_ENTITIES 256
+
 // ────────────────────────────────────────────────────────────
 //  SECTION 1: ENUMERATIONS
 //  Enums give human-readable names to integer constants.
@@ -138,6 +140,8 @@ typedef struct {
     char      entity_name[64];
 } ObjectAttr;
 
+typedef struct SymTable SymTable;
+
 // EntityAttr — extra info for KIND_ENTITY symbols (the class itself)
 typedef struct {
     char      class_name[64];        // name of the class, e.g. "Dog"
@@ -246,7 +250,7 @@ typedef enum {
 // Symbols that hash to the same bucket form a linked list.
 #define HASH_SIZE 64
 
-typedef struct SymTable {
+struct SymTable {
     ScopeKind        kind;              // what kind of scope this is
     char             name[64];          // human-readable name, e.g. "global", "add", "Dog"
     int              level;             // nesting depth: global=0, function=1, block inside function=2
@@ -259,7 +263,7 @@ typedef struct SymTable {
                                         // at end of scope = total bytes needed (frame size)
     struct SymTable* parent;            // pointer to the enclosing scope
                                         // NULL only for the global scope
-} SymTable;
+};
 
 // ────────────────────────────────────────────────────────────
 //  SECTION 6: FUNCTION DECLARATIONS (the API)
@@ -302,6 +306,16 @@ void      print_table   (SymTable* tbl);
 void	 check_field_access (char* obj_name, char* field_name,int lineno);
 void 	 check_method_access (char* obj_name, char* method_name,int lineno);
 void	 semantic_error (const char* msg);
+// Function for iteratiing through all the fields of an entity and return the Symbol of that entity.
+//Symbol* lookup_field(const char* field_name, const char* entity_name);
+
+// Store the pointer of an entity's Symbol table (i.e., Scope)
+
+void register_entity_scope(SymTable* scope);
+
+// Search through the entity scopes to find the required entity using the name
+SymTable* find_entity_scope(const char* entity_name);
+
 // ────────────────────────────────────────────────────────────
 //  SECTION 7: GLOBAL VARIABLES
 //  Declared here, defined in symtab.c
@@ -314,7 +328,11 @@ extern SymTable* current_scope;   // points to whatever scope we are currently i
                                   // changes as we enter/leave functions, blocks, etc.
                                   // parser actions always use current_scope
 
+extern SymTable* entity_scopes[MAX_ENTITIES];
+extern int entity_scope_count;
+
 extern DataType  current_decl_type; // NOT USED ANYMORE — kept for compatibility
                                     // was used for mid-rule actions (now removed)
 
+extern const char* dt_names[];
 #endif /* SYMTAB_H */

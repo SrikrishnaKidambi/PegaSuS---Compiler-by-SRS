@@ -15,6 +15,27 @@
 SymTable* global_scope      = NULL;       // set in main() before yyparse()
 SymTable* current_scope     = NULL;       // updated by parser as scopes open/close
 DataType  current_decl_type = DT_UNKNOWN; // legacy — no longer used actively
+//static Symbol* current_function = NULL;		// A global variable that is used for storing the function(a symbol right!!) so that we can know what is the expected 
+						// return type
+
+SymTable* entity_scopes[MAX_ENTITIES];
+int entity_scope_count = 0;
+
+void register_entity_scope(SymTable* scope){
+	if(entity_scope_count < MAX_ENTITIES){
+		entity_scopes[entity_scope_count++] = scope;
+	}
+}
+
+SymTable* find_entity_scope(const char* entity_name){
+	for(int i=0; i<entity_scope_count; i++){
+		if(strcmp(entity_scopes[i]->name, entity_name) == 0){
+			return entity_scopes[i];
+		}
+	}
+	return NULL;
+}
+
 
 // ────────────────────────────────────────────────────────────
 //  SECTION 1: HASH FUNCTION
@@ -272,6 +293,9 @@ void check_method_access(char* obj_name, char* method_name, int lineno) {
         }
     }
 }
+
+	
+
 // ────────────────────────────────────────────────────────────
 //  SECTION 6: insert_symbol
 //
@@ -442,7 +466,9 @@ Symbol* insert_symbol(SymTable* tbl, const char* name,
     //   in the enclosing scope's memory block.
     sym->offset = tbl->next_offset;
 
-    tbl->next_offset += sym->size;  // advance by exact byte count
+    if(kind == KIND_VAR || kind == KIND_PARAM || kind == KIND_FIELD){
+	    tbl->next_offset += sym->size; 
+    }	// advance by exact byte count
     // KIND_ARRAY  → parser does: current_scope->next_offset = sym->offset + sym->size
     // Everything else → next_offset stays, offset stays as a marker only
 
@@ -535,12 +561,12 @@ Symbol* lookup(SymTable* tbl, const char* name) {
 static const char* kind_names[] = {
     "VAR","ARRAY","FUNCTION","METHOD",
     "FIELD","ENTITY","CONSTRUCTOR","PARAM",
-    "FOR","IF","ELIF","ELSE"
+    "FOR","IF","ELIF","ELSE", "OBJECT"
 };
 
-static const char* dt_names[] = {
+const char* dt_names[] = {
     "int","float","char","string","bool",
-    "void","entity","object","unknown"
+    "void","entity", "object", "unknown"
 };
 
 static const char* acc_names[] = { "---", "public", "private" };
