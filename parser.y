@@ -9,6 +9,7 @@ void yyerror(const char *s);
 extern FILE *yyin;
 extern int yylineno;
 extern char* yytext;
+// Add near your other globals at the top of parser.y
 
 typedef struct {
     char op[20];
@@ -43,6 +44,8 @@ static int for_cnt = 0;
 // Utilities for handling array declaration along with initialization
 static int arr2d_rows = 0;
 static int arr2d_cols = 0;
+static char arr_init_vals[256][32];
+static int  arr_init_count = 0;
 
 DataType last_expr_type = DT_UNKNOWN;
 DataType current_array_elem_type = DT_UNKNOWN;
@@ -640,11 +643,26 @@ array_decl
             if (sym) {
                 sym->attr.array.dimensions = 1;
                 sym->attr.array.is_initialized = 1;
-		sym->attr.array.dim1 = $6;	// the token or symbol array_init returns the number of elements present in the list
-		sym->attr.array.dim2 = 0;
-		sym->size = datatype_size($1) * $6;
-		current_scope->next_offset = sym->offset + sym->size;
+                sym->attr.array.dim1 = $6;
+                sym->attr.array.dim2 = 0;
+                sym->size = datatype_size($1) * $6;
+                current_scope->next_offset = sym->offset + sym->size;
+                sym->attr.array.init_count = arr_init_count;
+                for (int i = 0; i < arr_init_count; i++)
+                    strncpy(sym->attr.array.init_values[i], arr_init_vals[i], 31);
             }
+             /* ADD: emit IR for each element */
+//            for (int i = 0; i < arr_init_count; i++) {
+  //              char idx_str[16];
+    //            sprintf(idx_str, "%d", i);
+   //             char* t1 = genVar();
+   //             char* t2 = genVar();
+   //             emit("*",  idx_str,"type.width",t1);
+   //             emit("[]", $3,t1,t2);
+  //              emit("=",arr_init_vals[i],"",t2);
+  //          }
+
+            arr_init_count = 0; 
 		current_array_elem_type = DT_UNKNOWN;
         }
      | type SEQ2 IDENTIFIER ASSIGN 
@@ -664,7 +682,25 @@ array_decl
 			sym->attr.array.is_initialized = 1;
 			sym->size = datatype_size($1) * arr2d_rows * arr2d_cols;
 			current_scope->next_offset = sym->offset + sym->size;
+
+            sym->attr.array.init_count = arr_init_count;
+			for (int i = 0; i < arr_init_count; i++)
+			    strncpy(sym->attr.array.init_values[i], arr_init_vals[i], 31);
 		}
+ //       for (int i = 0; i < arr2d_rows; i++) {
+//		    for (int j = 0; j < arr2d_cols; j++) {
+//		        int linear = i * arr2d_cols + j;
+//		        char idx_str[16];
+//		        sprintf(idx_str, "%d", linear);
+//		        char* t1 = genVar();
+//		        char* t2 = genVar();
+//		        emit("*",  idx_str,"type.width", t1);
+//		        emit("[]", $3, t1, t2);
+//		        emit("=",  arr_init_vals[linear],"",t2);
+//		    }
+//		}
+
+		arr_init_count = 0;
 		current_array_elem_type = DT_UNKNOWN;
 	} 
     ;
@@ -701,6 +737,8 @@ expr_list
 				array_type_errors++;
 			} 
 		}
+        if (arr_init_count < 256)
+            strncpy(arr_init_vals[arr_init_count++], $3, 31);
 		$$ = $1 + 1;
 	}
     | expression
@@ -711,6 +749,9 @@ expr_list
                                 array_type_errors++;
                         }
         	}
+//            arr_init_count = 0;
+	if (arr_init_count < 256)
+            strncpy(arr_init_vals[arr_init_count++], $1, 31);
 		$$ = 1;
 	}
     ;
@@ -894,7 +935,7 @@ expression
    ═══════════════════════════════════════════ */
 indexed_id
     : IDENTIFIER LBRACKET expression RBRACKET
-        {
+        { 
             char* t1 = genVar(); emit("*",  $3, "type.width", t1);
             char* t2 = genVar(); emit("[]", $1, t1,           t2);
             $$ = t2;

@@ -141,7 +141,7 @@ void add_param(ParamNode** list, int* count, const char* name, DataType dt) {
     p->datatype = dt;
     p->next     = NULL;
 
-    if (!*list) {
+if (!*list) {
         *list = p;        // list was empty — this node IS the list
     } else {
         ParamNode* cur = *list;
@@ -663,10 +663,10 @@ void print_table(SymTable* tbl) {
             case KIND_ARRAY:
                 // Show: dimensions, sizes, initialized flag
                 snprintf(extra, 512, "dims=%d [%d][%d] init=%d",
-                         s->attr.array.dimensions,
-                         s->attr.array.dim1,
-                         s->attr.array.dim2,
-                         s->attr.array.is_initialized);
+                        s->attr.array.dimensions,
+                        s->attr.array.dim1,
+                        s->attr.array.dim2,
+                        s->attr.array.is_initialized);
                 break;
 
             case KIND_ENTITY: {
@@ -741,6 +741,13 @@ void print_table(SymTable* tbl) {
         // If extra is too long for the column, print it on a second line
         if (strlen(extra) > 30) {
             printf("|   >> %-59s|\n", extra);
+        }
+
+        if (s->kind == KIND_ARRAY && s->attr.array.is_initialized && s->attr.array.init_count > 0) {
+            printf("|   >> init_vals: ");
+            for (int vi = 0; vi < s->attr.array.init_count; vi++)
+                printf("[%d]=%s ", vi, s->attr.array.init_values[vi]);
+            printf("\n");
         }
     }
     printf("+--------------+-------------+---------+-------+------+----------+\n");

@@ -96,11 +96,12 @@ typedef struct NameNode {
 
 // ArrayAttr — extra info for KIND_ARRAY symbols
 typedef struct {
-    int is_initialized; // 1 if declared with initializer:  int[] arr = {1,2,3};
-                        // 0 if declared with size:         int[] arr[10];
-    int dimensions;     // 1 for 1-D array, 2 for 2-D array
-    int dim1;           // size of first dimension,  e.g. 10 in arr[10]
-    int dim2;           // size of second dimension, e.g. 5  in arr[10][5], 0 if 1-D
+    int is_initialized;
+    int dimensions;
+    int dim1;
+    int dim2;
+    char init_values[256][32];  // store up to 256 element values as strings
+    int  init_count;            // how many values stored
 } ArrayAttr;
 
 // FuncAttr — extra info for KIND_FUNCTION symbols
