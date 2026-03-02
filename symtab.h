@@ -1,11 +1,3 @@
-// ============================================================
-// symtab.h  —  Symbol Table Header
-// ============================================================
-// This file defines ALL the data structures and declares ALL
-// the functions that the symbol table uses.
-// It is included by both symtab.c and parser.y
-// ============================================================
-
 #ifndef SYMTAB_H   // include guard — prevents double-inclusion
 #define SYMTAB_H
 
@@ -15,11 +7,7 @@
 
 #define MAX_ENTITIES 256
 
-// ────────────────────────────────────────────────────────────
-//  SECTION 1: ENUMERATIONS
-//  Enums give human-readable names to integer constants.
-//  The compiler replaces them with 0,1,2,3... internally.
-// ────────────────────────────────────────────────────────────
+
 
 // SymKind — what KIND of symbol is this table entry?
 // Every symbol in the table has exactly one of these.
@@ -62,16 +50,9 @@ typedef enum {
     ACC_PRIVATE  // 2 — only accessible from inside the class
 } AccessMod;
 
-// ────────────────────────────────────────────────────────────
-//  SECTION 2: LINKED LIST NODES
-//  Used to store lists inside a symbol
-//  (e.g. a function's parameter list, a class's field names)
-// ────────────────────────────────────────────────────────────
 
 // ParamNode — one node in a function/method parameter list
 // Each parameter has a name and a data type.
-// Example:  func add(int x, int y)
-//   → ParamNode { name="x", datatype=DT_INT } → ParamNode { name="y", datatype=DT_INT } → NULL
 typedef struct ParamNode {
     char              name[64];   // parameter name, e.g. "x"
     DataType          datatype;   // parameter type, e.g. DT_INT
@@ -80,19 +61,11 @@ typedef struct ParamNode {
 
 // NameNode — one node in a simple name list
 // Used inside EntityAttr to store lists of field names, method names etc.
-// Example: entity Dog has fields "age" and "name"
-//   → NameNode { name="age" } → NameNode { name="name" } → NULL
 typedef struct NameNode {
     char             name[64];   // e.g. "age", "bark"
     struct NameNode* next;       // pointer to next name
 } NameNode;
 
-// ────────────────────────────────────────────────────────────
-//  SECTION 3: CONSTRUCT-SPECIFIC ATTRIBUTE STRUCTS
-//  Each kind of symbol needs different extra information.
-//  These structs hold that extra info.
-//  Only ONE of them is active at a time (stored in a union).
-// ────────────────────────────────────────────────────────────
 
 // ArrayAttr — extra info for KIND_ARRAY symbols
 typedef struct {
@@ -170,11 +143,6 @@ typedef struct {
     int  branch_index;     // 0=if, 1=first elif, 2=second elif, etc.
 } IfAttr;
 
-// ────────────────────────────────────────────────────────────
-//  SECTION 4: THE SYMBOL STRUCT
-//  This is ONE ROW in the symbol table.
-//  Every identifier in the source code becomes one Symbol.
-// ────────────────────────────────────────────────────────────
 
 typedef struct Symbol {
     // ── COMMON FIELDS — every symbol has all of these ──────
@@ -219,19 +187,6 @@ typedef struct Symbol {
     struct Symbol* next;
 } Symbol;
 
-// ────────────────────────────────────────────────────────────
-//  SECTION 5: THE SCOPE TABLE STRUCT
-//  One SymTable = one scope (one level of nesting).
-//  Scopes are arranged in a tree via the parent pointer.
-//
-//  Example for:
-//    int func add(int x) { int y; }
-//
-//  global scope
-//    └── add's function scope  (parent = global)
-//          └── block scope     (parent = add's scope)
-// ────────────────────────────────────────────────────────────
-
 // ScopeKind — what type of scope is this?
 typedef enum {
     SCOPE_GLOBAL,       // the outermost scope — functions and entities live here
@@ -265,11 +220,6 @@ struct SymTable {
     struct SymTable* parent;            // pointer to the enclosing scope
                                         // NULL only for the global scope
 };
-
-// ────────────────────────────────────────────────────────────
-//  SECTION 6: FUNCTION DECLARATIONS (the API)
-//  These are implemented in symtab.c
-// ────────────────────────────────────────────────────────────
 
 SymTable* create_scope  (ScopeKind kind, const char* name, SymTable* parent);
                          // allocates and initializes a new SymTable
@@ -305,8 +255,10 @@ void      print_table   (SymTable* tbl);
                          // prints the scope table in a formatted box
 
 void	 check_field_access (char* obj_name, char* field_name,int lineno);
+                        //checks for access modifier of fields
 void 	 check_method_access (char* obj_name, char* method_name,int lineno);
-void	 semantic_error (const char* msg);
+                        // checks for access modifier of methods
+void	 semantic_error (const char* msg); //error printing for semantic errors
 // Function for iteratiing through all the fields of an entity and return the Symbol of that entity.
 //Symbol* lookup_field(const char* field_name, const char* entity_name);
 
@@ -320,10 +272,6 @@ SymTable* find_entity_scope(const char* entity_name);
 // Function for checking if the variable is already declared before referencing the variable
 Symbol* require_declared(SymTable* scope, const char* name, int lineno);
 
-// ────────────────────────────────────────────────────────────
-//  SECTION 7: GLOBAL VARIABLES
-//  Declared here, defined in symtab.c
-// ────────────────────────────────────────────────────────────
 
 extern SymTable* global_scope;    // points to the top-level (global) scope
                                   // created in main() before parsing starts
@@ -335,8 +283,8 @@ extern SymTable* current_scope;   // points to whatever scope we are currently i
 extern SymTable* entity_scopes[MAX_ENTITIES];
 extern int entity_scope_count;
 
-extern DataType  current_decl_type; // NOT USED ANYMORE — kept for compatibility
-                                    // was used for mid-rule actions (now removed)
+extern DataType  current_decl_type;
+                                    
 
 extern const char* dt_names[];
 #endif /* SYMTAB_H */
