@@ -316,6 +316,9 @@ void register_entity_scope(SymTable* scope);
 // Search through the entity scopes to find the required entity using the name
 SymTable* find_entity_scope(const char* entity_name);
 
+// Function for checking if the variable is already declared before referencing the variable
+Symbol* require_declared(SymTable* scope, const char* name, int lineno);
+
 // ────────────────────────────────────────────────────────────
 //  SECTION 7: GLOBAL VARIABLES
 //  Declared here, defined in symtab.c

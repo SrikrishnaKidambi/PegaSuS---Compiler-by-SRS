@@ -505,6 +505,15 @@ Symbol* lookup_local(SymTable* tbl, const char* name) {
     return NULL;
 }
 
+Symbol* require_declared(SymTable* scope, const char* name, int lineno){
+	Symbol* sym = lookup(scope, name);
+	if(!sym){
+		char buf[256];
+		fprintf(stderr, "ERROR line %d: '%s' used but not declared", lineno, name);
+	}
+	return sym;
+}
+
 // ────────────────────────────────────────────────────────────
 //  SECTION 8: lookup
 //
