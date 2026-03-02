@@ -529,7 +529,7 @@ var_decl
         {
 	    if(last_expr_type != DT_UNKNOWN && last_expr_type != $1){
 		//printf("==== $1 = %d and last_expr_type = %d\n", $1, last_expr_type);
-		fprintf(stderr, "ERROR hih line %d: Cannot initialize '%s' (declared as %s) with value of type %s.\n", yylineno, $2, dt_names[$1], dt_names[last_expr_type]);
+		fprintf(stderr, "ERROR line %d: Cannot initialize '%s' (declared as %s) with value of type %s.\n", yylineno, $2, dt_names[$1], dt_names[last_expr_type]);
 	    }
             emit("=", $4, "", $2);
             Symbol* sym = insert_symbol(current_scope, $2,
