@@ -895,12 +895,14 @@ expression
 indexed_id
     : IDENTIFIER LBRACKET expression RBRACKET
         {
+	    require_declared(current_scope, $1, yylineno);
             char* t1 = genVar(); emit("*",  $3, "type.width", t1);
             char* t2 = genVar(); emit("[]", $1, t1,           t2);
             $$ = t2;
         }
     | IDENTIFIER LBRACKET expression RBRACKET LBRACKET expression RBRACKET
         {
+            require_declared(current_scope, $1, yylineno);
             char* t1 = genVar(); emit("*",  $3, "array.cols", t1);
             char* t2 = genVar(); emit("+",  t1, $6,           t2);
             char* t3 = genVar(); emit("*",  t2, "type.width", t3);
@@ -913,7 +915,7 @@ assignment
     : IDENTIFIER ASSIGN assignment
         {
 		// Checking the type before assignment
-		Symbol* lhs = lookup(current_scope, $1);
+		Symbol* lhs = require_declared(current_scope, $1, yylineno);
 		if(lhs && last_expr_type != DT_UNKNOWN){
 			if(lhs->datatype != last_expr_type){
 				fprintf(stderr, "ERROR line %d: cannot assign %s to '%s' "
@@ -925,7 +927,7 @@ assignment
 	}
     | IDENTIFIER ADD_ASSIGN assignment
         { 
-		Symbol* lhs = lookup(current_scope, $1);
+		Symbol* lhs = require_declared(current_scope, $1, yylineno);
 		if(lhs && last_expr_type != DT_UNKNOWN && lhs->datatype != last_expr_type){
 			fprintf(stderr, "ERROR line %d: type mismatch in '+=' : '%s' is %s but RHS is %s.\n", yylineno, $1, dt_names[lhs->datatype], dt_names[last_expr_type]);
 		}
@@ -936,7 +938,7 @@ assignment
 	}
     | IDENTIFIER SUB_ASSIGN assignment
         { 	
-		Symbol* lhs = lookup(current_scope, $1);
+		Symbol* lhs = require_declared(current_scope, $1, yylineno);
 		if(lhs && last_expr_type != DT_UNKNOWN && lhs->datatype != last_expr_type){
 			fprintf(stderr, "ERROR line %d: type mismatch in '-=' : '%s' is %s but RHS is %s.\n", yylineno, $1, dt_names[lhs->datatype], dt_names[last_expr_type]);
 		}
@@ -1116,10 +1118,10 @@ factor
     : IDENTIFIER LPAREN arg_list_opt RPAREN
         { 
 		char* t = genVar(); 
-		Symbol* fsym = lookup(current_scope, $1);
+		Symbol* fsym = require_declared(current_scope, $1, yylineno);
 		if(!fsym) {
-			fprintf(stderr, 
-				"ERROR line %d: call to undeclared function '%s'.\n",yylineno, $1);
+			//fprintf(stderr, 
+				//"ERROR line %d: call to undeclared function '%s'.\n",yylineno, $1);
 			last_expr_type = DT_UNKNOWN;
 		}
 		else if(fsym->kind != KIND_FUNCTION && fsym->kind != KIND_METHOD){
@@ -1162,7 +1164,7 @@ factor
                 yylineno, $1);
         }
         else {
-            /* Step 2: get entity name safely */
+            /* get entity name safely */
             const char* entity_name = obj->attr.object.entity_name;
             if (!entity_name || entity_name[0] == '\0') {
                 fprintf(stderr,
@@ -1170,7 +1172,7 @@ factor
                     yylineno, $1);
             }
             else {
-                /* Step 3: look up the entity symbol in global scope */
+                /* look up the entity symbol in global scope */
                 Symbol* cls = lookup(global_scope, entity_name);
                 if (!cls || cls->kind != KIND_ENTITY) {
                     fprintf(stderr,
@@ -1178,7 +1180,7 @@ factor
                         yylineno, entity_name);
                 }
                 else {
-                    /* Step 4: get the entity's scope (stored in EntityAttr) */
+                    /* get the entity's scope (stored in EntityAttr) */
                     SymTable* escope = cls->attr.entity.scope;
                     if (!escope) {
                         fprintf(stderr,
@@ -1186,7 +1188,7 @@ factor
                             yylineno, entity_name);
                     }
                     else {
-                        /* Step 5: look up the field inside entity scope */
+                        /* look up the field inside entity scope */
                         Symbol* field = lookup_local(escope, $3);
                         if (!field || field->kind != KIND_FIELD) {
                             fprintf(stderr,
@@ -1194,7 +1196,7 @@ factor
                                 yylineno, $3, entity_name);
                         }
                         else {
-                            /* Step 6: check private access */
+                            //check private access
                             if (field->attr.field.access == ACC_PRIVATE &&
                                 strcmp(current_scope->name, entity_name) != 0) {
                                 fprintf(stderr,
@@ -1216,7 +1218,7 @@ factor
     | IDENTIFIER      
 
 	{ 
-		Symbol* s = lookup(current_scope, $1);
+		Symbol* s = require_declared(current_scope, $1, yylineno);
 		last_expr_type = s ? s->datatype : DT_UNKNOWN;
 		$$ = strdup($1); 
 	}
@@ -1401,7 +1403,7 @@ var_decl_no_semi
 io_stmt
     : IDENTIFIER ASSIGN FEED LPAREN STRING_LITERAL RPAREN SEMICOLON
         {
-		Symbol* var = lookup(current_scope, $1);
+		Symbol* var = require_declared(current_scope, $1, yylineno);
 		if(!var){
 			fprintf(stderr, "ERROR line %d: assignment to undeclared variable '%s'.\n", yylineno, $1);
 		}
