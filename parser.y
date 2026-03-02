@@ -936,18 +936,32 @@ expression
 indexed_id
     : IDENTIFIER LBRACKET expression RBRACKET
         {
-	    require_declared(current_scope, $1, yylineno);
-            char* t1 = genVar(); emit("*",  $3, "type.width", t1);
-            char* t2 = genVar(); emit("[]", $1, t1,           t2);
+	    Symbol* asym = require_declared(current_scope, $1, yylineno);
+	    char width_str[16];
+	    if (asym && asym->kind == KIND_ARRAY)
+		sprintf(width_str, "%d", datatype_size(asym->datatype));
+	    else
+		strcpy(width_str, "type.width");
+            char* t1 = genVar(); emit("*",  $3, width_str, t1);
+            char* t2 = genVar(); emit("[]", $1, t1,t2);
             $$ = t2;
         }
     | IDENTIFIER LBRACKET expression RBRACKET LBRACKET expression RBRACKET
         {
-            require_declared(current_scope, $1, yylineno);
-            char* t1 = genVar(); emit("*",  $3, "array.cols", t1);
-            char* t2 = genVar(); emit("+",  t1, $6,           t2);
-            char* t3 = genVar(); emit("*",  t2, "type.width", t3);
-            char* t4 = genVar(); emit("[]", $1, t3,           t4);
+            Symbol* asym = require_declared(current_scope, $1, yylineno);
+	    char cols_str[16];
+	    char width_str[16];
+	    if(asym && asym->kind == KIND_ARRAY) {
+		sprintf(cols_str, "%d", asym->attr.array.dim2);
+		sprintf(width_str, "%d", datatype_size(asym->datatype));}
+	    else{
+		strcpy(cols_str, "array.cols");
+		strcpy(width_str, "type.width");
+   	    }
+            char* t1 = genVar(); emit("*",  $3, cols_str, t1);
+            char* t2 = genVar(); emit("+",  t1, $6,t2);
+            char* t3 = genVar(); emit("*",  t2, width_str, t3);
+            char* t4 = genVar(); emit("[]", $1, t3,t4);
             $$ = t4;
         }
     ;
