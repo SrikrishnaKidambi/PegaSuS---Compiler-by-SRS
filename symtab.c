@@ -509,7 +509,7 @@ Symbol* require_declared(SymTable* scope, const char* name, int lineno){
 	Symbol* sym = lookup(scope, name);
 	if(!sym){
 		char buf[256];
-		fprintf(stderr, "ERROR line %d: '%s' used but not declared", lineno, name);
+		fprintf(stderr, "ERROR line %d: '%s' used but not declared.\n", lineno, name);
 	}
 	return sym;
 }
