@@ -320,19 +320,70 @@ method_decl
             }
             Symbol* entity_sym = lookup(current_scope->parent,
                                         current_scope->name);
-            if (entity_sym && entity_sym->kind == KIND_ENTITY)
-                add_name(&entity_sym->attr.entity.methods_list, $4);
-
-            emit("method", $4, "", "");
+            //emit("method",...) moved to closing action */
+            
             SymTable* ms = create_scope(SCOPE_METHOD, $4, current_scope);
             current_scope = ms;
         }
       LPAREN param_list_opt RPAREN block
         {
+            
+            for (int i = 0; i < HASH_SIZE; i++) {
+                for (Symbol* s = current_scope->parent->buckets[i]; s; s = s->next) {
+                    if (strcmp(s->name, $4) == 0 && s->kind == KIND_METHOD
+                            && strchr(s->name, '$') == NULL) {
+                        char newName[80];
+                        overloaded_method_name(newName, $4, s->attr.method.param_list);
+                        strncpy(s->name, newName, 63);
+                    }
+                }
+            }
+
+            /* add mangled name to entity methods list — no duplicates */
+            Symbol* entity_sym2 = lookup(current_scope->parent->parent,
+                                         current_scope->parent->name);
+            if (entity_sym2 && entity_sym2->kind == KIND_ENTITY) {
+                for (int i = 0; i < HASH_SIZE; i++) {
+                    for (Symbol* s = current_scope->parent->buckets[i]; s; s = s->next) {
+                        if (s->kind == KIND_METHOD &&
+                            strncmp(s->name, $4, strlen($4)) == 0 &&
+                            s->name[strlen($4)] == '$') {
+                            if (!name_in_list(entity_sym2->attr.entity.methods_list, s->name)) {
+                                add_name(&entity_sym2->attr.entity.methods_list, s->name);
+                            }
+                        }
+                    }
+                }
+            }
+
+            
+            char mangled_ir[80];
+            strcpy(mangled_ir, $4);  /* fallback to original name */
+            for (int i = 0; i < HASH_SIZE; i++) {
+                for (Symbol* s = current_scope->parent->buckets[i]; s; s = s->next) {
+                    if (s->kind == KIND_METHOD &&
+                        strncmp(s->name, $4, strlen($4)) == 0 &&
+                        s->name[strlen($4)] == '$') {
+                        /* match by param count against current method scope */
+                        int pc = 0;
+                        for (ParamNode* p = s->attr.method.param_list; p; p = p->next) pc++;
+                        int cur_pc = 0;
+                        for (int b = 0; b < HASH_SIZE; b++)
+                            for (Symbol* ps = current_scope->buckets[b]; ps; ps = ps->next)
+                                if (ps->kind == KIND_PARAM) cur_pc++;
+                        if (pc == cur_pc)
+                            strncpy(mangled_ir, s->name, 79);
+                    }
+                }
+            }
+
+            
+            emit("method", mangled_ir, "", "");
             print_table(current_scope);
             current_scope = current_scope->parent;
-            emit("end_method", $4, "", "");
+            emit("end_method", mangled_ir, "", "");
         }
+
     /* entity return type: public Dog func get() */
     | access_modifier IDENTIFIER FUNC IDENTIFIER
         {
@@ -349,18 +400,65 @@ method_decl
             }
             Symbol* entity_sym = lookup(current_scope->parent,
                                         current_scope->name);
-            if (entity_sym && entity_sym->kind == KIND_ENTITY)
-                add_name(&entity_sym->attr.entity.methods_list, $4);
-
-            emit("method", $4, "", "");
+            
             SymTable* ms = create_scope(SCOPE_METHOD, $4, current_scope);
             current_scope = ms;
         }
       LPAREN param_list_opt RPAREN block
         {
+            
+            for (int i = 0; i < HASH_SIZE; i++) {
+                for (Symbol* s = current_scope->parent->buckets[i]; s; s = s->next) {
+                    if (strcmp(s->name, $4) == 0 && s->kind == KIND_METHOD
+                            && strchr(s->name, '$') == NULL) {
+                        char newName[80];
+                        overloaded_method_name(newName, $4, s->attr.method.param_list);
+                        strncpy(s->name, newName, 63);
+                    }
+                }
+            }
+
+            /* add mangled name to entity methods list — no duplicates */
+            Symbol* entity_sym2 = lookup(current_scope->parent->parent,
+                                         current_scope->parent->name);
+            if (entity_sym2 && entity_sym2->kind == KIND_ENTITY) {
+                for (int i = 0; i < HASH_SIZE; i++) {
+                    for (Symbol* s = current_scope->parent->buckets[i]; s; s = s->next) {
+                        if (s->kind == KIND_METHOD &&
+                            strncmp(s->name, $4, strlen($4)) == 0 &&
+                            s->name[strlen($4)] == '$') {
+                            if (!name_in_list(entity_sym2->attr.entity.methods_list, s->name)) {
+                                add_name(&entity_sym2->attr.entity.methods_list, s->name);
+                            }
+                        }
+                    }
+                }
+            }
+
+            
+            char mangled_ir[80];
+            strcpy(mangled_ir, $4);
+            for (int i = 0; i < HASH_SIZE; i++) {
+                for (Symbol* s = current_scope->parent->buckets[i]; s; s = s->next) {
+                    if (s->kind == KIND_METHOD &&
+                        strncmp(s->name, $4, strlen($4)) == 0 &&
+                        s->name[strlen($4)] == '$') {
+                        int pc = 0;
+                        for (ParamNode* p = s->attr.method.param_list; p; p = p->next) pc++;
+                        int cur_pc = 0;
+                        for (int b = 0; b < HASH_SIZE; b++)
+                            for (Symbol* ps = current_scope->buckets[b]; ps; ps = ps->next)
+                                if (ps->kind == KIND_PARAM) cur_pc++;
+                        if (pc == cur_pc)
+                            strncpy(mangled_ir, s->name, 79);
+                    }
+                }
+            }
+
+            emit("method", mangled_ir, "", "");
             print_table(current_scope);
             current_scope = current_scope->parent;
-            emit("end_method", $4, "", "");
+            emit("end_method", mangled_ir, "", "");
         }
     | access_modifier type FUNC IDENTIFIER
         { emit("method", $4, "", ""); }
@@ -417,41 +515,74 @@ access_modifier
 object_decl
     : IDENTIFIER IDENTIFIER ASSIGN NEW IDENTIFIER LPAREN arg_list_opt RPAREN SEMICOLON
         {
-	    Symbol* class_sym = lookup(current_scope,$5);
-	    if(!class_sym || class_sym->kind != KIND_ENTITY){
-		char buf[256];
-	    	snprintf(buf, sizeof(buf),"line %d: Entity '%s' not found to instantiate",yylineno, $1);
-	    	semantic_error(buf);
-	    }
-	    Symbol* obj = insert_symbol(current_scope,$2,KIND_OBJECT,DT_OBJECT,yylineno);
-	    if(obj){
-		strncpy(obj->attr.object.entity_name,class_sym->attr.entity.class_name,63); //supports max class size as 63
-		obj->size = class_sym->attr.entity.class_size;
-		current_scope->next_offset += obj->size;
-	}
-		
+            Symbol* class_sym = lookup(current_scope, $5);
+            if(!class_sym || class_sym->kind != KIND_ENTITY){
+                char buf[256];
+                snprintf(buf, sizeof(buf), "line %d: Entity '%s' not found to instantiate", yylineno, $1);
+                semantic_error(buf);
+            }
+            Symbol* obj = insert_symbol(current_scope, $2, KIND_OBJECT, DT_OBJECT, yylineno);
+            if(obj){
+                strncpy(obj->attr.object.entity_name, class_sym->attr.entity.class_name, 63);
+                obj->size = class_sym->attr.entity.class_size;
+                current_scope->next_offset += obj->size;
+            }
             emit("new", $5, "", $2);
             emit("call_constr", $5, "", $2);
         }
     | type IDENTIFIER ASSIGN IDENTIFIER DOT IDENTIFIER LPAREN arg_list_opt RPAREN SEMICOLON
         {
-	    	check_method_access($4,$6,yylineno);
-		
-	    	Symbol* msym = lookup(current_scope, $6);
-		if(msym && msym->kind == KIND_METHOD){
-			if(msym->attr.method.return_type != $1){
-				fprintf(stderr, "ERROR line %d: cannot assign result of method '%s' (returns %s) to '%s' (declared as %s).\n", yylineno, $6, dt_names[msym->attr.method.return_type], $2, dt_names[$1]);
-			}
-		}
-		Symbol* sym = insert_symbol(current_scope, $2,
-                                KIND_VAR, $1, yylineno);
-   		 if (sym) {
-        		sym->is_initialized = 1;
-   	 	}
-            	char* t = genVar();
-            	emit("push_ptr", $4, "", "");
-            	emit("call_method", $6, "", t);
-            	emit("=", t, "", $2);
+            /* build mangled call name from arg types */
+            char mangled_call[80];
+            strcpy(mangled_call, $6);
+            strcat(mangled_call, "$");
+            for (int i = 0; i < call_arg_count; i++) {
+                char code[2] = { dt_code(call_arg_types[i]), '\0' };
+                strcat(mangled_call, code);
+            }
+
+            /*use lookup_local on entity scope directly
+               instead of relying on check_method_access chain */
+            Symbol* obj_sym = lookup(current_scope, $4);
+            if(!obj_sym || obj_sym->kind != KIND_OBJECT){
+                fprintf(stderr, "ERROR line %d: '%s' is not an object.\n", yylineno, $4);
+            } else {
+                SymTable* ent_scope = find_entity_scope(obj_sym->attr.object.entity_name);
+                if(!ent_scope){
+                    fprintf(stderr, "ERROR line %d: entity '%s' scope not found.\n",
+                            yylineno, obj_sym->attr.object.entity_name);
+                } else {
+                    Symbol* method_sym = lookup_local(ent_scope, mangled_call);
+                    if(!method_sym || method_sym->kind != KIND_METHOD){
+                        fprintf(stderr, "ERROR line %d: Method '%s' not found in '%s'.\n",
+                                yylineno, mangled_call, obj_sym->attr.object.entity_name);
+                    } else {
+                        /* check private access */
+                        if(method_sym->attr.method.access == ACC_PRIVATE){
+                            fprintf(stderr, "ERROR line %d: Method '%s' is private.\n",
+                                    yylineno, mangled_call);
+                        }
+                        /* return type check uses mangled symbol directly */
+                        if(method_sym->attr.method.return_type != $1){
+                            fprintf(stderr,
+                                "ERROR line %d: cannot assign result of '%s' (returns %s)"
+                                " to '%s' (declared as %s).\n",
+                                yylineno, mangled_call,
+                                dt_names[method_sym->attr.method.return_type],
+                                $2, dt_names[$1]);
+                        }
+                    }
+                }
+            }
+
+            Symbol* sym = insert_symbol(current_scope, $2, KIND_VAR, $1, yylineno);
+            if(sym){
+                sym->is_initialized = 1;
+            }
+            char* t = genVar();
+            emit("push_ptr", $4, "", "");
+            emit("call_method", mangled_call, "", t);
+            emit("=", t, "", $2);
         }
     ;
 

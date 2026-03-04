@@ -280,6 +280,13 @@ extern SymTable* current_scope;   // points to whatever scope we are currently i
                                   // changes as we enter/leave functions, blocks, etc.
                                   // parser actions always use current_scope
 
+char dt_code(DataType dt); //used for function overloading based on type of parameters
+
+void overloaded_method_name(char* out,const char* name, ParamNode* param_list);
+//this function will encode the overloaded function name based on return type, name of the function and parameter count and their types.
+
+int name_in_list(NameNode* list, const char* name);//look if the name exists in the list
+
 extern SymTable* entity_scopes[MAX_ENTITIES];
 extern int entity_scope_count;
 

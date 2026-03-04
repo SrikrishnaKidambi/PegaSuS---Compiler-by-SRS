@@ -100,7 +100,7 @@ void add_name(NameNode** list, const char* name) {
 
 void semantic_error(const char *msg){
 	printf("[Error]: %s\n",msg);
-	exit(1);
+	//	exit(1);
 }
 
 void check_field_access(char* obj_name, char* field_name, int lineno) {
@@ -183,16 +183,7 @@ void check_method_access(char* obj_name, char* method_name, int lineno) {
     }
 
     // 4. find method inside class
-    NameNode* m = cls->attr.entity.methods_list;
-    Symbol* method_sym = NULL;
-
-    while (m) {
-        if (strcmp(m->name, method_name) == 0) {
-            method_sym = lookup(cls->attr.entity.scope, method_name);
-            break;
-        }
-        m = m->next;
-    }
+    Symbol* method_sym = lookup_local(cls->attr.entity.scope, method_name);
 
     if (!method_sym || method_sym->kind != KIND_METHOD) {
         snprintf(msg, sizeof(msg),
@@ -214,7 +205,39 @@ void check_method_access(char* obj_name, char* method_name, int lineno) {
 }
 
 	
+// function overloading code
+char dt_code(DataType dt){
+	switch(dt){
+		case DT_INT: return 'i';
+	 	case DT_FLOAT: return 'f';
+		case DT_CHAR: return 'c';
+		case DT_STRING: return 's';
+		case DT_BOOL: return 'b';
+		case DT_VOID: return 'v';
+		case DT_ENTITY: return 'e';
+		case DT_OBJECT: return 'o';
+		case DT_UNKNOWN: return 'u';
+		default: return 'u';
+	}
+}
 
+void overloaded_method_name(char* out, const char* name, ParamNode* param_list) {
+	char buf[256];
+	strcpy(buf,name);
+	strcat(buf,"$");
+	for (ParamNode* p = param_list; p;p=p->next) {
+		char code[2] = {dt_code(p->datatype),'\0'};
+		strcat(buf,code);
+	}
+	strncpy(out,buf,79);
+}
+
+int name_in_list(NameNode* list,const char* name){
+	for (NameNode* n = list;n;n=n->next){
+		if(strcmp(n->name,name)==0)return 1;
+	}
+	return 0;
+}
 
 Symbol* insert_symbol(SymTable* tbl, const char* name,
                       SymKind kind, DataType dt, int line) {
@@ -223,10 +246,12 @@ Symbol* insert_symbol(SymTable* tbl, const char* name,
     // It's valid to have  int x;  at global level AND  int x;
     // inside a function — that's shadowing, not redeclaration.
     if (lookup_local(tbl, name)) {
+	if(tbl->kind == SCOPE_ENTITY && kind == KIND_METHOD){
+	}else{
         fprintf(stderr,
             "ERROR line %d: '%s' already declared in scope '%s'\n",
             line, name, tbl->name);
-        return NULL;
+        return NULL;}
     }
 
     Symbol* sym      = calloc(1, sizeof(Symbol));  // zero everything
