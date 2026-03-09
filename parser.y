@@ -1,5 +1,8 @@
 %{
 #include "symtab.h"
+
+#define QUAD_DEFINED
+#include "optimizer.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1517,20 +1520,26 @@ void yyerror(const char *s) {
 }
 
 int main() {
-    global_scope  = create_scope(SCOPE_GLOBAL, "global", NULL);
-    current_scope = global_scope;
+    	global_scope  = create_scope(SCOPE_GLOBAL, "global", NULL);
+    	current_scope = global_scope;
 
-    yyin = stdin;
-    yyparse();
+    	yyin = stdin;
+    	yyparse();
 
-    printf("\n========== GLOBAL SCOPE ==========\n");
-    print_table(global_scope);
+    	printf("\n========== GLOBAL SCOPE ==========\n");
+    	print_table(global_scope);
 
-    printf("\nParsing Successful\nGenerated quadruple table:\n");
+	printf("Running Optimizations\n");
+	algebraic_simplification();
+	print_original_IR();
+	print_opt_IR();
+
+    /*printf("\nParsing Successful\nGenerated quadruple table:\n");
     printf("%-15s %-15s %-15s %-15s\n", "OP", "ARG1", "ARG2", "RESULT");
     for (int i = 0; i < IR_idx; i++)
         printf("%-15s %-15s %-15s %-15s\n",
-               IR[i].op, IR[i].arg1, IR[i].arg2, IR[i].result);
+               IR[i].op, IR[i].arg1, IR[i].arg2, IR[i].result);*/
+
     return 0;
 }
 
