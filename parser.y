@@ -197,9 +197,6 @@ statement
         }
     ;
 
-/* ═══════════════════════════════════════════
-   ENTITY
-   ═══════════════════════════════════════════ */
 entity_decl
     : ENTITY IDENTIFIER
         {
@@ -260,10 +257,6 @@ entity_member
     | method_decl
     | access_var_decl
     ;
-
-/* ═══════════════════════════════════════════
-   CONSTRUCTOR
-   ═══════════════════════════════════════════ */
 constructor_decl
     : IDENTIFIER
         {
@@ -300,9 +293,6 @@ constructor_decl
         }
     ;
 
-/* ═══════════════════════════════════════════
-   METHOD
-   ═══════════════════════════════════════════ */
 method_decl
     /* primitive return type: public int func foo() */
     : access_modifier type FUNC IDENTIFIER
@@ -371,10 +361,6 @@ method_decl
             emit("end_method", $4, "", "");
         }
     ;
-
-/* ═══════════════════════════════════════════
-   CLASS FIELD
-   ═══════════════════════════════════════════ */
 access_var_decl
     /* primitive type field: private int age; */
     : access_modifier type IDENTIFIER SEMICOLON
@@ -411,9 +397,6 @@ access_modifier
     | PRIVATE { $$ = ACC_PRIVATE; }
     ;
 
-/* ═══════════════════════════════════════════
-   OBJECT INSTANTIATION
-   ═══════════════════════════════════════════ */
 object_decl
     : IDENTIFIER IDENTIFIER ASSIGN NEW IDENTIFIER LPAREN arg_list_opt RPAREN SEMICOLON
         {
@@ -476,9 +459,6 @@ arg_list
 	}
     ;
 
-/* ═══════════════════════════════════════════
-   BLOCK
-   ═══════════════════════════════════════════ */
 block
     : LBRACE
         {
@@ -503,19 +483,6 @@ stmt_list
     | statement
     ;
 
-/* ═══════════════════════════════════════════
-   VARIABLE DECLARATION
-
-   KEY FIX: no mid-rule actions anywhere.
-   id_list returns a comma-separated string
-   of names upward via $$.
-   insert_var_list() does the bulk insertion.
-
-   Supported forms:
-     int a;
-     int a, b, c;
-     int a = 10;
-   ═══════════════════════════════════════════ */
 var_decl
     /* int a;  or  int a, b, c; */
     : type id_list SEMICOLON
@@ -555,11 +522,6 @@ var_decl
         }
     ;
 
-/*
- * id_list returns a heap-allocated comma-separated string
- * of all the variable names e.g. "a" or "a,b,c"
- * No symbol insertions happen here — done in var_decl action.
- */
 id_list
     : id_list COMMA IDENTIFIER
         {
@@ -574,10 +536,6 @@ id_list
         }
     ;
 
-/* ═══════════════════════════════════════════
-   TYPE — only keyword tokens, NO IDENTIFIER
-   Entity types handled explicitly above
-   ═══════════════════════════════════════════ */
 type
     : INT    { $$ = DT_INT;    }
     | FP     { $$ = DT_FLOAT;  }
@@ -586,16 +544,7 @@ type
     | BOOL   { $$ = DT_BOOL;   }
     ;
 
-/* ═══════════════════════════════════════════
-   ARRAY DECLARATION
-   ═══════════════════════════════════════════ */
 array_decl
-    /* 1-D array with size:  int[] arr[10];
-       OFFSET FIX:
-         insert_symbol assigns offset = next_offset but does NOT
-         advance next_offset (KIND_ARRAY excluded from the condition).
-         We then set the REAL size = elem_size * dim1
-         and manually advance next_offset by that real size.       */
     : type SEQ1 IDENTIFIER LBRACKET INT_LITERAL RBRACKET SEMICOLON
         {
             Symbol* sym = insert_symbol(current_scope, $3,
@@ -756,9 +705,6 @@ expr_list
 	}
     ;
 
-/* ═══════════════════════════════════════════
-   FUNCTION DECLARATION
-   ═══════════════════════════════════════════ */
 function_decl
     /* int func add(...)  /  void func main(...) */
     : func_type FUNC IDENTIFIER
@@ -884,9 +830,6 @@ param
         }
     ;
 
-/* ═══════════════════════════════════════════
-   RETURN
-   ═══════════════════════════════════════════ */
 return_stmt
     : RETURN expression SEMICOLON 
 	{ 
@@ -929,10 +872,6 @@ expr_stmt
 expression
     : assignment { $$ = $1; }
     ;
-
-/* ═══════════════════════════════════════════
-   INDEXED ACCESS
-   ═══════════════════════════════════════════ */
 indexed_id
     : IDENTIFIER LBRACKET expression RBRACKET
         {
@@ -1287,9 +1226,6 @@ factor
     | LPAREN expression RPAREN { $$ = $2; }
     ;
 
-/* ═══════════════════════════════════════════
-   IF / ELIF / ELSE
-   ═══════════════════════════════════════════ */
 if_stmt
     : IF LPAREN
         {
@@ -1374,9 +1310,6 @@ else_opt
     | /* empty */
     ;
 
-/* ═══════════════════════════════════════════
-   FOR LOOP
-   ═══════════════════════════════════════════ */
 for_stmt
     : FOR LPAREN
         {
@@ -1452,9 +1385,6 @@ var_decl_no_semi
         }
     ;
 
-/* ═══════════════════════════════════════════
-   I/O
-   ═══════════════════════════════════════════ */
 io_stmt
     : IDENTIFIER ASSIGN FEED LPAREN STRING_LITERAL RPAREN SEMICOLON
         {
