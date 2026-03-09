@@ -1,0 +1,20 @@
+Entity MathUtil {
+
+    public int _func add(int a, int b) {
+        return a + b;
+    }
+
+    public int _func add(int a, int b, int c) {
+        return a + b + c;
+    }
+
+    public int _func add(int a) {
+        return a + 10;
+    }
+}
+
+MathUtil m = new MathUtil();
+
+int x = m.add(5,6);
+int y = m.add(1,2,3);
+int z = m.add(10);
