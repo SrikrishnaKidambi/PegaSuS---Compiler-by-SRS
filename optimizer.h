@@ -28,10 +28,10 @@ extern int OPT_IR_idx;
 // First pass - Algebraic Simplification that reads the entire new copy of IR code and performs algebraic simplification such as using identity or zero or strength-reduction rules for each quadruple. 
 // This finally returns the number of simplifications made
 int algebraic_simplification(void);
-
+int constant_folding(void);
 // Second pass - Copy Propagation that performs operations such as forward substitutes of copy sources and then remove dead copies. This function finally returns the total number of changes combining number of substitutions and removals.
 int copy_propagation(void);
-
+int dead_code_elimination(void);
 // Third pass - Induction variable elimination 
 int induction_variable_elimination(void);
 

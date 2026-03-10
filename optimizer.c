@@ -208,6 +208,155 @@ int algebraic_simplification(void)
 	printf("[Algebraic Simplification] %d simplification(s) applied. OPT_IR has %d quad(s).\n", total, OPT_IR_idx);
 	return total;
 }
+int constant_folding(void)
+{
+    OPT_IR_idx = 0;
+    int total = 0;
+
+    for(int i = 0; i < IR_idx; i++){
+        const Quad* s = &IR[i];
+        Quad out;
+        memset(&out, 0, sizeof(out));
+        int fired = 0;
+
+        // just only fold the expressions where both the left and right arguments are constants(numericals)
+        if((strcmp(s->op,"+") == 0 || strcmp(s->op,"-") == 0 ||
+            strcmp(s->op,"*") == 0 || strcmp(s->op,"/") == 0 ||
+            strcmp(s->op,"%") == 0 || strcmp(s->op,">") == 0 ||
+            strcmp(s->op,"<") == 0 || strcmp(s->op,"==") == 0)
+           && is_numeric(s->arg1) && is_numeric(s->arg2))
+        {
+            double a = atof(s->arg1);
+            double b = atof(s->arg2);
+            double r = 0;
+            int valid = 1;
+
+            if     (strcmp(s->op,"+")  == 0) r = a + b;
+            else if(strcmp(s->op,"-")  == 0) r = a - b;
+            else if(strcmp(s->op,"*")  == 0) r = a * b;
+            else if(strcmp(s->op,"/")  == 0){
+                if(b == 0){ valid = 0; }
+                else r = a / b;
+            }
+            else if(strcmp(s->op,"%")  == 0){
+                if((int)b == 0){ valid = 0; }
+                else r = (int)a % (int)b;
+            }
+            else if(strcmp(s->op,">")  == 0) r = (a >  b);
+            else if(strcmp(s->op,"<")  == 0) r = (a <  b);
+            else if(strcmp(s->op,"==") == 0) r = (a == b);
+
+            if(valid){
+                char val[32];
+                if(r == (int)r) sprintf(val, "%d", (int)r);
+                else            sprintf(val, "%f", r);
+                make_copy_quad(&out, s->result, val);
+                fired = 1;
+            }
+        }
+
+        OPT_IR[OPT_IR_idx++] = fired ? out : *s;
+        if(fired) total++;
+    }
+    printf("[Constant Folding] %d fold(s) applied. OPT_IR has %d quad(s).\n",
+           total, OPT_IR_idx);
+    return total;
+}
+int dead_code_elimination(void)
+{
+
+    int total_removed = 0;
+    int removed_this_round;
+
+    // this functon  returns 1 if op is a side-effect operation 
+    #define IS_SIDEEFFECT(op) \
+        (strcmp(op,"call")==0   || strcmp(op,"return")==0  || \
+         strcmp(op,"ifFalse")==0|| strcmp(op,"goto")==0    || \
+         strcmp(op,"label")==0  || strcmp(op,"out")==0     || \
+         strcmp(op,"in")==0     || strcmp(op,"param")==0   || \
+         strcmp(op,"arg")==0    || strcmp(op,"func")==0    || \
+         strcmp(op,"endfunc")==0|| strcmp(op,"entity")==0  || \
+         strcmp(op,"end_entity")==0)
+
+    do {
+        removed_this_round = 0;
+
+        // create the used buffer
+        static char used[IR_SIZE][20];
+        int used_cnt = 0;
+
+        for(int i=0;i<OPT_IR_idx;i++){
+            // record the use of first argument and push into the used buffer
+            if(OPT_IR[i].arg1[0]){
+                int found=0;
+                for(int j=0;j<used_cnt;j++)
+                    if(strcmp(used[j],OPT_IR[i].arg1)==0){found=1;break;}
+                if(!found) strcpy(used[used_cnt++],OPT_IR[i].arg1);
+            }
+            // record the use of the second argument and push into used buffer
+            if(OPT_IR[i].arg2[0]){
+                int found=0;
+                for(int j=0;j<used_cnt;j++)
+                    if(strcmp(used[j],OPT_IR[i].arg2)==0){found=1;break;}
+                if(!found) strcpy(used[used_cnt++],OPT_IR[i].arg2);
+            }
+           
+            if(IS_SIDEEFFECT(OPT_IR[i].op)){
+                if(OPT_IR[i].result[0]){
+                    int found=0;
+                    for(int j=0;j<used_cnt;j++)
+                        if(strcmp(used[j],OPT_IR[i].result)==0){found=1;break;}
+                    if(!found) strcpy(used[used_cnt++],OPT_IR[i].result);
+                }
+            }
+        }
+
+    
+        Quad scratch[IR_SIZE];
+        int  scratch_idx = 0;
+
+        for(int i=0;i<OPT_IR_idx;i++){
+            const char* res = OPT_IR[i].result;
+            const char* op  = OPT_IR[i].op;
+
+            // always force push the side -effects op's into the final ir table
+            if(IS_SIDEEFFECT(op)){
+                scratch[scratch_idx++]=OPT_IR[i];
+                continue;
+            }
+
+            // keep quads that produce no named result (bare expr stmts)
+            if(res[0]=='\0'){
+                scratch[scratch_idx++]=OPT_IR[i];
+                continue;
+            }
+
+            // keep in the final ir if the result is used somewhere in the above 
+            int found=0;
+            for(int j=0;j<used_cnt;j++)
+                if(strcmp(used[j],res)==0){found=1;break;}
+
+            if(found){
+                scratch[scratch_idx++]=OPT_IR[i];
+            } else {
+                removed_this_round++;   //delete the variables/rows
+            }
+        }
+
+        // copy the final ir to the original ir table 
+        memcpy(OPT_IR,scratch,scratch_idx*sizeof(Quad));
+        OPT_IR_idx = scratch_idx;
+        total_removed += removed_this_round;
+
+	//repeat the loop until complete dce is done
+    } while(removed_this_round > 0);
+
+    #undef IS_SIDEEFFECT
+
+    printf("[Dead Code Elimination] %d dead quad(s) removed. OPT_IR has %d quad(s).\n",
+           total_removed, OPT_IR_idx);
+    return total_removed;
+}
 
 // Constant Propagation
 
