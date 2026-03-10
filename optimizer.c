@@ -17,6 +17,7 @@ extern int IR_idx;
 Quad OPT_IR[IR_SIZE];
 int OPT_IR_idx = 0;
 
+//algebraic simplification
 static int is_numeric(const char* s){
 	if(!s || !*s){
 		return 0;
@@ -207,6 +208,9 @@ int algebraic_simplification(void)
 	printf("[Algebraic Simplification] %d simplification(s) applied. OPT_IR has %d quad(s).\n", total, OPT_IR_idx);
 	return total;
 }
+
+// Constant Propagation
+
 
 // Utility functions such as functions for printing the IR code
 
