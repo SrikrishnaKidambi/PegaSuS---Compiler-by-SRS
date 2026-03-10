@@ -93,45 +93,7 @@ void insert_var_list(char* names, DataType dt) {
         tok = strtok(NULL, ",");
     }
 }
-/* Returns 1 if the string is a numeric constant, 0 otherwise */
-int isConstant(char* s) {
-    if (!s || *s == '\0') return 0;
-    char* end;
-    strtod(s, &end);
-    return (*end == '\0');
-}
 
-/* Folds two constants with a given operator. Returns heap string or NULL. */
-char* foldConstants(char* op, char* arg1, char* arg2) {
-    if (!isConstant(arg1) || !isConstant(arg2)) return NULL;
-
-    double a = atof(arg1);
-    double b = atof(arg2);
-    double result;
-
-    if      (strcmp(op, "+")  == 0) result = a + b;
-    else if (strcmp(op, "-")  == 0) result = a - b;
-    else if (strcmp(op, "*")  == 0) result = a * b;
-    else if (strcmp(op, "/")  == 0) {
-        if (b == 0) return NULL;   
-        result = a / b;
-    }
-    else if (strcmp(op, "%")  == 0) {
-        if ((int)b == 0) return NULL;
-        result = (int)a % (int)b;
-    }
-    else if (strcmp(op, ">")  == 0) result = (a >  b);
-    else if (strcmp(op, "<")  == 0) result = (a <  b);
-    else if (strcmp(op, "==") == 0) result = (a == b);
-    else return NULL;
-
-    char* buf = malloc(32);
-    if (result == (int)result)
-        sprintf(buf, "%d", (int)result);
-    else
-        sprintf(buf, "%f", result);
-    return buf;
-}
 %}
 
 %union {
@@ -200,9 +162,6 @@ statement
         }
     ;
 
-/* ═══════════════════════════════════════════
-   ENTITY
-   ═══════════════════════════════════════════ */
 entity_decl
     : ENTITY IDENTIFIER
         {
@@ -263,10 +222,6 @@ entity_member
     | method_decl
     | access_var_decl
     ;
-
-/* ═══════════════════════════════════════════
-   CONSTRUCTOR
-   ═══════════════════════════════════════════ */
 constructor_decl
     : IDENTIFIER
         {
@@ -303,9 +258,6 @@ constructor_decl
         }
     ;
 
-/* ═══════════════════════════════════════════
-   METHOD
-   ═══════════════════════════════════════════ */
 method_decl
     /* primitive return type: public int func foo() */
     : access_modifier type FUNC IDENTIFIER
@@ -323,7 +275,7 @@ method_decl
             }
             Symbol* entity_sym = lookup(current_scope->parent,
                                         current_scope->name);
-            //emit("method",...) moved to closing action */
+            //emit("method",...) moved to closing action
             
             SymTable* ms = create_scope(SCOPE_METHOD, $4, current_scope);
             current_scope = ms;
@@ -472,10 +424,6 @@ method_decl
             emit("end_method", $4, "", "");
         }
     ;
-
-/* ═══════════════════════════════════════════
-   CLASS FIELD
-   ═══════════════════════════════════════════ */
 access_var_decl
     /* primitive type field: private int age; */
     : access_modifier type IDENTIFIER SEMICOLON
@@ -512,9 +460,6 @@ access_modifier
     | PRIVATE { $$ = ACC_PRIVATE; }
     ;
 
-/* ═══════════════════════════════════════════
-   OBJECT INSTANTIATION
-   ═══════════════════════════════════════════ */
 object_decl
     : IDENTIFIER IDENTIFIER ASSIGN NEW IDENTIFIER LPAREN arg_list_opt RPAREN SEMICOLON
         {
@@ -610,9 +555,6 @@ arg_list
 	}
     ;
 
-/* ═══════════════════════════════════════════
-   BLOCK
-   ═══════════════════════════════════════════ */
 block
     : LBRACE
         {
@@ -637,19 +579,6 @@ stmt_list
     | statement
     ;
 
-/* ═══════════════════════════════════════════
-   VARIABLE DECLARATION
-
-   KEY FIX: no mid-rule actions anywhere.
-   id_list returns a comma-separated string
-   of names upward via $$.
-   insert_var_list() does the bulk insertion.
-
-   Supported forms:
-     int a;
-     int a, b, c;
-     int a = 10;
-   ═══════════════════════════════════════════ */
 var_decl
     /* int a;  or  int a, b, c; */
     : type id_list SEMICOLON
@@ -689,11 +618,6 @@ var_decl
         }
     ;
 
-/*
- * id_list returns a heap-allocated comma-separated string
- * of all the variable names e.g. "a" or "a,b,c"
- * No symbol insertions happen here — done in var_decl action.
- */
 id_list
     : id_list COMMA IDENTIFIER
         {
@@ -708,10 +632,6 @@ id_list
         }
     ;
 
-/* ═══════════════════════════════════════════
-   TYPE — only keyword tokens, NO IDENTIFIER
-   Entity types handled explicitly above
-   ═══════════════════════════════════════════ */
 type
     : INT    { $$ = DT_INT;    }
     | FP     { $$ = DT_FLOAT;  }
@@ -720,16 +640,7 @@ type
     | BOOL   { $$ = DT_BOOL;   }
     ;
 
-/* ═══════════════════════════════════════════
-   ARRAY DECLARATION
-   ═══════════════════════════════════════════ */
 array_decl
-    /* 1-D array with size:  int[] arr[10];
-       OFFSET FIX:
-         insert_symbol assigns offset = next_offset but does NOT
-         advance next_offset (KIND_ARRAY excluded from the condition).
-         We then set the REAL size = elem_size * dim1
-         and manually advance next_offset by that real size.       */
     : type SEQ1 IDENTIFIER LBRACKET INT_LITERAL RBRACKET SEMICOLON
         {
             Symbol* sym = insert_symbol(current_scope, $3,
@@ -890,9 +801,6 @@ expr_list
 	}
     ;
 
-/* ═══════════════════════════════════════════
-   FUNCTION DECLARATION
-   ═══════════════════════════════════════════ */
 function_decl
     /* int func add(...)  /  void func main(...) */
     : func_type FUNC IDENTIFIER
@@ -1018,9 +926,6 @@ param
         }
     ;
 
-/* ═══════════════════════════════════════════
-   RETURN
-   ═══════════════════════════════════════════ */
 return_stmt
     : RETURN expression SEMICOLON 
 	{ 
@@ -1063,10 +968,6 @@ expr_stmt
 expression
     : assignment { $$ = $1; }
     ;
-
-/* ═══════════════════════════════════════════
-   INDEXED ACCESS
-   ═══════════════════════════════════════════ */
 indexed_id
     : IDENTIFIER LBRACKET expression RBRACKET
         {
@@ -1214,54 +1115,33 @@ bitwise_expr
 rel_expr
     : arith_expr GT arith_expr
         {
-            char* folded = foldConstants(">", $1, $3);
-            if (folded) {
-                $$ = folded;
-            } else {
-                char* t = genVar(); emit(">", $1, $3, t); $$ = t;
-            }
+          char* t = genVar(); emit(">", $1, $3, t); $$ = t;
+            
         }
     | arith_expr LT arith_expr
         {
-            char* folded = foldConstants("<", $1, $3);
-            if (folded) {
-                $$ = folded;
-            } else {
                 char* t = genVar(); emit("<", $1, $3, t); $$ = t;
-            }
         }
     | arith_expr EQ arith_expr
         {
-            char* folded = foldConstants("==", $1, $3);
-            if (folded) {
-                $$ = folded;
-            } else {
                 char* t = genVar(); emit("==", $1, $3, t); $$ = t;
-            }
         }
     | arith_expr { $$ = $1; }
     ;
 
 arith_expr
     : arith_expr PLUS term
-        {  char* folded = foldConstants("+", $1, $3);
-            if (folded) {
-                $$ = folded;                       
-            } else {
+       {
                 char* t = genVar();
                 emit("+", $1, $3, t);
                 $$ = t;
-            } 
+             
         }
     | arith_expr MINUS term
-        {   char* folded = foldConstants("-", $1, $3);
-            if (folded) {
-                $$ = folded;
-            } else {
+        {  
                 char* t = genVar();
                 emit("-", $1, $3, t);
                 $$ = t;
-            } 
         }
     | term { $$ = $1; }
     ;
@@ -1269,36 +1149,21 @@ arith_expr
 term
     : term MUL factor
         {
-            char* folded = foldConstants("*", $1, $3);
-            if (folded) {
-                $$ = folded;
-            } else {
                 char* t = genVar();
                 emit("*", $1, $3, t);
                 $$ = t;
-            }
         }
     | term DIV factor
         {
-            char* folded = foldConstants("/", $1, $3);
-            if (folded) {
-                $$ = folded;
-            } else {
                 char* t = genVar();
                 emit("/", $1, $3, t);
                 $$ = t;
-            }
         }
     | term MOD factor
         {
-            char* folded = foldConstants("%", $1, $3);
-            if (folded) {
-                $$ = folded;
-            } else {
                 char* t = genVar();
                 emit("%", $1, $3, t);
                 $$ = t;
-            }
         }
     | factor { $$ = $1; }
     ;
@@ -1421,9 +1286,6 @@ factor
     | LPAREN expression RPAREN { $$ = $2; }
     ;
 
-/* ═══════════════════════════════════════════
-   IF / ELIF / ELSE
-   ═══════════════════════════════════════════ */
 if_stmt
     : IF LPAREN
         {
@@ -1508,9 +1370,6 @@ else_opt
     | /* empty */
     ;
 
-/* ═══════════════════════════════════════════
-   FOR LOOP
-   ═══════════════════════════════════════════ */
 for_stmt
     : FOR LPAREN
         {
@@ -1586,9 +1445,6 @@ var_decl_no_semi
         }
     ;
 
-/* ═══════════════════════════════════════════
-   I/O
-   ═══════════════════════════════════════════ */
 io_stmt
     : IDENTIFIER ASSIGN FEED LPAREN STRING_LITERAL RPAREN SEMICOLON
         {
@@ -1665,6 +1521,10 @@ int main() {
 	algebraic_simplification();
 	// Applying the optimization technique - Copy Propagation
 	copy_propagation();
+        constant_folding();
+	constant_propagation();
+        dead_code_elimination();
+        loop_invariant_code_motion();
 	print_original_IR();
 	print_opt_IR();
 
