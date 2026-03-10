@@ -359,6 +359,146 @@ int dead_code_elimination(void)
            total_removed, OPT_IR_idx);
     return total_removed;
 }
+// returns 1 if the op should never be moved (has side effects) 
+static int is_sideeffect_op(const char* op){
+    return (strcmp(op,"call")==0    || strcmp(op,"return")==0  ||
+            strcmp(op,"ifFalse")==0 || strcmp(op,"goto")==0    ||
+            strcmp(op,"label")==0   || strcmp(op,"out")==0     ||
+            strcmp(op,"in")==0      || strcmp(op,"param")==0   ||
+            strcmp(op,"arg")==0     || strcmp(op,"func")==0    ||
+            strcmp(op,"endfunc")==0 || strcmp(op,"entity")==0  ||
+            strcmp(op,"end_entity")==0);
+}
+
+// returns 1 if name is in the written[] set 
+static int in_written(const char written[][20], int wcnt, const char* name){
+    if(!name || !name[0]) return 0;
+    for(int i=0;i<wcnt;i++)
+        if(strcmp(written[i],name)==0) return 1;
+    return 0;
+}
+
+int loop_invariant_code_motion(void)
+{
+    int total_hoisted = 0;
+    int hoisted_this_round;
+
+    do {
+        hoisted_this_round = 0;
+
+        
+        int loop_start = -1;   // index of the label quad (top of loop) 
+        int loop_end   = -1;   // index of the goto  quad (back edge)   
+        char loop_label[20]   = "";
+        char exit_label[20]   = "";
+        //  i am scanning for the loop i want to from where to where the loop is extended in the ir it starts with Label and ends with goto 
+        for(int i=0;i<OPT_IR_idx && loop_start==-1;i++){
+           
+            if(strcmp(OPT_IR[i].op,"label")!=0) continue;
+            const char* lname = OPT_IR[i].result;
+
+            for(int j=i+1;j<OPT_IR_idx;j++){
+                if(strcmp(OPT_IR[j].op,"goto")==0 &&
+                   strcmp(OPT_IR[j].result, lname)==0){
+                    loop_start = i;
+                    loop_end   = j;
+                    strcpy(loop_label, lname);
+                    break;
+                }
+            }
+
+            if(loop_start == -1) continue;
+
+            //find the ifFalse quad immediately after the label and its result is the exit label   
+            if(loop_start+1 < OPT_IR_idx &&
+               strcmp(OPT_IR[loop_start+1].op,"ifFalse")==0){
+                strcpy(exit_label, OPT_IR[loop_start+1].result);
+            }
+        }
+
+ 
+        if(loop_start == -1) break;
+        int body_first = loop_start + 1;   
+        int body_last  = loop_end   - 1;
+
+        if(body_first > body_last){
+            break;  
+        }
+
+        static char written[IR_SIZE][20];
+        int wcnt = 0;
+       // iam going through each and every quad in the loop body. Whatever is in the result column that is being copied to the written buffer
+
+        for(int i=body_first; i<=body_last; i++){
+            const char* res = OPT_IR[i].result;
+            if(!res[0]) continue;
+            int found=0;
+            for(int k=0;k<wcnt;k++)
+                if(strcmp(written[k],res)==0){found=1;break;}
+            if(!found) strcpy(written[wcnt++], res);
+        }
+
+        static int inv_idx[IR_SIZE]; 
+        int inv_cnt = 0;
+
+        for(int i=body_first+1; i<=body_last; i++){
+            const char* op  = OPT_IR[i].op;
+            const char* a1  = OPT_IR[i].arg1;
+            const char* a2  = OPT_IR[i].arg2;
+            const char* res = OPT_IR[i].result;
+
+            // side-effect ops 
+            if(is_sideeffect_op(op)) continue;
+
+            int write_count = 0;
+            for(int k=body_first+1;k<=body_last;k++)
+                if(strcmp(OPT_IR[k].result,res)==0) write_count++;
+            if(write_count > 1) continue; 
+
+            if(in_written(written, wcnt, a1)) continue;
+            if(in_written(written, wcnt, a2)) continue;
+
+            // record the index of the invarient quad
+            inv_idx[inv_cnt++] = i;
+        }
+
+        if(inv_cnt == 0) break;  
+
+        Quad newIR[IR_SIZE];
+        int  newIR_idx = 0;
+
+        // copy everything before the loop label
+        for(int i=0;i<loop_start;i++)
+            newIR[newIR_idx++] = OPT_IR[i];
+
+        // insert the motioned quads BEFORE the loop label 
+        for(int h=0;h<inv_cnt;h++)
+            newIR[newIR_idx++] = OPT_IR[inv_idx[h]];
+
+        for(int i=loop_start;i<=loop_end;i++){
+            int skip=0;
+            for(int h=0;h<inv_cnt;h++)
+                if(inv_idx[h]==i){skip=1;break;}
+            if(!skip) newIR[newIR_idx++]=OPT_IR[i];
+        }
+
+        // copy everthing after loop into the final IR table
+        for(int i=loop_end+1;i<OPT_IR_idx;i++)
+            newIR[newIR_idx++]=OPT_IR[i];
+
+        //copy the final version of the IR
+        memcpy(OPT_IR, newIR, newIR_idx*sizeof(Quad));
+        OPT_IR_idx = newIR_idx;
+
+        hoisted_this_round = inv_cnt;
+        total_hoisted      += inv_cnt;
+
+    } while(hoisted_this_round > 0);
+
+    printf("[Loop Invariant Code Motion] %d quad(s) hoisted out of loop(s). OPT_IR has %d quad(s).\n",
+           total_hoisted, OPT_IR_idx);
+    return total_hoisted;
+}
 
 // Constant Propagation
 

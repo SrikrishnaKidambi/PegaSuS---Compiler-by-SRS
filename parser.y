@@ -1521,6 +1521,7 @@ int main() {
         constant_folding();
 	constant_propagation();
         dead_code_elimination();
+        loop_invariant_code_motion();
 	print_original_IR();
 	print_opt_IR();
 
