@@ -3625,6 +3625,7 @@ int main() {
 	algebraic_simplification();
         constant_folding();
         dead_code_elimination();
+        loop_invariant_code_motion();
 	print_original_IR();
 	print_opt_IR();
 
