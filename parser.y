@@ -1661,7 +1661,10 @@ int main() {
     	print_table(global_scope);
 
 	printf("Running Optimizations\n");
+	// Applying the optimization technique - Algebraic Simplification
 	algebraic_simplification();
+	// Applying the optimization technique - Copy Propagation
+	copy_propagation();
 	print_original_IR();
 	print_opt_IR();
 

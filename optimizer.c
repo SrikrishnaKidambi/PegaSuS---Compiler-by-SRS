@@ -208,6 +208,156 @@ int algebraic_simplification(void)
 	return total;
 }
 
+// Next Pass of Optimization - Copy Propagation (has 2 sub passes - one for propagating the copied variable, another one for removing the dead code created due to propagating the copy variable
+
+#define MAX_COPIES 256
+
+typedef struct{
+	char from[20];
+	char to[20];
+	int live;
+}CopyEntry;
+
+static CopyEntry copy_table[MAX_COPIES];
+static int copy_count;
+
+// Clears the entire copy table - called at the start of the process to ensure clean table
+static void ct_clear(void){
+	copy_count = 0;
+	memset(copy_table, 0, sizeof(copy_table));
+}
+
+// Function used for handling the addition of new copy pairs into the copy table. This is called when we see some IR code like x = y then we need to replace x with y
+// Hence x -> from and y -> to.
+// Now we will be checking if there is space in the copy table to add a new copy pair and if yes add it.
+static void ct_add(const char* from, const char* to){
+	for(int i = 0; i < copy_count; i++){
+		if(copy_table[i].live && strcmp(copy_table[i].from, from) == 0){
+			strncpy(copy_table[i].to, to, 19);
+			return;
+		}
+	}
+	if(copy_count < MAX_COPIES){
+		strncpy(copy_table[copy_count].from, from , 19);
+		strncpy(copy_table[copy_count].to, to, 19);
+		copy_table[copy_count++].live = 1;
+	}
+}
+
+// This is called for every operand that is each argument in each quad in the generated IR code
+// If we find that the current variable in the IR code is having some copy source by iterating through the copy table then we simply return the source variable name
+// If there is no match then we return the same variable name itself indicating no substitution
+static const char* ct_lookup(const char* name){
+	for(int i = 0; i < copy_count; i++){
+		if(copy_table[i].live && strcmp(copy_table[i].from, name) == 0){
+			return copy_table[i].to;
+		}
+	}
+	return name;
+}
+
+// This is the function that kills a copy pair i.e., invalidating a copy pair when either of from or to variables of a copy pair are updated
+static void ct_kill(const char* name){
+	for(int i = 0; i < copy_count; i++){
+		if(copy_table[i].live && 
+				(strcmp(copy_table[i].from, name) == 0 ||
+				strcmp(copy_table[i].to, name) == 0)){
+			copy_table[i].live = 0;
+		}
+	}
+}
+
+// This is a helper function for scanning if the variable is going to be used again in the future or not for deciding if the copy pair is dead (if not used again)
+static int is_used_after(const char* name, int from){
+	for(int i = from; i < OPT_IR_idx; i++){
+		if(strcmp(OPT_IR[i].arg1, name) == 0 || 
+				strcmp(OPT_IR[i].arg2, name) == 0){
+			return 1;
+		}
+	}
+	return 0;
+}
+
+
+// This is a helper function that checks if the operator is something like a structural operator that is representing a structure but not something like holding a value
+// If the quad's operator matches with any of these then we skip that quad.
+static int is_structural_op(const char* op){
+	static const char* structural[] = {
+		"label", "goto", "func", "endfunc", "entity", "end_entity", "method", "end_method", "constr", "end_constr", "param", NULL
+	};
+	for(int i = 0; structural[i]; i++){
+		if(strcmp(op, structural[i]) == 0){
+			return 1;
+		}
+	}
+	return 0;
+}
+
+// Major function that is responsible for applying the optimization techinque - Copy Propagation. 
+int copy_propagation(void){
+	int subs = 0, removed = 0;
+	ct_clear();	// Starts with a clear copy table with copy_count = 0
+	for(int i = 0; i < OPT_IR_idx; i++){
+		Quad* q = &OPT_IR[i];
+		// Skip if the current quad's operator is some structural operator
+		if(is_structural_op(q->op)){
+			continue;
+		}
+
+		// Check if either arg1 or arg2 of the current quad is having some copy source and if yes the function returns the copy source. 
+		// If the returned copy source is same as the original variable name then no substitution is needed.
+		if(q->arg1[0]){
+			const char* sub = ct_lookup(q->arg1);
+			if(strcmp(sub, q->arg1) != 0){
+				strncpy(q->arg1, sub, 19);
+				subs++;
+			}
+		}
+		if(q->arg2[0]){
+			const char* sub = ct_lookup(q->arg2);
+			if(strcmp(sub, q->arg2) != 0){
+				strncpy(q->arg2, sub, 19);
+				subs++;
+			}
+		}
+
+		// Checks if the current quad is a copy or not and if yes
+		// Firstly we will kill all the copy pairs that are dependent on the result variable of the quad (as those values are stale and need to be added again)
+		int is_copy = (strcmp(q->op, "=") == 0 && q->arg2[0] == '\0' &&
+				q->result[0] && q->arg1[0]);
+		// Firstly kill the copy pair accoriding to the matchings and then add. If reversed then we will be adding and 
+		// then deleting the same pair that has been added 
+		if(q->result[0]){
+			ct_kill(q->result);
+			if(is_copy){
+				ct_add(q->result, q->arg1);
+			}
+		}
+	}
+
+	// This part of the code handles the second pass over the IR code and is not used again or it is not a copy quad
+	// Inorder to shrink the copy table after killing some pairs we use two-pointer based approach.
+	int write = 0;
+	for(int read = 0; read < OPT_IR_idx; read++){
+		Quad* q = &OPT_IR[read];
+		int dead = (strcmp(q->op,"=") == 0 && q->arg2[0]=='\0'
+                    && q->result[0] && !is_used_after(q->result, read+1));
+		if(dead){
+			removed++;
+			continue;
+		}
+		if(write != read){
+			OPT_IR[write] = OPT_IR[read];
+		}
+		write++;
+	}
+	OPT_IR_idx = write;
+	printf("[CopyProp] %d substitution(s), %d dead copy(ies) removed.  "
+           "OPT_IR has %d quad(s).\n", subs, removed, OPT_IR_idx);
+	return subs + removed;
+}
+
+
 // Utility functions such as functions for printing the IR code
 
 static void dump_quad_table(const char* title, const Quad* arr, int n){
