@@ -1,0 +1,32 @@
+void func test_ive() {
+
+    int i;
+    int n;
+    int offset;
+    int stride;
+
+    n = 10;
+
+    for(i = 0; i < n; i = i + 1) {
+        offset = i * 4;
+        show(offset);
+    }
+
+    for(i = 0; i < n; i = i + 2) {
+        offset = i * 4;
+        show(offset);
+    }
+
+    for(i = 0; i < n; i = i + 1) {
+        offset = i * 4;
+        stride = i * 3;
+        show(offset);
+        show(stride);
+    }
+
+}
+
+void func main() {
+    test_ive();
+}
+

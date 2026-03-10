@@ -1525,6 +1525,9 @@ int main() {
 	constant_propagation();
         dead_code_elimination();
         loop_invariant_code_motion();
+
+	// Applying the optimization technique - Induction Variable Elimination
+	induction_variable_elimination();
 	print_original_IR();
 	print_opt_IR();
 
