@@ -208,6 +208,7 @@ int algebraic_simplification(void)
 	printf("[Algebraic Simplification] %d simplification(s) applied. OPT_IR has %d quad(s).\n", total, OPT_IR_idx);
 	return total;
 }
+//constant folding code
 int constant_folding(void)
 {
     OPT_IR_idx = 0;
@@ -262,6 +263,7 @@ int constant_folding(void)
            total, OPT_IR_idx);
     return total;
 }
+//dead code elimination code
 int dead_code_elimination(void)
 {
 
@@ -360,6 +362,214 @@ int dead_code_elimination(void)
 
 // Constant Propagation
 
+#define HASH_SIZE 1024
+typedef struct{
+	char name[20];
+	char value[20];
+	int active;
+	int occupied;
+} ConstEntry;
+
+static ConstEntry const_map[HASH_SIZE];
+
+//hash function
+static unsigned int hash_str(const char* s){
+	unsigned int h = 5381;
+	while(*s){
+		h = ((h << 5) + h) + (unsigned char)(*s);
+		s++;
+	}
+	return h & (HASH_SIZE - 1);
+}
+//initiaze the hash table
+static void const_map_init(void){
+	memset(const_map,0,sizeof(const_map));
+}
+//searching function in the constant table
+static const char* const_lookup(const char* name){
+	unsigned int h = hash_str(name);
+	for(int i=0;i<HASH_SIZE;i++){
+		unsigned int slot = (h+i) & (HASH_SIZE-1);
+		if(!const_map[slot].occupied){
+			return NULL; //empty slot so key not inserted here
+		}
+		if(const_map[slot].active && strcmp(const_map[slot].name,name)==0){
+			return const_map[slot].value;
+		}
+	}
+	return NULL;
+}
+
+//add entry to the constant table
+static void const_set(const char* name,const char* value){
+	unsigned int h = hash_str(name);
+	for(int i=0;i<HASH_SIZE;i++){
+		unsigned int slot = (h+i) & (HASH_SIZE -1 );
+		if(const_map[slot].occupied && strcmp(const_map[slot].name,name)==0){
+			strcpy(const_map[slot].value,value);
+			const_map[slot].active=1;
+			return;
+		}
+		if(!const_map[slot].occupied){
+			strcpy(const_map[slot].name,name);
+			strcpy(const_map[slot].value,value);
+			const_map[slot].active=1;
+			const_map[slot].occupied=1;
+			return;
+		}
+	}
+	fprintf(stderr,"[const_map] table size is full increase HASH_SIZE.\n");
+}
+
+//kill the variable
+static void const_kill(const char* name){
+	unsigned int h = hash_str(name);
+	for(int i=0;i < HASH_SIZE;i++){
+		unsigned int slot = (h + i) & (HASH_SIZE -1);
+		if(!const_map[slot].occupied){
+			return; // not found
+		}
+		if(strcmp(const_map[slot].name,name)==0){
+			const_map[slot].active=0; //kill
+			return;
+		}
+	}
+}
+
+//print the constant table debugging
+static void print_const_map(void){
+    printf("\n%-6s  %-20s  %-20s  %-8s  %-8s\n",
+           "SLOT", "NAME", "VALUE", "ACTIVE", "OCCUPIED");
+    printf("%-6s  %-20s  %-20s  %-8s  %-8s\n",
+           "----", "----", "-----", "------", "--------");
+    for(int i = 0; i < HASH_SIZE; i++){
+        if(const_map[i].occupied){
+            printf("%-6d  %-20s  %-20s  %-8s  %-8s\n",
+                i,
+                const_map[i].name,
+                const_map[i].value,
+                const_map[i].active   ? "yes" : "no",
+                const_map[i].occupied ? "yes" : "no");
+        }
+    }
+}
+//check if it is arithmetic equation
+int is_arith_quad(const char* op){
+    return (
+        strcmp(op, "+")  == 0 || strcmp(op, "-")  == 0 ||
+        strcmp(op, "*")  == 0 || strcmp(op, "/")  == 0 ||
+        strcmp(op, "%")  == 0 || strcmp(op, ">")  == 0 ||
+        strcmp(op, "<")  == 0 || strcmp(op, "==") == 0 ||
+        strcmp(op, "&&") == 0 || strcmp(op, "||") == 0 ||
+        strcmp(op, "!")  == 0 || strcmp(op, "&")  == 0 ||
+        strcmp(op, "|")  == 0 || strcmp(op, "[]") == 0 ||
+        strcmp(op, "=")  == 0 || strcmp(op, "<<") == 0 ||
+        strcmp(op, ">>") == 0
+    );
+}
+//the major function that is exposed
+int constant_propagation(void){
+    Quad tmp[IR_SIZE];
+    int tmp_n = OPT_IR_idx;
+    memcpy(tmp, OPT_IR, tmp_n * sizeof(Quad));
+
+    OPT_IR_idx = 0;
+    const_map_init();
+    int total = 0;
+
+    for(int i = 0; i < tmp_n; i++){
+        Quad q = tmp[i];
+        int changed = 0;
+
+        if(is_arith_quad(q.op)){
+
+            // Special case — [] op: only propagate into arg2, never arg1
+            if(strcmp(q.op, "[]") == 0){
+                if(q.arg2[0] != '\0' && !is_numeric(q.arg2)){
+                    const char* v = const_lookup(q.arg2);
+                    if(v){ strcpy(q.arg2, v); changed = 1; }
+                }
+            }
+            else {
+                // Step 1 — Propagate into arg1
+                if(q.arg1[0] != '\0' && !is_numeric(q.arg1)){
+                    const char* v = const_lookup(q.arg1);
+                    if(v){
+                        printf("[CP] quad[%d]: arg1 '%s' → '%s'\n", i, q.arg1, v);
+                        strcpy(q.arg1, v);
+                        changed = 1;
+                    }
+                }
+
+                // Step 2 — Propagate into arg2
+                if(q.arg2[0] != '\0' && !is_numeric(q.arg2)){
+                    const char* v = const_lookup(q.arg2);
+                    if(v){
+                        printf("[CP] quad[%d]: arg2 '%s' → '%s'\n", i, q.arg2, v);
+                        strcpy(q.arg2, v);
+                        changed = 1;
+                    }
+                }
+
+                // Step 3 — Constant folding: both args numeric now
+                if(q.arg2[0] != '\0' && is_numeric(q.arg1) && is_numeric(q.arg2)){
+                    double a  = atof(q.arg1);
+                    double b  = atof(q.arg2);
+                    double r  = 0;
+                    int valid = 1;
+
+                    if     (strcmp(q.op, "+")  == 0) r = a + b;
+                    else if(strcmp(q.op, "-")  == 0) r = a - b;
+                    else if(strcmp(q.op, "*")  == 0) r = a * b;
+                    else if(strcmp(q.op, "/")  == 0){
+                        if(b == 0){ valid = 0; fprintf(stderr, "[CP] divide by zero at quad[%d]\n", i); }
+                        else r = a / b;
+                    }
+                    else if(strcmp(q.op, "%")  == 0){
+                        if((int)b == 0){ valid = 0; }
+                        else r = (int)a % (int)b;
+                    }
+                    else if(strcmp(q.op, ">")  == 0) r = (a >  b);
+                    else if(strcmp(q.op, "<")  == 0) r = (a <  b);
+                    else if(strcmp(q.op, "==") == 0) r = (a == b);
+                    else valid = 0;   // <<, >>, &&, || not foldable here
+
+                    if(valid){
+                        char val[32];
+                        if(fabs(r - (int)r) < 1e-9) sprintf(val, "%d", (int)r);
+                        else                         sprintf(val, "%f", r);
+                        printf("[CF] quad[%d]: folding '%s %s %s' → '%s'\n",
+                               i, q.arg1, q.op, q.arg2, val);
+                        make_copy_quad(&q, q.result, val);
+                        changed = 1;
+                    }
+                }
+            }
+
+            // Step 4 — Update const_map based on what result is now
+            if(q.result[0] != '\0'){
+                if(strcmp(q.op, "=") == 0 && q.arg2[0] == '\0' && is_numeric(q.arg1)){
+                    // x = 5  or  x = y (after y was propagated to 5)
+                    const_set(q.result, q.arg1);
+                    printf("[CP] quad[%d]: recording '%s' = '%s'\n", i, q.result, q.arg1);
+                } else {
+                    const_kill(q.result);
+                }
+            }
+
+        } // end is_arith
+
+        // emit the quad — arith or control flow
+        OPT_IR[OPT_IR_idx++] = q;
+        if(changed) total++;
+
+    } // end for — return is OUTSIDE the loop
+
+    printf("\n[Constant Propagation] %d change(s) applied. OPT_IR has %d quad(s).\n",
+           total, OPT_IR_idx);
+    print_const_map();
+    return total;
+}
 
 // Utility functions such as functions for printing the IR code
 

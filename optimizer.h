@@ -35,6 +35,9 @@ int dead_code_elimination(void);
 // Third pass - Induction variable elimination 
 int induction_variable_elimination(void);
 
+// Constant propagation function api provided
+int constant_propagation(void);
+
 void print_opt_IR(void);	// Prints the optimised IR code
 void print_original_IR(void);	// Prints the original IR code
 

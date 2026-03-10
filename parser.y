@@ -275,7 +275,7 @@ method_decl
             }
             Symbol* entity_sym = lookup(current_scope->parent,
                                         current_scope->name);
-            //emit("method",...) moved to closing action */
+            //emit("method",...) moved to closing action
             
             SymTable* ms = create_scope(SCOPE_METHOD, $4, current_scope);
             current_scope = ms;
@@ -1519,6 +1519,7 @@ int main() {
 	printf("Running Optimizations\n");
 	algebraic_simplification();
         constant_folding();
+	constant_propagation();
         dead_code_elimination();
 	print_original_IR();
 	print_opt_IR();
