@@ -952,7 +952,27 @@ int induction_variable_elimination(void){
 		return 0;
 	}
 
-	for(int li = g_loop_count -1; li >= 0; li--){
+	// Handling the nested loops by first processing the inner loops and avoid processing considering the inner loop again when considering the outer loops
+	for(int a = 0; a < g_loop_count - 1; a++){
+		for(int b = a + 1; b < g_loop_count; b++){
+			int size_a = g_loops[a].footer - g_loops[a].header;
+			int size_b = g_loops[b].footer - g_loops[b].header;
+			if(size_a > size_b){
+				LoopInfo tmp = g_loops[a];
+				g_loops[a] = g_loops[b];	
+				g_loops[b] = tmp;
+		
+				int tc = g_biv_count[a];
+				g_biv_count[a] = g_biv_count[b];
+				g_biv_count[b] = tc;
+				tc = g_div_count[a];
+				g_div_count[a] = g_div_count[b];
+				g_div_count[b] = tc;
+			}
+		}
+	}
+
+	for(int li = 0; li < g_loop_count; li++){
 		LoopInfo* lp = &g_loops[li];
 		int body_start = lp->header + 1;
 		int body_end = lp->footer - 1;
@@ -961,17 +981,58 @@ int induction_variable_elimination(void){
 		}
 
 		// Collect BIVs that is (i = i +/- c)
+		// Collect BIVs that is (i = i +/- c)
 		int bc = 0;
 		for(int i = body_start; i <= body_end && bc < MAX_BIVS; i++){
-			Quad* q = &OPT_IR[i];
-			if((strcmp(q->op, "+") == 0 || strcmp(q->op, "-") == 0) && strcmp(q->arg1, q->result) == 0 && q->result[0] && is_numeric(q->arg2)){
-				BIV* b = &g_bivs[li][bc++];
-				strncpy(b->var, q->result, 19);
-				strncpy(b->step_str, q->arg2, 19);
-				strncpy(b->op, q->op, 3);
-				b->step = (strcmp(q->op,"-")==0) ? -atof(q->arg2) : atof(q->arg2);
-				b->update_idx = i;
+			int in_inner = 0;
+			for(int x = 0; x < g_loop_count; x++){
+				if(x == li){
+					continue;
+				}
+				int size_x = g_loops[x].footer - g_loops[x].header;
+				int size_li = g_loops[li].footer - g_loops[li].header;
+				if(size_x >= size_li){
+					continue;
+				}
+				if(i > g_loops[x].header && i <= g_loops[x].footer){
+					in_inner = 1;
+					i = g_loops[x].footer;
+					break;
+				}
 			}
+			if(in_inner){
+				continue;
+			}
+		    	Quad* q = &OPT_IR[i];
+		    	if((strcmp(q->op, "+") == 0 || strcmp(q->op, "-") == 0) && q->result[0] && is_numeric(q->arg2))
+		    	{
+				if(strcmp(q->arg1, q->result) == 0){
+			    	// direct  i = i + c
+			    	BIV* b = &g_bivs[li][bc++];
+			    	strncpy(b->var, q->result, 19);
+			    	strncpy(b->step_str, q->arg2, 19);
+			    	strncpy(b->op, q->op, 3);
+			    	b->step = (strcmp(q->op,"-")==0) ? -atof(q->arg2) : atof(q->arg2);
+			    	b->update_idx = i;
+				} else {
+			    		// t = i + c  then  i = t  (two-quad pattern)
+					for(int k = i+1; k <= body_end; k++){
+						Quad* nq = &OPT_IR[k];
+						if(strcmp(nq->op,"=")==0 && nq->arg2[0]=='\0' &&
+						strcmp(nq->arg1, q->result)==0 &&
+						strcmp(nq->result, q->arg1)==0)
+						{
+						BIV* b = &g_bivs[li][bc++];
+						strncpy(b->var, nq->result, 19);
+						strncpy(b->step_str, q->arg2, 19);
+						strncpy(b->op, q->op, 3);
+						b->step = (strcmp(q->op,"-")==0) ? -atof(q->arg2) : atof(q->arg2);
+						b->update_idx = k;
+						break;
+						}
+					}
+				}
+		    	}
 		}
 		g_biv_count[li] = bc;
 		if(bc == 0) continue;
@@ -979,8 +1040,22 @@ int induction_variable_elimination(void){
 		// Collecting DIVs
 		int dc = 0;
 		for(int i = body_start; i <= body_end && dc < MAX_DIVS; i++){
+			/*
+			for(int x = 0; x < g_loop_count; x++){
+				if(x == li){
+					continue;
+				}
+				if(i > g_loops[x].header && i <= g_loops[x].footer){
+					in_inner = 1;
+					i = g_loops[x].footer;
+					break;
+				}
+			}
+			if(in_inner){
+				continue;
+			}*/
 			Quad* q = &OPT_IR[i];
-			if(strcmp(q->op, "*") != 0 && strcmp(q->op, "+") != 0){
+			if(strcmp(q->op, "*") != 0){
 				continue;
 			}
 			if(!q->result[0]){
@@ -989,26 +1064,54 @@ int induction_variable_elimination(void){
 
 			for(int b = 0; b < bc; b++){
 				const char* bname = g_bivs[li][b].var;
-				if (strcmp(q->arg1,bname)==0 && is_numeric(q->arg2)) {
-				    DIV_entry *d = &g_divs[li][dc++];
-				    strncpy(d->result, q->result, 19);
-				    strncpy(d->biv_name, bname, 19);
-				    strncpy(d->coeff_str, q->arg2, 19);
-				    d->coeff = atof(q->arg2);
-				    d->quad_idx = i;
-				    strncpy(d->div_op, q->op, 3);
-				    break;
+				char coeff[20] = "";
+				int match = 0;
+
+				if(strcmp(q->arg1,bname)==0 && is_numeric(q->arg2)){
+				    strncpy(coeff, q->arg2, 19); match = 1;
+				} else if(strcmp(q->arg2,bname)==0 && is_numeric(q->arg1)){
+				    strncpy(coeff, q->arg1, 19); match = 1;
 				}
-				if (strcmp(q->arg2,bname)==0 && is_numeric(q->arg1)) {
-				    DIV_entry *d = &g_divs[li][dc++];
-				    strncpy(d->result, q->result, 19);
-				    strncpy(d->biv_name, bname, 19);
-				    strncpy(d->coeff_str, q->arg1, 19);
-				    d->coeff = atof(q->arg1);
-				    d->quad_idx = i;
-				    strncpy(d->div_op, q->op, 3);
-				    break;
+				if(!match) continue;
+
+				// scan forward for copy-to-named-var:  named_var = temp
+				const char* real_result = q->result;
+				int real_idx = i;
+				for(int k = i+1; k <= body_end; k++){
+				    Quad* nq = &OPT_IR[k];
+				    if(strcmp(nq->op,"=")==0 && nq->arg2[0]=='\0' &&
+				       strcmp(nq->arg1, q->result)==0)
+				    {
+					real_result = nq->result;
+					real_idx = k;
+					break;
+				    }
 				}
+
+				// skip if real_result is itself a BIV (that is the increment quad, not a DIV)
+				int is_biv = 0;
+				for(int bb = 0; bb < bc; bb++)
+				    if(strcmp(real_result, g_bivs[li][bb].var)==0){ is_biv=1; break; }
+				if(is_biv) continue;
+				
+				int write_count = 0;
+				for(int w = body_start; w <= body_end; w++){
+					if(strcmp(OPT_IR[w].result, real_result) == 0){
+						write_count++;
+					}
+				}
+				if(write_count > 1){
+					continue;
+				}
+
+				DIV_entry* d = &g_divs[li][dc++];
+				strncpy(d->result,    real_result, 19);
+				strncpy(d->biv_name,  bname,       19);
+				strncpy(d->coeff_str, coeff,        19);
+				d->coeff    = atof(coeff);
+				d->quad_idx = real_idx;
+				strncpy(d->div_op, q->op, 3);
+				break;
 			    }
 		}
 		g_div_count[li] = dc;
@@ -1050,9 +1153,9 @@ int induction_variable_elimination(void){
 			}
 			for (int b = 0; b < bc; b++)
 				if (g_bivs[li][b].update_idx >= ins) g_bivs[li][b].update_idx++;
-			    for (int dj = di; dj < dc; dj++)
+			for (int dj = di; dj < dc; dj++)
 				if (g_divs[li][dj].quad_idx >= ins) g_divs[li][dj].quad_idx++;
-			    for (int b = 0; b < bc; b++)
+			for (int b = 0; b < bc; b++)
 				if (strcmp(g_bivs[li][b].var, dv->biv_name)==0)
 				    { bv = &g_bivs[li][b]; break; }
 

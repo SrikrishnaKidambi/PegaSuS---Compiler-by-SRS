@@ -3627,12 +3627,13 @@ int main() {
 	// Applying the optimization technique - Copy Propagation
         copy_propagation();
         constant_folding();
-        constant_propagation();
+	//constant_propagation();
         dead_code_elimination();
         loop_invariant_code_motion();
 
 	// Applying the optimization technique - Induction Variable Elimination
 	induction_variable_elimination();
+	dead_code_elimination();	// Has to run this again for finally removing unnecessary statements after running the Induction variable elimination
 	print_original_IR();
 	print_opt_IR();
 
