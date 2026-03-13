@@ -1,0 +1,10 @@
+int _func test(int a, int b) {
+    int result = 0;
+    int c = a * 8;
+    for(int i = 0; i < 10; i = i + 1) {
+        result = result + c;
+        int t = b % 4;
+        result = result + t;
+    }
+    return result;
+}
