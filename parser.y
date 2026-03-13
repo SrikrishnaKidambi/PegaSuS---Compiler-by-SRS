@@ -1515,8 +1515,7 @@ int main() {
 
     	printf("\n========== GLOBAL SCOPE ==========\n");
     	print_table(global_scope);
-
-	printf("Running Optimizations\n");
+        printf("Running Optimizations\n");
 	// Applying the optimization technique - Algebraic Simplification
 	algebraic_simplification();
 	// Applying the optimization technique - Copy Propagation
@@ -1528,7 +1527,7 @@ int main() {
 
 	// Applying the optimization technique - Induction Variable Elimination
 	induction_variable_elimination();
-	dead_code_elimination();	// Has to run this again for finally removing unnecessary statements after running the Induction variable elimination
+	dead_code_elimination(); // Has to run this again for finally removing unnecessary statements after running the Induction variable elimination
 	print_original_IR();
 	print_opt_IR();
 
