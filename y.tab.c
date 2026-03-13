@@ -3623,8 +3623,10 @@ int main() {
 
 	printf("Running Optimizations\n");
 	algebraic_simplification();
+    strength_reduction();
         constant_folding();
 	constant_propagation();
+    common_subexpression_elimination();
         dead_code_elimination();
         loop_invariant_code_motion();
 	print_original_IR();

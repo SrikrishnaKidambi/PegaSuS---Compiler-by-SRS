@@ -123,34 +123,35 @@ int algebraic_simplification(void)
 				make_copy_quad(&out, s->result, s->arg2);
 				fired = 1;
 			}
-			// If x*2 then emit x + x
-			else if(is_int_val(s->arg2, 2)){
-				make_binop_quad(&out, "+", s->arg1, s->arg1, s->result);
-				fired = 1;
-			}
-			else if(is_int_val(s->arg1, 2)){
-				make_binop_quad(&out, "+", s->arg1, s->arg1, s->result);
-				fired = 1;
-			}
+			// If x*2 then emit x + x // !! Removed as handled in strength reduction
+			// else if(is_int_val(s->arg2, 2)){
+			// 	make_binop_quad(&out, "+", s->arg1, s->arg1, s->result);
+			// 	fired = 1;
+			// }
+			// else if(is_int_val(s->arg1, 2)){
+			// 	make_binop_quad(&out, "+", s->arg1, s->arg1, s->result);
+			// 	fired = 1;
+			// }
 			// Now finally checking for something like x * (2^k) which can simply be converted into shifting operation
-			else if(is_numeric(s->arg2)){
-				int e = pow2_exp((int) atof(s->arg2));
-				if(e >= 2){
-					char es[12];
-					sprintf(es, "%d", e);
-					make_binop_quad(&out, "<<", s->arg1, es, s->result);
-					fired = 1;
-				}
-			}
-			else if(is_numeric(s->arg1)){
-				int e = pow2_exp((int) atof(s->arg1));
-                                if(e >= 2){
-                                        char es[12];
-                                        sprintf(es, "%d", e);
-                                        make_binop_quad(&out, "<<", s->arg2, es, s->result);
-                                        fired = 1;
-                                }
-			}
+			// !!! Removed as it is handled in strength reduction
+            // else if(is_numeric(s->arg2)){
+			// 	int e = pow2_exp((int) atof(s->arg2));
+			// 	if(e >= 2){
+			// 		char es[12];
+			// 		sprintf(es, "%d", e);
+			// 		make_binop_quad(&out, "<<", s->arg1, es, s->result);
+			// 		fired = 1;
+			// 	}
+			// }
+			// else if(is_numeric(s->arg1)){
+			// 	int e = pow2_exp((int) atof(s->arg1));
+            //                     if(e >= 2){
+            //                             char es[12];
+            //                             sprintf(es, "%d", e);
+            //                             make_binop_quad(&out, "<<", s->arg2, es, s->result);
+            //                             fired = 1;
+            //                     }
+			// }
 		}
 		// Division operation involved
 		else if(strcmp(s->op, "/") == 0){
@@ -162,15 +163,16 @@ int algebraic_simplification(void)
 				make_copy_quad(&out, s->result, "1");
 				fired = 1;
 			}
-			else if(is_numeric(s->arg2)){
-				int e = pow2_exp((int) atof(s->arg2));
-				if(e >= 1){
-					char es[12];
-					sprintf(es, "%d", e);
-					make_binop_quad(&out, ">>", s->arg1, es, s->result);
-					fired = 1;
-				}
-			}
+            // !!! Removed as it is handled in strength reduction
+			// else if(is_numeric(s->arg2)){
+			// 	int e = pow2_exp((int) atof(s->arg2));
+			// 	if(e >= 1){
+			// 		char es[12];
+			// 		sprintf(es, "%d", e);
+			// 		make_binop_quad(&out, ">>", s->arg1, es, s->result);
+			// 		fired = 1;
+			// 	}
+			// }
 		}
 		// Modulo operation
 		else if(strcmp(s->op, "%") == 0){
@@ -211,11 +213,14 @@ int algebraic_simplification(void)
 //constant folding code
 int constant_folding(void)
 {
+    Quad tmp[IR_SIZE];
+    int tmp_n = OPT_IR_idx;
+    memcpy(tmp, OPT_IR, tmp_n * sizeof(Quad));  // snapshot OPT_IR
     OPT_IR_idx = 0;
     int total = 0;
 
     for(int i = 0; i < IR_idx; i++){
-        const Quad* s = &IR[i];
+        const Quad* s = &tmp[i];
         Quad out;
         memset(&out, 0, sizeof(out));
         int fired = 0;
@@ -502,7 +507,7 @@ int loop_invariant_code_motion(void)
 
 // Constant Propagation
 
-#define HASH_SIZE 1024
+#define CP_HASH_SIZE 1024
 typedef struct{
 	char name[20];
 	char value[20];
@@ -510,7 +515,7 @@ typedef struct{
 	int occupied;
 } ConstEntry;
 
-static ConstEntry const_map[HASH_SIZE];
+static ConstEntry const_map[CP_HASH_SIZE];
 
 //hash function
 static unsigned int hash_str(const char* s){
@@ -519,17 +524,67 @@ static unsigned int hash_str(const char* s){
 		h = ((h << 5) + h) + (unsigned char)(*s);
 		s++;
 	}
-	return h & (HASH_SIZE - 1);
+	return h & (CP_HASH_SIZE - 1);
 }
 //initiaze the hash table
 static void const_map_init(void){
 	memset(const_map,0,sizeof(const_map));
 }
+
+//find out the variables in loop and blacklist them
+#define BLACKLIST_SIZE 256
+static char blacklist[BLACKLIST_SIZE][20];
+static int blacklist_cnt = 0;
+
+static void blacklist_init(void){
+    blacklist_cnt = 0;
+}
+
+static void blacklist_add(const char* name){
+    if(!name || !name[0]) return;
+    for(int i=0;i<blacklist_cnt;i++){
+        if(strcmp(blacklist[i],name)==0) return; //already there
+    }
+    if(blacklist_cnt< BLACKLIST_SIZE){
+        strcpy(blacklist[blacklist_cnt++],name);
+    }
+}
+
+static int is_blacklisted(const char* name){
+    for(int i = 0; i < blacklist_cnt; i++)
+        if(strcmp(blacklist[i], name) == 0) return 1;
+    return 0;
+}
+
+
+static void build_blacklist(const Quad* tmp, int tmp_n){
+    blacklist_init();
+    for(int i = 0; i < tmp_n; i++){
+        //to find out the initial loop label
+        if(strcmp(tmp[i].op, "label") != 0) continue;
+        const char* lname = tmp[i].result;
+
+        for(int j = i+1; j < tmp_n; j++){
+            //confirm if loop by checking for goto to that label
+            if(strcmp(tmp[j].op, "goto") == 0 &&
+               strcmp(tmp[j].result, lname) == 0){
+                // mark every result written inside this loop from i+1 to j
+                for(int k = i+1; k < j; k++){
+                    if(tmp[k].result[0] != '\0'){
+                        blacklist_add(tmp[k].result);
+                    }
+                }
+                break;
+            }
+        }
+    }
+}
+
 //searching function in the constant table
 static const char* const_lookup(const char* name){
 	unsigned int h = hash_str(name);
-	for(int i=0;i<HASH_SIZE;i++){
-		unsigned int slot = (h+i) & (HASH_SIZE-1);
+	for(int i=0;i<CP_HASH_SIZE;i++){
+		unsigned int slot = (h+i) & (CP_HASH_SIZE-1);
 		if(!const_map[slot].occupied){
 			return NULL; //empty slot so key not inserted here
 		}
@@ -543,8 +598,8 @@ static const char* const_lookup(const char* name){
 //add entry to the constant table
 static void const_set(const char* name,const char* value){
 	unsigned int h = hash_str(name);
-	for(int i=0;i<HASH_SIZE;i++){
-		unsigned int slot = (h+i) & (HASH_SIZE -1 );
+	for(int i=0;i<CP_HASH_SIZE;i++){
+		unsigned int slot = (h+i) & (CP_HASH_SIZE -1 );
 		if(const_map[slot].occupied && strcmp(const_map[slot].name,name)==0){
 			strcpy(const_map[slot].value,value);
 			const_map[slot].active=1;
@@ -558,14 +613,14 @@ static void const_set(const char* name,const char* value){
 			return;
 		}
 	}
-	fprintf(stderr,"[const_map] table size is full increase HASH_SIZE.\n");
+	fprintf(stderr,"[const_map] table size is full increase CP_HASH_SIZE.\n");
 }
 
 //kill the variable
 static void const_kill(const char* name){
 	unsigned int h = hash_str(name);
-	for(int i=0;i < HASH_SIZE;i++){
-		unsigned int slot = (h + i) & (HASH_SIZE -1);
+	for(int i=0;i < CP_HASH_SIZE;i++){
+		unsigned int slot = (h + i) & (CP_HASH_SIZE -1);
 		if(!const_map[slot].occupied){
 			return; // not found
 		}
@@ -582,7 +637,7 @@ static void print_const_map(void){
            "SLOT", "NAME", "VALUE", "ACTIVE", "OCCUPIED");
     printf("%-6s  %-20s  %-20s  %-8s  %-8s\n",
            "----", "----", "-----", "------", "--------");
-    for(int i = 0; i < HASH_SIZE; i++){
+    for(int i = 0; i < CP_HASH_SIZE; i++){
         if(const_map[i].occupied){
             printf("%-6d  %-20s  %-20s  %-8s  %-8s\n",
                 i,
@@ -615,6 +670,9 @@ int constant_propagation(void){
 
     OPT_IR_idx = 0;
     const_map_init();
+
+    //black list the loop variables
+    build_blacklist(tmp,tmp_n);
     int total = 0;
 
     for(int i = 0; i < tmp_n; i++){
@@ -635,7 +693,7 @@ int constant_propagation(void){
                 if(q.arg1[0] != '\0' && !is_numeric(q.arg1)){
                     const char* v = const_lookup(q.arg1);
                     if(v){
-                        printf("[CP] quad[%d]: arg1 '%s' → '%s'\n", i, q.arg1, v);
+                        //printf("[CP] quad[%d]: arg1 '%s' → '%s'\n", i, q.arg1, v);
                         strcpy(q.arg1, v);
                         changed = 1;
                     }
@@ -645,7 +703,7 @@ int constant_propagation(void){
                 if(q.arg2[0] != '\0' && !is_numeric(q.arg2)){
                     const char* v = const_lookup(q.arg2);
                     if(v){
-                        printf("[CP] quad[%d]: arg2 '%s' → '%s'\n", i, q.arg2, v);
+                        //printf("[CP] quad[%d]: arg2 '%s' → '%s'\n", i, q.arg2, v);
                         strcpy(q.arg2, v);
                         changed = 1;
                     }
@@ -678,8 +736,7 @@ int constant_propagation(void){
                         char val[32];
                         if(fabs(r - (int)r) < 1e-9) sprintf(val, "%d", (int)r);
                         else                         sprintf(val, "%f", r);
-                        printf("[CF] quad[%d]: folding '%s %s %s' → '%s'\n",
-                               i, q.arg1, q.op, q.arg2, val);
+                       // printf("[CF] quad[%d]: folding '%s %s %s' → '%s'\n",i, q.arg1, q.op, q.arg2, val);
                         make_copy_quad(&q, q.result, val);
                         changed = 1;
                     }
@@ -689,9 +746,13 @@ int constant_propagation(void){
             // Step 4 — Update const_map based on what result is now
             if(q.result[0] != '\0'){
                 if(strcmp(q.op, "=") == 0 && q.arg2[0] == '\0' && is_numeric(q.arg1)){
-                    // x = 5  or  x = y (after y was propagated to 5)
-                    const_set(q.result, q.arg1);
-                    printf("[CP] quad[%d]: recording '%s' = '%s'\n", i, q.result, q.arg1);
+                    // only record if NOT a loop variable
+                    if(!is_blacklisted(q.result)){
+                        const_set(q.result, q.arg1);
+                        //printf("[CP] quad[%d]: recording '%s' = '%s'\n", i, q.result, q.arg1);
+                    } else {
+                        //printf("[CP] quad[%d]: skipping loop var '%s'\n", i, q.result);
+                    }
                 } else {
                     const_kill(q.result);
                 }
@@ -711,6 +772,299 @@ int constant_propagation(void){
     return total;
 }
 
+// Implementation of the common subexpression elimination
+#define CSE_HASH_SIZE 1024
+
+typedef struct CSEEntry {
+    char op[20];
+    char arg1[20];
+    char arg2[20];
+    char result[20];
+    int active;
+    int occupied;
+} CSEEntry;
+
+static CSEEntry cse_map[CSE_HASH_SIZE];
+
+//Hash function for cse that use all the fields combined op, arg1, arg2
+static unsigned int hash_cse(const char* op,const char* arg1, const char* arg2){
+    unsigned int h = 5381;
+    //hash op
+    for(const  char* s = op; *s ; s++) h = ((h<<5) + h ) + (unsigned char)(*s);
+    h ^=0x9e3779b9; //to mix between fields to avoid collision
+    //hash arg1
+    for(const char* s = arg1; *s; s++) h = ((h<<5) + h) + (unsigned char)(*s);
+    h ^=0x9e3779b9;
+    //hash arg2
+    for(const char* s = arg2; *s; s++) h = ((h << 5) + h) + (unsigned char)(*s);
+    return h & (CSE_HASH_SIZE - 1);
+}
+//Initialze the cse map
+static void cse_map_init(void){
+    memset(cse_map,0,sizeof(cse_map));
+}
+
+//Lookup(op,arg1,arg2) - returns result or NULL
+static const char* cse_lookup(const char* op, const char* arg1, const char* arg2){
+    unsigned int h = hash_cse(op,arg1,arg2);
+    for(int i=0;i<CSE_HASH_SIZE;i++){
+        unsigned int slot = (h + i) & (CSE_HASH_SIZE -1);
+        if(!cse_map[slot].occupied) return NULL; //empty so expression will not be here for sure
+        if(cse_map[slot].active             &&
+           strcmp(cse_map[slot].op,   op)   == 0 &&
+           strcmp(cse_map[slot].arg1, arg1) == 0 &&
+           strcmp(cse_map[slot].arg2, arg2) == 0){
+            return cse_map[slot].result;
+        }
+    }
+    return NULL;
+}
+
+//Lookup with commutative check for + * & | ==
+static const char* cse_lookup_commutative(const char* op, const char* arg1,const char* arg2){
+    const char* r = cse_lookup(op,arg1,arg2);
+    if(r) return r;
+    if(strcmp(op,"+")  == 0 || strcmp(op,"*")  == 0 ||
+       strcmp(op,"&")  == 0 || strcmp(op,"|")  == 0 ||
+       strcmp(op,"==") == 0 || strcmp(op,"&&") == 0 ||  
+       strcmp(op,"||") == 0){                           
+        r = cse_lookup(op, arg2, arg1);
+    }
+    return r;
+}
+
+// Add (op, arg1, arg2) -> result
+static void cse_add(const char* op, const char* arg1, const char* arg2, const char* result){
+    unsigned int h = hash_cse(op,arg1,arg2);
+    for(int i=0;i<CSE_HASH_SIZE;i++){
+        unsigned int slot = (h + i) & (CSE_HASH_SIZE -1);
+        //update the result if it already exists
+        if(cse_map[slot].occupied &&
+           strcmp(cse_map[slot].op,   op)   == 0 &&
+           strcmp(cse_map[slot].arg1, arg1) == 0 &&
+           strcmp(cse_map[slot].arg2, arg2) == 0){
+            strcpy(cse_map[slot].result, result);
+            cse_map[slot].active = 1;
+            return;
+        }
+        //insert into empty slot
+        if(!cse_map[slot].occupied){
+            strcpy(cse_map[slot].op,     op);
+            strcpy(cse_map[slot].arg1,   arg1);
+            strcpy(cse_map[slot].arg2,   arg2);
+            strcpy(cse_map[slot].result, result);
+            cse_map[slot].active   = 1;
+            cse_map[slot].occupied = 1;
+            return;
+        }
+    }
+    fprintf(stderr, "[cse_map] table full! Increase CSE_HASH_SIZE.\n");
+}
+
+// Kill when arg1, arg2 or result changes
+static void cse_kill(const char* name){
+    if(!name || !name[0]) return;
+    for(int i = 0; i < CSE_HASH_SIZE; i++){
+        if(!cse_map[i].occupied || !cse_map[i].active) continue;
+        if(strcmp(cse_map[i].arg1,   name) == 0 ||
+           strcmp(cse_map[i].arg2,   name) == 0 ||
+           strcmp(cse_map[i].result, name) == 0){
+            cse_map[i].active = 0;  // soft delete — keep occupied=1
+        }
+    }
+}
+
+//print the cse optimizations done
+static void print_cse_map(void){
+    printf("\n%-6s  %-10s  %-15s  %-15s  %-15s  %-8s\n",
+           "SLOT", "OP", "ARG1", "ARG2", "RESULT", "ACTIVE");
+    printf("%-6s  %-10s  %-15s  %-15s  %-15s  %-8s\n",
+           "----", "--", "----", "----", "------", "------");
+    for(int i = 0; i < CSE_HASH_SIZE; i++){
+        if(cse_map[i].occupied){
+            printf("%-6d  %-10s  %-15s  %-15s  %-15s  %-8s\n",
+                i,
+                cse_map[i].op,
+                cse_map[i].arg1,
+                cse_map[i].arg2,
+                cse_map[i].result,
+                cse_map[i].active ? "yes" : "no");
+        }
+    }
+}
+
+//ops that are safe to use CSE
+static int is_cse_candidate(const char* op){
+    return (
+        strcmp(op, "+")  == 0 || strcmp(op, "-")  == 0 ||
+        strcmp(op, "*")  == 0 || strcmp(op, "/")  == 0 ||
+        strcmp(op, "%")  == 0 || strcmp(op, ">")  == 0 ||
+        strcmp(op, "<")  == 0 || strcmp(op, "==") == 0 ||
+        strcmp(op, "&&") == 0 || strcmp(op, "||") == 0 ||
+        strcmp(op, "!")  == 0 || strcmp(op, "&")  == 0 ||
+        strcmp(op, "|")  == 0 || strcmp(op, "<<") == 0 ||
+        strcmp(op, ">>") == 0
+    );
+}
+
+//the main common subexpression elimination function
+int common_subexpression_elimination(void){
+    Quad tmp[IR_SIZE];
+    int tmp_n = OPT_IR_idx;
+    memcpy(tmp, OPT_IR, tmp_n * sizeof(Quad));
+
+    OPT_IR_idx = 0;
+    cse_map_init();
+    int total = 0;
+
+    for(int i = 0; i < tmp_n; i++){
+        Quad q = tmp[i];
+        int changed = 0;
+
+        if(is_cse_candidate(q.op)){
+            char orig_op[20], orig_a1[20], orig_a2[20];
+            strcpy(orig_op, q.op);
+            strcpy(orig_a1, q.arg1);
+            strcpy(orig_a2, q.arg2);
+
+            const char* prev = cse_lookup_commutative(orig_op, orig_a1, orig_a2);
+
+            if(prev){
+                char old_result[20];
+                strcpy(old_result, q.result);
+                make_copy_quad(&q, old_result, prev);
+                changed = 1;
+                cse_add(orig_op, orig_a1, orig_a2, old_result);
+                // no kill — keep (a+b) alive via new result
+            }
+            else{
+                cse_kill(q.result);   // result being overwritten, kill stale entries
+                cse_add(orig_op, orig_a1, orig_a2, q.result);
+                // no kill again
+            }
+        }
+        else{
+            // control flow, copies, labels etc — just kill the result
+            if(q.result[0] != '\0'){
+                cse_kill(q.result);
+            }
+        }
+
+        OPT_IR[OPT_IR_idx++] = q;
+        if(changed) total++;
+    }
+
+    printf("[CSE] %d substitution(s) applied. OPT_IR has %d quad(s).\n", total, OPT_IR_idx);
+    print_cse_map();
+    return total;
+}
+
+// strength reduction code
+int strength_reduction(void){
+    Quad tmp[IR_SIZE];
+    int tmp_n = OPT_IR_idx;
+    memcpy(tmp,OPT_IR,tmp_n*sizeof(Quad));
+
+    OPT_IR_idx = 0;
+    int total = 0;
+
+    for(int i=0;i<tmp_n;i++){
+        Quad q = tmp[i];
+        int changed = 0;
+        //printf("[SR debug] quad[%d]: op='%s' arg1='%s' arg2='%s' result='%s'\n",i, q.op, q.arg1, q.arg2, q.result);
+        // Multiplication to addition strength reduction
+        if(strcmp(q.op,"*") == 0){
+            //printf("[SR debug] MUL case: arg2='%s' is_numeric=%d\n",q.arg2, is_numeric(q.arg2));
+            // x * 1 -> x (just if any additionally come after algebraic simplification)
+            if(is_int_val(q.arg2,1)){
+                make_copy_quad(&q, q.result,q.arg1);
+                changed = 1;
+            }
+            else if(is_int_val(q.arg1,1)){
+                make_copy_quad(&q, q.result, q.arg2);
+                changed = 1;
+            }
+            // x * 2 -> x + x
+            else if(is_int_val(q.arg1,2)){
+                make_binop_quad(&q, "+", q.arg2, q.arg2, q.result);
+                changed = 1;
+            }
+            else if(is_int_val(q.arg2,2)){
+                make_binop_quad(&q, "+", q.arg1, q.arg1, q.result);
+                changed = 1;
+            }
+            // x * 2^k -> x << k
+            else if(is_numeric(q.arg2)){
+                int val = (int)atof(q.arg2);
+                int e = pow2_exp(val);
+              //  printf("[SR debug] val=%d pow2_exp=%d\n", val, e);
+                if(e >= 2){
+                    char es[12];
+                    sprintf(es, "%d", e);
+                    make_binop_quad(&q, "<<", q.arg1, es, q.result);
+                    changed = 1;
+                }
+            }
+            else if(is_numeric(q.arg1)){
+                int val = (int)atof(q.arg1);
+                int e = pow2_exp(val);
+                if(e>=2){
+                    char es[12];
+                    sprintf(es, "%d", e);
+                    make_binop_quad(&q, "<<", q.arg2, es, q.result);
+                    changed = 1;
+                }
+            }
+        }
+        //Division strength reduction
+        else if(strcmp(q.op, "/") == 0){
+
+            // x / 1  →  x
+            if(is_int_val(q.arg2, 1)){
+                make_copy_quad(&q, q.result, q.arg1);
+                changed = 1;
+            }
+            // x / 2^k  →  x >> k  (k >= 1)
+            else if(is_numeric(q.arg2)){
+                int val = (int)atof(q.arg2);
+                int e   = pow2_exp(val);
+                if(e == -1 && val == 2) e = 1; // pow2_exp returns -1 for val<2
+                if(e >= 1){
+                    char es[12];
+                    sprintf(es, "%d", e);
+                    make_binop_quad(&q, ">>", q.arg1, es, q.result);
+                    changed = 1;
+                }
+            }
+        }
+
+        // Modulo strength reduction
+        else if(strcmp(q.op, "%") == 0){
+
+            // x % 1  →  0
+            if(is_int_val(q.arg2, 1)){
+                make_copy_quad(&q, q.result, "0");
+                changed = 1;
+            }
+            // x % 2^k  →  x & (2^k - 1)
+            else if(is_numeric(q.arg2)){
+                int val = (int)atof(q.arg2);
+                // check val is power of 2
+                if(val > 1 && (val & (val - 1)) == 0){
+                    char mask[12];
+                    sprintf(mask, "%d", val - 1);
+                    make_binop_quad(&q, "&", q.arg1, mask, q.result);
+                    changed = 1;
+                }
+            }
+        }
+
+        OPT_IR[OPT_IR_idx++] = q;
+        if(changed) total++;
+    }
+    printf("[Strength Reduction] %d reduction(s) applied. OPT_IR has %d quad(s).\n",total, OPT_IR_idx);
+    return total;
+}
 // Utility functions such as functions for printing the IR code
 
 static void dump_quad_table(const char* title, const Quad* arr, int n){

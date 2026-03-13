@@ -37,8 +37,12 @@ int induction_variable_elimination(void);
 
 // Constant propagation function api provided
 int constant_propagation(void);
+// CSE function api provided
+int common_subexpression_elimination(void);
+// Strength reduction function api
+int strength_reduction(void);
 
-int loop_invariant_code_motion(void);
+int loop_invariant_code_motion(void); 
 void print_opt_IR(void);	// Prints the optimised IR code
 void print_original_IR(void);	// Prints the original IR code
 
