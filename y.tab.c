@@ -3634,6 +3634,7 @@ int main() {
     loop_invariant_code_motion();
     induction_variable_elimination();
     dead_code_elimination();          // final cleanup after IVE
+       printf("\n========== IR Code Visualization Section ==========\n");
 	print_original_IR();
 	print_opt_IR();
 
