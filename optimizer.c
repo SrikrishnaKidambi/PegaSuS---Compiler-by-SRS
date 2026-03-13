@@ -1065,6 +1065,502 @@ int strength_reduction(void){
     printf("[Strength Reduction] %d reduction(s) applied. OPT_IR has %d quad(s).\n",total, OPT_IR_idx);
     return total;
 }
+// Next Pass of Optimization - Copy Propagation (has 2 sub passes - one for propagating the copied variable, another one for removing the dead code created due to propagating the copy variable
+
+#define MAX_COPIES 256
+
+typedef struct{
+	char from[20];
+	char to[20];
+	int live;
+}CopyEntry;
+
+static CopyEntry copy_table[MAX_COPIES];
+static int copy_count;
+
+// Clears the entire copy table - called at the start of the process to ensure clean table
+static void ct_clear(void){
+	copy_count = 0;
+	memset(copy_table, 0, sizeof(copy_table));
+}
+
+// Function used for handling the addition of new copy pairs into the copy table. This is called when we see some IR code like x = y then we need to replace x with y
+// Hence x -> from and y -> to.
+// Now we will be checking if there is space in the copy table to add a new copy pair and if yes add it.
+static void ct_add(const char* from, const char* to){
+	for(int i = 0; i < copy_count; i++){
+		if(copy_table[i].live && strcmp(copy_table[i].from, from) == 0){
+			strncpy(copy_table[i].to, to, 19);
+			return;
+		}
+	}
+	if(copy_count < MAX_COPIES){
+		strncpy(copy_table[copy_count].from, from , 19);
+		strncpy(copy_table[copy_count].to, to, 19);
+		copy_table[copy_count++].live = 1;
+	}
+}
+
+// This is called for every operand that is each argument in each quad in the generated IR code
+// If we find that the current variable in the IR code is having some copy source by iterating through the copy table then we simply return the source variable name
+// If there is no match then we return the same variable name itself indicating no substitution
+static const char* ct_lookup(const char* name){
+	for(int i = 0; i < copy_count; i++){
+		if(copy_table[i].live && strcmp(copy_table[i].from, name) == 0){
+			return copy_table[i].to;
+		}
+	}
+	return name;
+}
+
+// This is the function that kills a copy pair i.e., invalidating a copy pair when either of from or to variables of a copy pair are updated
+static void ct_kill(const char* name){
+	for(int i = 0; i < copy_count; i++){
+		if(copy_table[i].live && 
+				(strcmp(copy_table[i].from, name) == 0 ||
+				strcmp(copy_table[i].to, name) == 0)){
+			copy_table[i].live = 0;
+		}
+	}
+}
+
+// This is a helper function for scanning if the variable is going to be used again in the future or not for deciding if the copy pair is dead (if not used again)
+static int is_used_after(const char* name, int from){
+	for(int i = from; i < OPT_IR_idx; i++){
+		if(strcmp(OPT_IR[i].arg1, name) == 0 || 
+				strcmp(OPT_IR[i].arg2, name) == 0){
+			return 1;
+		}
+	}
+	return 0;
+}
+
+
+// This is a helper function that checks if the operator is something like a structural operator that is representing a structure but not something like holding a value
+// If the quad's operator matches with any of these then we skip that quad.
+static int is_structural_op(const char* op){
+	static const char* structural[] = {
+		"label", "goto", "func", "endfunc", "entity", "end_entity", "method", "end_method", "constr", "end_constr", "param", NULL
+	};
+	for(int i = 0; structural[i]; i++){
+		if(strcmp(op, structural[i]) == 0){
+			return 1;
+		}
+	}
+	return 0;
+}
+
+// Major function that is responsible for applying the optimization techinque - Copy Propagation. 
+int copy_propagation(void){
+	int subs = 0, removed = 0;
+	ct_clear();	// Starts with a clear copy table with copy_count = 0
+	for(int i = 0; i < OPT_IR_idx; i++){
+		Quad* q = &OPT_IR[i];
+		// Skip if the current quad's operator is some structural operator
+		if(is_structural_op(q->op)){
+			continue;
+		}
+
+		// Check if either arg1 or arg2 of the current quad is having some copy source and if yes the function returns the copy source. 
+		// If the returned copy source is same as the original variable name then no substitution is needed.
+		if(q->arg1[0]){
+			const char* sub = ct_lookup(q->arg1);
+			if(strcmp(sub, q->arg1) != 0){
+				strncpy(q->arg1, sub, 19);
+				subs++;
+			}
+		}
+		if(q->arg2[0]){
+			const char* sub = ct_lookup(q->arg2);
+			if(strcmp(sub, q->arg2) != 0){
+				strncpy(q->arg2, sub, 19);
+				subs++;
+			}
+		}
+
+		// Checks if the current quad is a copy or not and if yes
+		// Firstly we will kill all the copy pairs that are dependent on the result variable of the quad (as those values are stale and need to be added again)
+		int is_copy = (strcmp(q->op, "=") == 0 && q->arg2[0] == '\0' &&
+				q->result[0] && q->arg1[0]);
+		// Firstly kill the copy pair accoriding to the matchings and then add. If reversed then we will be adding and 
+		// then deleting the same pair that has been added 
+		if(q->result[0]){
+			ct_kill(q->result);
+			if(is_copy){
+				ct_add(q->result, q->arg1);
+			}
+		}
+	}
+
+	// This part of the code handles the second pass over the IR code and is not used again or it is not a copy quad
+	// Inorder to shrink the copy table after killing some pairs we use two-pointer based approach.
+	int write = 0;
+	for(int read = 0; read < OPT_IR_idx; read++){
+		Quad* q = &OPT_IR[read];
+		int dead = (strcmp(q->op,"=") == 0 && q->arg2[0]=='\0'
+                    && q->result[0] && !is_used_after(q->result, read+1));
+		if(dead){
+			removed++;
+			continue;
+		}
+		if(write != read){
+			OPT_IR[write] = OPT_IR[read];
+		}
+		write++;
+	}
+	OPT_IR_idx = write;
+	printf("[CopyProp] %d substitution(s), %d dead copy(ies) removed.  "
+           "OPT_IR has %d quad(s).\n", subs, removed, OPT_IR_idx);
+	return subs + removed;
+}
+
+
+/* ==== Implementation of Induction Variable Elimination ==== */
+
+#define MAX_LOOPS 64
+#define MAX_BIVS 16
+#define MAX_DIVS 64
+
+typedef struct {
+	int header;	// Stores the index of the label begin for the loop (in IR code)
+	int footer; 	// index of goto begin in IR code
+	int exit_test;	// Index of the condition check for the loops
+	char label_begin[20];
+	char label_end[20];
+}LoopInfo;
+
+typedef struct{
+	char var[20];
+	char step_str[20];
+	double step;
+	int update_idx;
+	char op[4];
+} BIV;
+
+typedef struct{
+	char result[20];
+	char biv_name[20];
+	char coeff_str[20];
+	double coeff;
+	int quad_idx;
+	char div_op[4];
+} DIV_entry;
+
+static LoopInfo g_loops[MAX_LOOPS];
+static int g_loop_count;
+static BIV g_bivs[MAX_LOOPS][MAX_BIVS];
+static int g_biv_count[MAX_LOOPS];
+static DIV_entry g_divs[MAX_LOOPS][MAX_DIVS];
+static int g_div_count[MAX_LOOPS];
+static int g_live_var_cnt = 0;
+
+// Generates the a new replacement variable for the replacement of the induction variable
+static void ive_new_var(char* buf){
+	sprintf(buf, "iv%d", g_live_var_cnt++);
+}
+
+// Perform Induction variable Elimination
+int induction_variable_elimination(void){
+	g_loop_count = 0;
+	int total = 0;
+
+	// Start with detecting the loops by observing the back edges (a goto pointing to a label back of the current index
+	for(int i = 0; i < OPT_IR_idx && g_loop_count < MAX_LOOPS; i++){
+		if(strcmp(OPT_IR[i].op, "goto") != 0){
+			continue;
+		}
+
+		const char* target = OPT_IR[i].result;
+
+		// Search for an earlier label with the same name
+		int hdr = -1;
+		for(int j = 0; j < i; j++){
+			if(strcmp(OPT_IR[j].op, "label") == 0 && strcmp(OPT_IR[j].result, target) == 0){
+				hdr = j;
+				break;
+			}
+		}
+		if(hdr < 0){
+			continue;
+		}
+		LoopInfo* lp = &g_loops[g_loop_count];
+		lp->header = hdr;
+		lp->footer = i;
+		strncpy(lp->label_begin, target, 19);
+		lp->exit_test = -1;
+		lp->label_end[0] = '\0';
+		g_biv_count[g_loop_count] = 0;
+        	g_div_count[g_loop_count] = 0;
+
+		for(int j = hdr; j <= i; j++){
+			if(strcmp(OPT_IR[i].op, "ifFalse") == 0){
+				lp->exit_test = j;
+				strncpy(lp->label_end, OPT_IR[j].result,19);
+				break;
+			}
+		}
+		g_loop_count++;
+	}
+	if(g_loop_count == 0){
+		printf("[IVE] No loops detected.\n");
+		return 0;
+	}
+
+	// Handling the nested loops by first processing the inner loops and avoid processing considering the inner loop again when considering the outer loops
+	for(int a = 0; a < g_loop_count - 1; a++){
+		for(int b = a + 1; b < g_loop_count; b++){
+			int size_a = g_loops[a].footer - g_loops[a].header;
+			int size_b = g_loops[b].footer - g_loops[b].header;
+			if(size_a > size_b){
+				LoopInfo tmp = g_loops[a];
+				g_loops[a] = g_loops[b];	
+				g_loops[b] = tmp;
+		
+				int tc = g_biv_count[a];
+				g_biv_count[a] = g_biv_count[b];
+				g_biv_count[b] = tc;
+				tc = g_div_count[a];
+				g_div_count[a] = g_div_count[b];
+				g_div_count[b] = tc;
+			}
+		}
+	}
+
+	for(int li = 0; li < g_loop_count; li++){
+		LoopInfo* lp = &g_loops[li];
+		int body_start = lp->header + 1;
+		int body_end = lp->footer - 1;
+		if(body_start > body_end){
+			continue;
+		}
+
+		// Collect BIVs that is (i = i +/- c)
+		// Collect BIVs that is (i = i +/- c)
+		int bc = 0;
+		for(int i = body_start; i <= body_end && bc < MAX_BIVS; i++){
+			int in_inner = 0;
+			for(int x = 0; x < g_loop_count; x++){
+				if(x == li){
+					continue;
+				}
+				int size_x = g_loops[x].footer - g_loops[x].header;
+				int size_li = g_loops[li].footer - g_loops[li].header;
+				if(size_x >= size_li){
+					continue;
+				}
+				if(i > g_loops[x].header && i <= g_loops[x].footer){
+					in_inner = 1;
+					i = g_loops[x].footer;
+					break;
+				}
+			}
+			if(in_inner){
+				continue;
+			}
+		    	Quad* q = &OPT_IR[i];
+		    	if((strcmp(q->op, "+") == 0 || strcmp(q->op, "-") == 0) && q->result[0] && is_numeric(q->arg2))
+		    	{
+				if(strcmp(q->arg1, q->result) == 0){
+			    	// direct  i = i + c
+			    	BIV* b = &g_bivs[li][bc++];
+			    	strncpy(b->var, q->result, 19);
+			    	strncpy(b->step_str, q->arg2, 19);
+			    	strncpy(b->op, q->op, 3);
+			    	b->step = (strcmp(q->op,"-")==0) ? -atof(q->arg2) : atof(q->arg2);
+			    	b->update_idx = i;
+				} else {
+			    		// t = i + c  then  i = t  (two-quad pattern)
+					for(int k = i+1; k <= body_end; k++){
+						Quad* nq = &OPT_IR[k];
+						if(strcmp(nq->op,"=")==0 && nq->arg2[0]=='\0' &&
+						strcmp(nq->arg1, q->result)==0 &&
+						strcmp(nq->result, q->arg1)==0)
+						{
+						BIV* b = &g_bivs[li][bc++];
+						strncpy(b->var, nq->result, 19);
+						strncpy(b->step_str, q->arg2, 19);
+						strncpy(b->op, q->op, 3);
+						b->step = (strcmp(q->op,"-")==0) ? -atof(q->arg2) : atof(q->arg2);
+						b->update_idx = k;
+						break;
+						}
+					}
+				}
+		    	}
+		}
+		g_biv_count[li] = bc;
+		if(bc == 0) continue;
+
+		// Collecting DIVs
+		int dc = 0;
+		for(int i = body_start; i <= body_end && dc < MAX_DIVS; i++){
+			/*
+			for(int x = 0; x < g_loop_count; x++){
+				if(x == li){
+					continue;
+				}
+				if(i > g_loops[x].header && i <= g_loops[x].footer){
+					in_inner = 1;
+					i = g_loops[x].footer;
+					break;
+				}
+			}
+			if(in_inner){
+				continue;
+			}*/
+			Quad* q = &OPT_IR[i];
+			if(strcmp(q->op, "*") != 0){
+				continue;
+			}
+			if(!q->result[0]){
+				continue;
+			}
+
+			for(int b = 0; b < bc; b++){
+				const char* bname = g_bivs[li][b].var;
+				char coeff[20] = "";
+				int match = 0;
+
+				if(strcmp(q->arg1,bname)==0 && is_numeric(q->arg2)){
+				    strncpy(coeff, q->arg2, 19); match = 1;
+				} else if(strcmp(q->arg2,bname)==0 && is_numeric(q->arg1)){
+				    strncpy(coeff, q->arg1, 19); match = 1;
+				}
+				if(!match) continue;
+
+				// scan forward for copy-to-named-var:  named_var = temp
+				const char* real_result = q->result;
+				int real_idx = i;
+				for(int k = i+1; k <= body_end; k++){
+				    Quad* nq = &OPT_IR[k];
+				    if(strcmp(nq->op,"=")==0 && nq->arg2[0]=='\0' &&
+				       strcmp(nq->arg1, q->result)==0)
+				    {
+					real_result = nq->result;
+					real_idx = k;
+					break;
+				    }
+				}
+
+				// skip if real_result is itself a BIV (that is the increment quad, not a DIV)
+				int is_biv = 0;
+				for(int bb = 0; bb < bc; bb++)
+				    if(strcmp(real_result, g_bivs[li][bb].var)==0){ is_biv=1; break; }
+				if(is_biv) continue;
+				
+				int write_count = 0;
+				for(int w = body_start; w <= body_end; w++){
+					if(strcmp(OPT_IR[w].result, real_result) == 0){
+						write_count++;
+					}
+				}
+				if(write_count > 1){
+					continue;
+				}
+
+				DIV_entry* d = &g_divs[li][dc++];
+				strncpy(d->result,    real_result, 19);
+				strncpy(d->biv_name,  bname,       19);
+				strncpy(d->coeff_str, coeff,        19);
+				d->coeff    = atof(coeff);
+				d->quad_idx = real_idx;
+				strncpy(d->div_op, q->op, 3);
+				break;
+			    }
+		}
+		g_div_count[li] = dc;
+		if(dc == 0) continue;
+
+		// convert each of the DIV into a addition based updation
+		for(int di = 0; di < dc; di++){
+			DIV_entry* dv = &g_divs[li][di];
+
+			BIV* bv = NULL;
+			for(int b = 0; b < bc; b++){
+				if(strcmp(g_bivs[li][b].var, dv->biv_name) == 0){
+					bv = &g_bivs[li][b];
+					break;
+				}
+			}
+			if(!bv){
+				continue;
+			}
+			char j[20];
+			ive_new_var(j);
+
+			// Insert the newly generated ive before the header
+			int ins = lp->header;	// Slot to opened before the label
+			if(!insert_opt_quad_at(ins)){
+				continue;
+			}
+
+			for(int x = 0; x < g_loop_count; x++){
+				if(g_loops[x].header >= ins){
+					g_loops[x].header++;
+				}
+				if(g_loops[x].footer >= ins){
+					g_loops[x].footer++;
+				}
+				if(g_loops[x].exit_test >= ins){
+					g_loops[x].exit_test++;
+				}
+			}
+			for (int b = 0; b < bc; b++)
+				if (g_bivs[li][b].update_idx >= ins) g_bivs[li][b].update_idx++;
+			for (int dj = di; dj < dc; dj++)
+				if (g_divs[li][dj].quad_idx >= ins) g_divs[li][dj].quad_idx++;
+			for (int b = 0; b < bc; b++)
+				if (strcmp(g_bivs[li][b].var, dv->biv_name)==0)
+				    { bv = &g_bivs[li][b]; break; }
+
+			Quad* init_q = &OPT_IR[ins];
+			strcpy(init_q->op, dv->div_op);
+			strcpy(init_q->arg1, bv->var);
+			strcpy(init_q->arg2, dv->coeff_str);
+			strcpy(init_q->result, j);
+
+			// Insert the update statements for the generated ive variables
+			double inc_val = bv->step * dv->coeff;
+			char inc_str[24];
+			if(inc_val == (long)inc_val) {
+				sprintf(inc_str, "%ld", (long)inc_val);
+			}
+			else{
+				sprintf(inc_str, "%f",  inc_val);
+			}
+
+			int inc_pos = bv->update_idx + 1;
+			if(!insert_opt_quad_at(inc_pos)) {
+				continue;
+			}
+			for(int x = 0; x < g_loop_count; x++){
+				if(g_loops[x].footer >= inc_pos){
+					g_loops[x].footer++;
+				}
+				if(g_loops[x].exit_test >= inc_pos){
+					g_loops[x].exit_test++;
+				}
+			}
+			for(int dj = di; dj < dc; dj++){
+				if (g_divs[li][dj].quad_idx >= inc_pos){
+				       	g_divs[li][dj].quad_idx++;
+				}
+			}
+			Quad* inc_q = &OPT_IR[inc_pos];
+			strcpy(inc_q->op, "+");
+			strcpy(inc_q->arg1, j);
+			strcpy(inc_q->arg2, inc_str);
+			strcpy(inc_q->result, j);
+
+			make_copy_quad(&OPT_IR[dv->quad_idx], dv->result, j);
+			total++;
+		}
+	}
+	printf("[IVE] %d induction variable(s) eliminated. OPT_IR has %d quads.\n", total, OPT_IR_idx);
+	return total;
+}
+
+
 // Utility functions such as functions for printing the IR code
 
 static void dump_quad_table(const char* title, const Quad* arr, int n){
