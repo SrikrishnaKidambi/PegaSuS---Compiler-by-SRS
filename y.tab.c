@@ -3622,25 +3622,18 @@ int main() {
     	print_table(global_scope);
 
 	printf("Running Optimizations\n");
-	// Applying the optimization technique - Algebraic Simplification
 	algebraic_simplification();
-<<<<<<< HEAD
     strength_reduction();
-        constant_folding();
-	constant_propagation();
+    constant_folding();
+    constant_propagation();
+    copy_propagation(); 
     common_subexpression_elimination();
-=======
-	// Applying the optimization technique - Copy Propagation
-        copy_propagation();
-        constant_folding();
-	//constant_propagation();
->>>>>>> 9137b30bcd94b6adde2c2a4c0e912d3a23912a2c
-        dead_code_elimination();
-        loop_invariant_code_motion();
-
-	// Applying the optimization technique - Induction Variable Elimination
-	induction_variable_elimination();
-	dead_code_elimination();	// Has to run this again for finally removing unnecessary statements after running the Induction variable elimination
+    constant_folding();               // second pass, cleans up after CSE
+    constant_propagation();           // second pass, cleans up after CSE
+    dead_code_elimination();          // remove dead code before LICM
+    loop_invariant_code_motion();
+    induction_variable_elimination();
+    dead_code_elimination();          // final cleanup after IVE
 	print_original_IR();
 	print_opt_IR();
 
