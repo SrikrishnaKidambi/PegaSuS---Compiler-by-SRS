@@ -3629,12 +3629,19 @@ int main() {
     copy_propagation(); 
     common_subexpression_elimination();
     constant_folding();               // second pass, cleans up after CSE
+<<<<<<< HEAD
+    constant_propagation();           // second pass, cleans up after CSE
+=======
     constant_propagation();           // econd pass, cleans up after CSE
+>>>>>>> 3e6eae51c965dcfae9d58489e4868f220bed8131
     dead_code_elimination();          // remove dead code before LICM
     loop_invariant_code_motion();
     induction_variable_elimination();
     dead_code_elimination();          // final cleanup after IVE
+<<<<<<< HEAD
+=======
        printf("\n========== IR Code Visualization Section ==========\n");
+>>>>>>> 3e6eae51c965dcfae9d58489e4868f220bed8131
 	print_original_IR();
 	print_opt_IR();
 

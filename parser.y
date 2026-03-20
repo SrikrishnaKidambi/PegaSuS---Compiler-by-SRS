@@ -1524,7 +1524,7 @@ int main() {
     copy_propagation(); 
     common_subexpression_elimination();
     constant_folding();               // second pass, cleans up after CSE
-    constant_propagation();           // econd pass, cleans up after CSE
+    constant_propagation();           // second pass, cleans up after CSE
     dead_code_elimination();          // remove dead code before LICM
     loop_invariant_code_motion();
     induction_variable_elimination();
