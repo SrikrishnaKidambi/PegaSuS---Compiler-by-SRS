@@ -219,7 +219,7 @@ int constant_folding(void)
     OPT_IR_idx = 0;
     int total = 0;
 
-    for(int i = 0; i < IR_idx; i++){
+    for(int i = 0; i < tmp_n; i++){
         const Quad* s = &tmp[i];
         Quad out;
         memset(&out, 0, sizeof(out));
@@ -1154,6 +1154,7 @@ static int is_structural_op(const char* op){
 int copy_propagation(void){
 	int subs = 0, removed = 0;
 	ct_clear();	// Starts with a clear copy table with copy_count = 0
+	build_blacklist(OPT_IR, OPT_IR_idx);
 	for(int i = 0; i < OPT_IR_idx; i++){
 		Quad* q = &OPT_IR[i];
 		// Skip if the current quad's operator is some structural operator
@@ -1186,7 +1187,7 @@ int copy_propagation(void){
 		// then deleting the same pair that has been added 
 		if(q->result[0]){
 			ct_kill(q->result);
-			if(is_copy){
+			if(is_copy && !is_blacklisted(q->result)){
 				ct_add(q->result, q->arg1);
 			}
 		}
@@ -1198,7 +1199,8 @@ int copy_propagation(void){
 	for(int read = 0; read < OPT_IR_idx; read++){
 		Quad* q = &OPT_IR[read];
 		int dead = (strcmp(q->op,"=") == 0 && q->arg2[0]=='\0'
-                    && q->result[0] && !is_used_after(q->result, read+1));
+                    && q->result[0] && !is_used_after(q->result, read+1)
+		    && !is_blacklisted(q->result));
 		if(dead){
 			removed++;
 			continue;
@@ -1293,7 +1295,7 @@ int induction_variable_elimination(void){
         	g_div_count[g_loop_count] = 0;
 
 		for(int j = hdr; j <= i; j++){
-			if(strcmp(OPT_IR[i].op, "ifFalse") == 0){
+			if(strcmp(OPT_IR[j].op, "ifFalse") == 0){
 				lp->exit_test = j;
 				strncpy(lp->label_end, OPT_IR[j].result,19);
 				break;
@@ -1462,7 +1464,7 @@ int induction_variable_elimination(void){
 				strncpy(d->result,    real_result, 19);
 				strncpy(d->biv_name,  bname,       19);
 				strncpy(d->coeff_str, coeff,        19);
-				d->coeff    = atof(coeff);
+				d->coeff = atof(coeff);
 				d->quad_idx = real_idx;
 				strncpy(d->div_op, q->op, 3);
 				break;
@@ -1514,10 +1516,37 @@ int induction_variable_elimination(void){
 				    { bv = &g_bivs[li][b]; break; }
 
 			Quad* init_q = &OPT_IR[ins];
-			strcpy(init_q->op, dv->div_op);
+			/*strcpy(init_q->op, dv->div_op);
 			strcpy(init_q->arg1, bv->var);
 			strcpy(init_q->arg2, dv->coeff_str);
-			strcpy(init_q->result, j);
+			strcpy(init_q->result, j);*/
+			char biv_init_str[20] = "0";	// set the default value to 0 which is the case if no biv is found
+			for(int k = 0; k < lp->header; k++){
+				if(strcmp(OPT_IR[k].op, "=") == 0 &&
+					OPT_IR[k].arg2[0] == '\0' &&
+					strcmp(OPT_IR[k].result, bv->var) == 0 &&
+					is_numeric(OPT_IR[k].arg1))
+				{
+					strcpy(biv_init_str, OPT_IR[k].arg1);
+				}
+			}
+
+			double biv_init = atof(biv_init_str);
+			double div_init = biv_init * dv->coeff;
+
+			char div_init_str[24];
+			if(div_init == (long)div_init){
+				sprintf(div_init_str,"%ld", (long)div_init);
+			}
+			else{
+				sprintf(div_init_str, "%f", div_init);
+			}
+
+			init_q = &OPT_IR[ins];
+			strcpy(init_q->op, "=");
+			strcpy(init_q->arg1, div_init_str);
+			init_q->arg2[0] = '\0';
+			strcpy(init_q->result, j); 
 
 			// Insert the update statements for the generated ive variables
 			double inc_val = bv->step * dv->coeff;
