@@ -60,10 +60,6 @@ void asmBlank(void);
 /* Emit a comment line. */
 void asmComment(const char* text);
 
-/* ─────────────────────────────────────────────
- *  Code Generator Entry Points
- *  (each teammate implements their own section)
- * ───────────────────────────────────────────── */
 
 /* Top-level driver: iterates IR[] and dispatches each quad. */
 void generateASM(void);
