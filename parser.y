@@ -3,6 +3,7 @@
 
 #define QUAD_DEFINED
 #include "optimizer.h"
+#include "asm_gen.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1539,6 +1540,8 @@ int main() {
         printf("%-15s %-15s %-15s %-15s\n",
                IR[i].op, IR[i].arg1, IR[i].arg2, IR[i].result);*/
 
+    //call the asm code generation
+    generateASM();
     return 0;
 }
 
