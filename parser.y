@@ -1,7 +1,5 @@
 %{
 #include "symtab.h"
-
-#define QUAD_DEFINED
 #include "optimizer.h"
 #include "asm_gen.h"
 #include <stdio.h>
@@ -14,13 +12,15 @@ extern FILE *yyin;
 extern int yylineno;
 extern char* yytext;
 // Add near your other globals at the top of parser.y
-
+#ifndef QUAD_DEFINED
 typedef struct {
     char op[20];
     char arg1[20];
     char arg2[20];
     char result[20];
 } Quad;
+#define QUAD_DEFINED
+#endif
 
 Quad IR[10000];
 int IR_idx = 0;
@@ -672,8 +672,8 @@ array_decl
                 sym->attr.array.is_initialized = 0;
                 sym->size = datatype_size($1) * $5 * $8;
                 current_scope->next_offset = sym->offset + sym->size;
-            }
         }
+}
     /* 1-D array with initializer:  int[] arr = {1,2,3};
        Size unknown at parse time — left as element size,
        offset counter NOT advanced (size indeterminate).           */
@@ -1539,9 +1539,17 @@ int main() {
     for (int i = 0; i < IR_idx; i++)
         printf("%-15s %-15s %-15s %-15s\n",
                IR[i].op, IR[i].arg1, IR[i].arg2, IR[i].result);*/
+    FILE *asm_file = fopen("output.s", "w");
+    if (!asm_file) {
+        perror("Failed to open assembly file");
+        return 1;
+    }
+    asmSetOutput(asm_file);
+    printf("\nGenerating RISC-V Assembly...\n");
+    generateASM(); 
 
-    //call the asm code generation
-    generateASM();
+    fclose(asm_file);
+    printf("Assembly code saved to 'output.s'\n");
     return 0;
 }
 

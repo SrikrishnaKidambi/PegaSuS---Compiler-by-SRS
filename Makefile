@@ -1,5 +1,5 @@
-pegasus: y.tab.c lex.yy.c symtab.c optimizer.c
-	gcc -g lex.yy.c y.tab.c symtab.c optimizer.c -o pegasus -ll -lm
+pegasus: y.tab.c lex.yy.c symtab.c optimizer.c asm_gen.c
+	gcc -g lex.yy.c y.tab.c symtab.c optimizer.c asm_gen.c -o pegasus -ll -lm
 
 y.tab.c: parser.y
 	yacc -d parser.y
