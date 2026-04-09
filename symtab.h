@@ -83,6 +83,7 @@ typedef struct {
     ParamNode* param_list;       // linked list of parameters
     int        param_count;      // how many parameters (length of param_list)
     char       entry_label[32];  // assembly label for this function, e.g. "func_add"
+    SymTable* scope;
 } FuncAttr;
 
 // MethodAttr — extra info for KIND_METHOD symbols
@@ -94,6 +95,7 @@ typedef struct {
     char       entry_label[32];  // assembly label, e.g. "Dog_bark"
     char       belongs_to[64];   // name of the class that owns this method, e.g. "Dog"
     AccessMod  access;           // ACC_PUBLIC or ACC_PRIVATE
+    SymTable* scope;
 } MethodAttr;
 
 // CtorAttr — extra info for KIND_CONSTRUCTOR symbols
@@ -102,6 +104,7 @@ typedef struct {
     int        param_count;      // number of parameters
     char       belongs_to[64];   // name of the class, e.g. "Dog"
     char       entry_label[32];  // assembly label, e.g. "ctor_Dog"
+    SymTable* scope;
 } CtorAttr;
 
 // FieldAttr — extra info for KIND_FIELD symbols (class data members)
@@ -165,6 +168,7 @@ typedef struct Symbol {
                               //   int a = 5;  → is_initialized = 1
                               //   int a;      → is_initialized = 0
 
+    char init_value[64];	// store the string form of the initialized value
     // ── CONSTRUCT-SPECIFIC FIELDS — only ONE active at a time ──
     // A union shares the same memory block for all members.
     // If kind==KIND_FUNCTION, use attr.func

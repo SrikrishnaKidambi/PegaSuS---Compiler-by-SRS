@@ -7,6 +7,395 @@
 #include <stdarg.h>
 #include <ctype.h>
 
+// Add near the top of asm_gen.c, after the includes:
+static void genConstructorPrologue(const Quad* q);
+static void genMethodPrologue(const Quad* q);
+static int getVarOffset(const char* var_name);
+
+// A pointer that points to the current scope of the function
+// Set in the genFunctionPrologue and cleared in the genFunctionEpilogue
+// If the global scope is being parsed then we make it NULL
+static SymTable* current_func_scope = NULL;
+
+// A global variable that decides if we need to use template matching based algorithm for instruction selection phase in assembly code generation
+int use_template_matching = 1;	// By default it is 1 and it is turned off when the stats mode is used while compiling the input code
+
+typedef enum{
+	MODE_REG,	// Value currently in register, so use it directly (no load instruction to be generated
+	MODE_IMM,	// Compile time constant - so use the instructions like li or immediate instruction
+	MODE_MEM,	// the operand lives in memory and hence requries a lw instruction
+	MODE_NONE	// Opearand is absent
+}OperandMode;
+
+
+
+// lookupForCodeGen - This function can be used for performing the resolution of correct symbol
+// This function first seaches for local that is current function scope and then global scope (returns NULL if found nowhere)
+Symbol* lookupForCodeGen(const char* name){
+	Symbol* sym = NULL;
+
+	// Search at the local scope using the above defined pointer
+	if(current_func_scope){
+		sym = lookup(current_func_scope, name);
+		if(sym){
+			return sym;
+		}
+	}
+
+	// Serach at the global scope using the global_scope defined pointer in the symbol table implementation
+	if(global_scope){
+		sym = lookup_local(global_scope, name);
+		if(sym){
+			return sym;
+		}
+	}
+
+	// if not found in current function scope or global scope then return NULL
+	return NULL;
+}
+
+// setCurrentFuncScope, clearCurrentFuncScope - These functions are called by the genFunctionPrologue and genFunctionEpilogue respectively to ensure that current_func_scope is in sync with the current function for which the generation is happening
+
+void setCurrentFuncScope(SymTable* scope){
+	current_func_scope = scope;
+}
+
+void clearCurrentFuncScope(void){
+	current_func_scope = NULL;
+}
+
+#define MAX_STRING_LITERALS 256
+#define MAX_STR_CONTENT 512
+
+typedef struct{
+	char label[32];			// like str_0, str_1....
+	char content[MAX_STR_CONTENT];	// Stores raw string without double quotes
+}StrLitEntry;
+
+static StrLitEntry str_lit_table[MAX_STRING_LITERALS];
+static int str_lit_count = 0;
+
+// Removes the double quotes from the string literal to store only the raw string
+static void stripQuotes(char* dst, const char* src, int dst_size){
+	if(!src || src[0] != '"'){
+		strncpy(dst, src ? src : "", dst_size - 1);
+		dst[dst_size - 1] = '\0';
+		return;
+	}
+
+	// If the double quotes are there then follow this
+	strncpy(dst, src+1, dst_size-1);
+	dst[dst_size - 1] = '\0';
+	int len = strlen(dst);
+	if(len > 0 && dst[len-1] == '"'){
+		dst[len - 1] = '\0';
+	}
+}
+
+// Checks if the operand is a string literal
+static int isStringLiteral(const char* operand){
+	return operand && operand[0] == '"';
+}
+
+// registerStringLiteral - creates a mapping for the string literal and name of the label assigned for that string literal, this function does not emit anything, all the emission happens in the genDataSection
+static const char* registerStringLiteral(const char* operand){
+	char content[MAX_STR_CONTENT];
+	stripQuotes(content, operand, sizeof(content));
+
+	// check if the string literal is already registered
+	for(int i = 0; i < str_lit_count; i++){
+		if(strcmp(str_lit_table[i].content, content) == 0){
+			return str_lit_table[i].label;
+		}
+	}
+
+	if(str_lit_count >= MAX_STRING_LITERALS){
+		return NULL;
+	}
+
+	int idx = str_lit_count++;
+    	snprintf(str_lit_table[idx].label, 32, "str_%d", idx);
+     	strncpy(str_lit_table[idx].content, content, MAX_STR_CONTENT - 1);
+    	str_lit_table[idx].content[MAX_STR_CONTENT - 1] = '\0';
+    	return str_lit_table[idx].label;
+}
+
+// getStringLabel - gets a label for the string using the registerStringLiteral function by sending the argument as the operand with quotes
+const char* getStringLabel(const char* operand){
+	char content[MAX_STR_CONTENT];
+	stripQuotes(content, operand, sizeof(content));
+
+	for(int i = 0; i < str_lit_count; i++){
+		if(strcmp(str_lit_table[i].content, content) == 0){
+			return str_lit_table[i].label;
+		}
+	}
+	return NULL;
+}
+
+
+// emitAlign - generates a directive that will be enforcing the alignment with the of the variables defined in the data section
+static void emitAlign(int bytes){
+	if(bytes >= 4){
+		asmEmit("    .align 2");
+	}
+	else if(bytes >= 2){
+		asmEmit("    .align 1");
+	}
+}
+
+// emitGlobalScalar - emits an entry in the .data section for every single global variable
+static void emitGlobalScalar(Symbol* sym){
+	switch(sym->datatype){
+		case DT_INT:
+			emitAlign(4);
+			if(sym->is_initialized){
+				asmEmit("%s:    .word  %s", sym->name, sym->init_value);
+			}
+			else{
+				asmEmit("%s:    .word  0", sym->name);
+			}
+			break;
+		case DT_FLOAT:
+			emitAlign(4);
+			if(sym->is_initialized){
+                                asmEmit("%s:    .float %s", sym->name, sym->init_value);
+                        }
+                        else{
+                                asmEmit("%s:    .float 0.0", sym->name);
+			}
+			break;
+		case DT_BOOL:
+			if(sym->is_initialized){
+				int val = (strcmp(sym->init_value, "true") == 0 || 						strcmp(sym->init_value, "1") == 0) ? 1: 0;
+				asmEmit("%s:    .byte  %d", sym->name, val);
+			}
+			else{
+				asmEmit("%s:    .byte  0", sym->name);
+			}
+			break;
+		case DT_CHAR:
+			if(sym->is_initialized){
+				const char* v = sym->init_value;
+				if (v[0] == '\'' && v[2] == '\'') {
+					asmEmit("%s:    .byte  '%c'", sym->name, v[1]);
+				}
+				else{
+					asmEmit("%s:    .byte  %s", sym->name, v);
+				}
+			}
+			else{
+				asmEmit("%s:    .byte  0", sym->name);
+			}
+			break;
+		default:
+			break;
+	}
+}
+
+
+// emitGlobalString - emits an entry in .data section
+static void emitGlobalString(Symbol* sym){
+	if(sym->is_initialized && sym->init_value && sym->init_value[0] != '\0'){
+		char content[MAX_STR_CONTENT];
+		if(sym->init_value[0] == '"'){
+			stripQuotes(content, sym->init_value, sizeof(content));
+		}
+		else{
+			strncpy(content, sym->init_value, sizeof(content) - 1);
+			content[sizeof(content) - 1] = '\0';
+		}
+		asmEmit("%s:    .asciz \"%s\"", sym->name, content);
+	}
+	else{
+		int buf_size = (sym->size > 0) ? sym->size : 64;
+		asmEmit("%s:    .space %d", sym->name, buf_size);
+	}
+}
+
+// emitGlobalArray - Emits .data for every global array
+static void emitGlobalArray(Symbol* sym){
+	int dims = sym->attr.array.dimensions;
+	int dim1 = sym->attr.array.dim1;
+	int dim2 = sym->attr.array.dim2;
+	int elem_size = datatype_size(sym->datatype);
+	int is_init = sym->attr.array.is_initialized;
+	int init_cnt = sym->attr.array.init_count;
+
+	int total_elems = (dims == 2) ? (dim1*dim2) : dim1;
+       	int total_bytes = total_elems * elem_size;
+
+	if(!is_init || init_cnt == 0){
+		if(sym->datatype == DT_STRING){
+			int str_buf = 64;
+			asmEmit("%s:    .space %d   # string array [%d] x %d bytes", sym->name, total_elems * str_buf, total_elems, str_buf);
+		}else{
+			emitAlign(elem_size);
+			asmEmit("%s:    .space %d   # array [%d] elem_size=%d", sym->name, total_bytes, total_elems, elem_size);
+		}
+		return;
+	}
+
+	emitAlign(elem_size);
+	int first = 1;
+	for(int i = 0; i < total_elems; i++){
+		const char* val = (i < init_cnt) ?
+			sym->attr.array.init_values[i] : "0";
+		const char* label_part = first ? sym->name : "";
+		first = 0;
+		switch(sym->datatype){
+			case DT_INT:
+				if(label_part[0]){
+					asmEmit("%s:    .word  %s", label_part, val);
+				}
+				else{
+					asmEmit("       .word  %s", val);
+				}
+				break;
+			case DT_FLOAT:
+				if(label_part[0]){
+					asmEmit("%s:    .float %s", label_part, val);
+				}
+				else{
+					asmEmit("       .float %s", val);
+				}
+				break;
+			case DT_BOOL: {
+				
+                		int bval = (strcmp(val, "true") == 0 ||
+                            	strcmp(val, "1")    == 0) ? 1 : 0;
+                		if (label_part[0])
+                    			asmEmit("%s:    .byte  %d", label_part, bval);
+                		else
+                    			asmEmit("       .byte  %d", bval);
+               			 break;
+
+            		}
+			
+			case DT_CHAR:
+				      if(label_part[0]){
+					      asmEmit("%s:    .byte  %s", label_part, val);
+				      }
+				      else{
+					      asmEmit("       .byte  %s", val);
+				      }
+				      break;
+			case DT_STRING:
+				      {
+					      char content[MAX_STR_CONTENT];
+					      if(val[0] == '"'){
+						      stripQuotes(content, val, sizeof(content));
+					      }
+					      else{
+						      strncpy(content, val, sizeof(content) - 1);
+						      content[sizeof(content) - 1] = '\0';
+					      }
+					      if(label_part[0]){
+						      asmEmit("%s:    .asciz \"%s\"", label_part, content);
+					      }
+					      else{
+						      asmEmit("       .asciz \"%s\"", content);
+					      }
+					      break;
+					}
+			default:
+				      break;
+		}
+	}
+}
+
+
+// scanStringLiterals - this function iterates through the IR code and finds all the quoted strings and register them in the string literal table so that in future they can emit .asciz entry
+// This function is called before the genDataSection is called so that all the string literals are defined in the .data section before program tries to access the strings using the "la" instruction
+static void scanStringLiterals(void)
+{
+	for(int i = 0; i < IR_idx; i++){
+		const Quad* q = &IR[i];
+
+		// checking all three possible operand fields that is arg1, arg2 and result
+		const char* fields[3] = {q->arg1, q->arg2, q->result};
+
+		for(int f = 0; f < 3; f++){
+			const char* field = fields[f];
+
+			if(!field || !isStringLiteral(field)){
+				continue;
+			}
+
+			int before = str_lit_count;
+			const char* label = registerStringLiteral(field);
+			int is_new = str_lit_count > before;
+			if(label && is_new){
+				asmEmit("%s:    .asciz \"%s\"",
+						label,
+						str_lit_table[str_lit_count - 1].content);
+			}
+		}
+	}
+}
+
+// genDataSection - Emits the .data section completely emitting the labels for all the global scalar variabls, global arrays, and string literals by scanning IR quads
+void genDataSection(void)
+{
+	asmEmit(".section .data");
+	asmBlank();
+
+	// Collect all global symbols to that first we can emit global scalars
+	if(!global_scope){
+		asmBlank();
+		return;
+	}
+
+	asmComment("-- Global Scalar Variables --");
+	
+	for(int b = 0; b < HASH_SIZE; b++){
+		for(Symbol* sym = global_scope->buckets[b]; sym; sym=sym->next){
+			// 
+			if (sym->kind == KIND_FUNCTION   ||
+				sym->kind == KIND_METHOD     ||
+				sym->kind == KIND_CONSTRUCTOR||
+				sym->kind == KIND_ENTITY     ||
+				sym->kind == KIND_OBJECT     ||
+				sym->kind == KIND_FOR        ||
+				sym->kind == KIND_IF         ||
+				sym->kind == KIND_ELIF       ||
+				sym->kind == KIND_ELSE) {
+				continue;
+			}
+
+			// skip arrays also
+			if(sym->kind == KIND_ARRAY){
+				continue;
+			}
+
+			// Emit scalar variable
+			if(sym->datatype == DT_STRING){
+				emitGlobalString(sym);
+			}
+			else{
+				emitGlobalScalar(sym);
+			}
+		}
+	}
+
+	asmBlank();
+	asmComment("-- global arrays --");
+
+	for(int b = 0; b < HASH_SIZE; b++){
+		for(Symbol* sym = global_scope->buckets[b]; sym; sym = sym->next){
+			if(sym->kind != KIND_ARRAY){
+				continue;
+			}
+			emitGlobalArray(sym);
+		}
+	}
+
+	asmBlank();
+	asmComment("-- string literals --");
+
+	scanStringLiterals();
+	asmBlank();
+}
 
 /*
   genArith function handles + ,- ,*,/ and %
@@ -250,6 +639,15 @@ void genArrayAccess(const Quad* q) {
     a0     return value
     Objects are passed as pointers in a0.
  */
+
+// Defining argument registers for function calls
+static const char* arg_regs[] = { "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7" };
+#define MAX_ARG_REGS 8
+
+// Tracks how many arguments are collected before a function call
+static int pending_arg_count = 0;
+static char pending_args[MAX_ARG_REGS][64];
+
 void genObjectOps(const Quad* q) {
 
     /*
@@ -262,16 +660,13 @@ void genObjectOps(const Quad* q) {
 
         // symtab for the class size 
         Symbol* cls = lookup(global_scope, q->arg1);
-        int class_size = 0;
-        if (cls && cls->kind == KIND_ENTITY)
-            class_size = cls->attr.entity.class_size;
-
-        asmEmit("    li   a0, %d", class_size);
-        asmEmit("    call malloc");
-        const char* dst = getReg(q->result);
-        asmEmit("    mv   %s, a0", dst);
-        store(q->result, dst);
-        return;
+	int class_size = cls && cls->kind == KIND_ENTITY ? cls->attr.entity.class_size:4;
+	spillAllRegs();
+	asmEmit("    li   a0, %d", class_size);
+	asmEmit("    call malloc");
+	// Store the pointer directly instead of going through register allocator
+	asmEmit("    sw   a0, %d(s0)", getVarOffset(q->result));
+	return;
     }
 
     /*
@@ -279,12 +674,10 @@ void genObjectOps(const Quad* q) {
      push object pointer into a0 before calling a method.
      example quad: push_ptr  obj  ""  ""
      */
-    if (strcmp(q->op, "push_ptr") == 0) {
-        asmComment("push obj ptr → a0");
-        const char* r = load(q->arg1);
-        asmEmit("    mv   a0, %s", r);
-        freeReg(q->arg1);
-        return;
+    if(strcmp(q->op, "push_ptr") == 0){
+	    asmComment("push_ptr: load obj pointer into a0");
+	    asmEmit("    lw   a0, %d(s0)", getVarOffset(q->arg1));
+	    return;
     }
 
     /*
@@ -293,10 +686,27 @@ void genObjectOps(const Quad* q) {
       example quad: call_constr  ctor_label  ""  ""
      */
     if (strcmp(q->op, "call_constr") == 0) {
-        asmComment("call constructor");
-        spillAllRegs();
-        asmEmit("    call %s", q->arg1);
-        return;
+	    asmComment("call_constr");
+	    // save "this" pointer below sp before spilling a0
+	    asmEmit("    addi sp, sp, -4");
+	    asmEmit("    sw   a0, 0(sp)");
+	    spillAllRegs();
+	    // load arguments in constructor arguments into a1...a7
+	    for(int i = 0; i < pending_arg_count; i++){
+		    OperandType ot = getOperandType(pending_args[i]);
+		    if(ot == OT_CONST){
+			    asmEmit("    li   %s, %s", arg_regs[i+1], pending_args[i]);
+		    }
+		    else{
+			    asmEmit("    lw   %s, %d(s0)", arg_regs[i+1], getVarOffset(pending_args[i]));
+		    }
+	    }
+	    pending_arg_count = 0;
+	    asmEmit("    lw   a0, 0(sp)");
+	    asmEmit("    addi sp, sp, 4");
+	    asmEmit("    call %s", q->arg1);
+	    return;
+
     }
 
     /*
@@ -306,14 +716,25 @@ void genObjectOps(const Quad* q) {
      */
     if (strcmp(q->op, "call_method") == 0) {
         asmComment("call method");
+	asmEmit("    addi sp, sp, -4");
+	asmEmit("    sw   a0, 0(sp)");
         spillAllRegs();
-        asmEmit("    call %s", q->arg1);
-        if (q->result[0] != '\0') {
-            // store the return value 
-            const char* dst = getReg(q->result);
-            asmEmit("    mv   %s, a0", dst);
-            store(q->result, dst);
-        }
+        for(int i = 0; i < pending_arg_count; i++){
+		OperandType ot = getOperandType(pending_args[i]);
+		if(ot == OT_CONST){
+			asmEmit("    li   %s, %s", arg_regs[i+1], pending_args[i]);
+		}
+		else{
+			asmEmit("    lw   %s, %d(s0)", arg_regs[i+1], getVarOffset(pending_args[i]));
+		}
+	}
+	pending_arg_count = 0;
+	asmEmit("    lw a0, 0(sp)");
+	asmEmit("    addi sp, sp, 4");
+	asmEmit("    call %s", q->arg1);
+	if(q->result[0] != '\0'){
+		asmEmit("    sw  a0, %d(s0)", getVarOffset(q->result));
+	}
         return;
     }
 
@@ -324,26 +745,44 @@ void genObjectOps(const Quad* q) {
       We look up field offset from symtab then: lw  dst, offset(obj_reg)
      */
     if (strcmp(q->op, "get_field") == 0) {
-        asmComment("get_field");
-
-        const char* r_obj = load(q->arg1);
-
-        // finding the  field offset in the entity scope level through symbol table
-        int field_off = 0;
-        Symbol* obj_sym = lookup(global_scope, q->arg1);
-        if (obj_sym && obj_sym->kind == KIND_OBJECT) {
-            SymTable* esc = find_entity_scope(obj_sym->attr.object.entity_name);
-            if (esc) {
-                Symbol* f = lookup_local(esc, q->arg2);
-                if (f) field_off = f->offset;
-            }
-        }
-
-        const char* dst = getReg(q->result);
-        asmEmit("    lw   %s, %d(%s)", dst, field_off, r_obj);
-        freeReg(q->arg1);
-        store(q->result, dst);
-        return;
+	    asmComment("get_field");
+	    int field_off = 0;
+	    Symbol* obj_sym = lookupForCodeGen(q->arg1);	// local-first lookup
+	
+	    if(obj_sym && obj_sym->kind == KIND_OBJECT){
+		    SymTable* esc = find_entity_scope(obj_sym->attr.object.entity_name);
+		    if(esc){
+			    Symbol* f = lookup_local(esc, q->arg2);
+			    if(f){
+				    field_off = f->offset;
+			    }
+		    }
+	    }
+	    else if(strcmp(q->arg1, "this") == 0 && current_func_scope){
+		    SymTable* sc = current_func_scope->parent;
+		    while(sc){
+			    if(sc->kind == SCOPE_ENTITY){
+				    Symbol* f = lookup_local(sc, q->arg2);
+				    if(f){
+					    field_off = f->offset;
+					    break;
+				    }
+			    }
+			    sc = sc->parent;
+		    }
+	    }
+	    const char* r_obj = getReg("_obj_ptr_tmp");
+	    if(strcmp(q->arg1, "this") == 0){
+		    asmEmit("    lw  %s, -4(s0)", r_obj);
+	    }
+	    else{
+		    asmEmit("    lw  %s, %d(s0)", r_obj, getVarOffset(q->arg1));
+	    }
+	    const char* dst = getReg(q->result);
+	    asmEmit("    lw  %s, %d(%s)", dst, field_off, r_obj);
+	    freeReg("_obj_ptr_tmp");
+	    store(q->result, dst);
+	    return;
     }
 
     /* 
@@ -353,24 +792,49 @@ void genObjectOps(const Quad* q) {
     */
     if (strcmp(q->op, "set_field") == 0) {
         asmComment("set_field");
-
-        const char* r_obj = load(q->arg1);
-        const char* r_val = load(q->result);  // "result" field holds value in parser
-
-        int field_off = 0;
-        Symbol* obj_sym = lookup(global_scope, q->arg1);
-        if (obj_sym && obj_sym->kind == KIND_OBJECT) {
-            SymTable* esc = find_entity_scope(obj_sym->attr.object.entity_name);
-            if (esc) {
-                Symbol* f = lookup_local(esc, q->arg2);
-                if (f) field_off = f->offset;
-            }
-        }
-
-        asmEmit("    sw   %s, %d(%s)", r_val, field_off, r_obj);
-        freeReg(q->arg1);
-        freeReg(q->result);
-        return;
+	int field_off = 0;
+	Symbol* obj_sym = lookupForCodeGen(q->arg1);
+	if(obj_sym && obj_sym->kind == KIND_OBJECT){
+		SymTable* esc = find_entity_scope(obj_sym->attr.object.entity_name);
+		if(esc){
+			Symbol* f = lookup_local(esc, q->arg2);
+			if(f){
+				field_off = f->offset;
+			}
+		}
+	}
+	else if(strcmp(q->arg1, "this") == 0 && current_func_scope){
+		SymTable* sc = current_func_scope->parent;
+		while(sc){
+			if(sc->kind == SCOPE_ENTITY){
+				Symbol* f = lookup_local(sc, q->arg2);
+				if(f){
+					field_off = f->offset;
+					break;
+				}
+			}
+			sc = sc->parent;
+		}
+	}
+	const char* r_obj = getReg("_obj_ptr_tmp");
+	if(strcmp(q->arg1, "this") == 0){
+		asmEmit("    lw  %s, -4(s0)", r_obj);
+	}
+	else{
+		asmEmit("    lw  %s, %d(s0)", r_obj, getVarOffset(q->arg1));
+	}
+	const char* r_val = getReg("_field_val_tmp");
+	OperandType vt = getOperandType(q->result);
+	if(vt == OT_CONST){
+		asmEmit("    li  %s, %s", r_val, q->result);
+	}
+	else{
+		asmEmit("    lw  %s, %d(s0)", r_val, getVarOffset(q->result));
+	}
+	asmEmit("    sw  %s, %d(%s)", r_val, field_off, r_obj);
+	freeReg("_obj_ptr_tmp");
+	freeReg("_field_val_tmp");
+	return;
     }
 
     asmComment("unknown object op — skipped");
@@ -492,6 +956,10 @@ static int isLabel(const char* operand){
 	return 1;
 }
 
+void genEntityBlock(const Quad* q){
+	(void)q;
+}
+
 //getOperandType classifies the operands which we use later for register allocation and to know where to load the register from
 
 OperandType getOperandType(const char* operand){
@@ -523,6 +991,10 @@ const char* getVarAddress(const char* name){
 	extern SymTable* current_scope;
 	if(!current_scope){
 		snprintf(addr_buf,sizeof(addr_buf),"0(s0)");
+		return addr_buf;
+	}
+	if(strcmp(name, "this") == 0){
+		snprintf(addr_buf, sizeof(addr_buf), "-4(s0)");
 		return addr_buf;
 	}
 
@@ -1026,19 +1498,144 @@ void markDirty(const char* regname){
 //     { "t6", "", 0 },
 // };
 
-// Defining argument registers for function calls
-static const char* arg_regs[] = { "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7" };
-#define MAX_ARG_REGS 8
-
-// Tracks how many arguments are collected before a function call
-static int pending_arg_count = 0;
-static char pending_args[MAX_ARG_REGS][64];
 
 // tracks the name of the current function we are implementing
 static char current_func_name[64] = "";
 
 // Defining the size of the frame that is used by the functions - genFunctionPrologue and genFunctionEpilogue
 static int current_frame_size = 64;
+
+// This function is useful for finding the mode of the operand to efficiently select the instructions
+
+static OperandMode getMode(const char* operand){
+	if(!operand || operand[0] == '\0'){
+		return MODE_NONE;
+	}
+	if(isConstant(operand) >= 0){
+		return MODE_IMM;
+	}
+	if(findRegFor(operand) >= 0){
+		return MODE_REG;
+	}
+	return MODE_MEM;
+}
+
+static void emitArithWithMode(const Quad* q, OperandMode m1, OperandMode m2){
+	const char* dst = getReg(q->result);
+
+	// if addition operation and one of the operands is a constant, hence use addi
+	if(strcmp(q->op, "+") == 0 && m2 == MODE_IMM){
+		const char* r1 = load(q->arg1);
+		asmEmit("    addi %s, %s, %s", dst, r1, q->arg2);
+		//freeReg(q->arg1);
+		//store(q->result, dst);
+		markDirty(dst);
+		return;
+	}
+
+	// Now if the argument 1 has constant value
+	if(strcmp(q->op, "+") == 0 && m1 == MODE_IMM){
+		const char* r2 = load(q->arg2);
+		asmEmit("    addi %s, %s, %s", dst, r2, q->arg1);
+		// freeReg(q->arg2);
+		// store(q->result, dst);
+		markDirty(dst);
+		return;
+	}
+
+	// if the argument 2 is constant the operation is subtraction
+	if(strcmp(q->op, "-") == 0 && m2 == MODE_IMM){
+		const char* r1 = load(q->arg1);
+		long imm = strtol(q->arg2, NULL, 10);
+		asmEmit("    addi %s, %s, %ld", dst, r1, -imm);
+		// freeReg(q->arg1);
+		// store(q->result, dst);
+		markDirty(dst);
+		return;
+	}
+
+	// For any general expressions
+	const char* r1 = load(q->arg1);
+	const char* r2 = load(q->arg2);
+
+	if(strcmp(q->op, "+") == 0){
+		asmEmit("    add  %s, %s, %s", dst, r1, r2);
+	}
+	if(strcmp(q->op, "-") == 0){
+		asmEmit("    sub  %s, %s, %s", dst, r1, r2);
+	}
+	if(strcmp(q->op, "*") == 0){
+		asmEmit("    mul  %s, %s, %s", dst, r1, r2);
+	}
+	if(strcmp(q->op, "/") == 0){
+		asmEmit("    div  %s, %s, %s", dst, r1, r2);
+	}
+	if(strcmp(q->op, "%") == 0){
+		asmEmit("    rem  %s, %s, %s", dst, r1, r2);
+	}
+	// freeReg(q->arg1);
+	// freeReg(q->arg2);
+	markDirty(dst);
+}
+
+static void emitAssignWithMode(const Quad* q, OperandMode m1){
+	// charactr literal
+	if(q->arg1[0] == '\'' && q->arg1[2] == '\''){
+		const char* dst = getReg(q->result);
+		asmEmit("    li   %s, %d", dst, (int)q->arg1[1]);
+		markDirty(dst);
+		// store(q->result, dst);
+		return;
+	}
+
+	// string literal
+	if(q->arg1[0] == '"'){
+		const char* lbl = getStringLabel(q->arg1);
+		const char* dst = getReg(q->result);
+		if(lbl){
+			asmEmit("    la   %s, %s", dst, lbl);
+		}
+		markDirty(dst);
+		// store(q->result, dst);
+		return;
+	}
+
+	switch(m1){
+		case MODE_IMM:
+			// If a constant then just li is sufficient
+		{
+			const char* dst = getReg(q->result);
+			asmEmit("    li   %s, %s", dst, q->arg1);
+			// store(q->result, dst);
+			markDirty(dst);
+		}
+		break;
+		case MODE_REG:
+			// If the variable is in register then generate mv
+		{
+			const char* src_reg = reg_name[findRegFor(q->arg1)];
+			const char* dst = getReg(q->result);
+			asmEmit("    mv   %s, %s", dst, src_reg);
+			// store(q->result, dst);
+			markDirty(dst);
+		}
+		break;
+		case MODE_MEM:
+			// Variable is in memory so use mv lw and then mv
+		{
+			const char* r = load(q->arg1);
+			const char* dst = getReg(q->result);
+			asmEmit("    mv   %s, %s", dst, r);
+			// freeReg(q->arg1);
+			// store(q->result, dst);
+			markDirty(dst);
+		}
+		break;
+		default:
+			genAssign(q);
+			break;
+	}
+}
 
 // This function is called for all quads in the generated IR code and then based on the operator present in the Quad corresponding function handler is called
 void genQuad(const Quad* q){
@@ -1048,11 +1645,97 @@ void genQuad(const Quad* q){
 	if(!op || op[0] == '\0'){
 		return;
 	}
+	
+	if(use_template_matching){
+		// Get the modes of the operand
+		OperandMode m1 = getMode(q->arg1);
+		OperandMode m2 = getMode(q->arg2);
+
+		if(strcmp(op, "+") == 0 || strcmp(op, "-") == 0 ||
+			strcmp(op, "*") == 0 || strcmp(op, "/") == 0 ||
+			strcmp(op, "%") == 0){
+			emitArithWithMode(q, m1, m2);
+			return;
+		}
+
+		if(strcmp(op, "=") == 0){
+			emitAssignWithMode(q, m1);
+			return;
+		}
+		(void)m1; (void)m2;
+		if(strcmp(op, "&&") == 0 || strcmp(op, "||") == 0 ||
+			strcmp(op, "!") == 0 || strcmp(op, "&") == 0 ||
+			strcmp(op, "|") == 0){
+			genLogic(q);
+			return;
+		}
+		if(strcmp(op, ">") == 0 || strcmp(op, "<") == 0 ||
+			strcmp(op, "==") == 0){
+			genRelational(q);
+			return;
+		}
+		if(strcmp(op, "[]") == 0){
+			genArrayAccess(q);
+			return;
+		}
+		if(strcmp(op, "ifFalse") == 0 || strcmp(op, "goto") == 0 ||
+			strcmp(op, "label") == 0){
+			genIfGoto(q);
+			return;
+		}
+		if(strcmp(op, "func") == 0){
+			genFunctionPrologue(q);
+			return;
+		}
+		if(strcmp(op, "return") == 0 ||
+			strcmp(op, "endfunc") == 0){
+			genFunctionEpilogue(q);
+			return;
+		}
+		if(strcmp(op, "call") == 0 || strcmp(op, "arg") == 0 ||
+			strcmp(op, "param") == 0){
+			genFunctionCall(q);
+			return;
+		}
+		if(strcmp(op, "in") == 0 ||
+			strcmp(op, "out") == 0){
+			genIO(q);
+			return;
+		}
+		if(strcmp(op, "entity") == 0 ||
+			strcmp(op, "end_entity") == 0){
+			return;
+		}
+		if(strcmp(op, "constr") == 0){
+			genConstructorPrologue(q);
+			return;
+		}
+		if(strcmp(op, "end_constr") == 0){
+			genFunctionEpilogue(q);
+			return;
+		}
+		if(strcmp(op, "method") == 0){
+			genMethodPrologue(q);
+			return;
+		}
+		if(strcmp(op, "end_method") == 0){
+			genFunctionEpilogue(q);
+			return;
+		}
+		if(strcmp(op, "new") == 0 || strcmp(op, "call_constr") == 0
+		   || strcmp(op, "call_method") == 0 || strcmp(op, "get_field") == 0 || strcmp(op, "set_field") == 0 || strcmp(op, "push_ptr") == 0){
+			genObjectOps(q);
+			return;
+		}
+		asmComment(op);
+		return;
+	}
 
 	// Arithmetic operations
 	if(strcmp(op, "+") == 0 || strcmp(op, "-") == 0 || strcmp(op, "*") == 0
 	   || strcmp(op, "/") == 0 || strcmp(op, "%") == 0) {
 		genArith(q);
+		return;
 	}
 
 	// Logical expressions (operations)
@@ -1060,71 +1743,103 @@ void genQuad(const Quad* q){
 		strcmp(op, "!") == 0 || strcmp(op, "&") == 0 || 
 		strcmp(op, "|") == 0){
 		genLogic(q);
+		return;
 	}
 
 	// relational expressions
 	else if(strcmp(op, ">") == 0 || strcmp(op, "<") == 0
 		|| strcmp(op, "==") == 0){
 		genRelational(q);
+		return;
 	}
 
 	// assignment operations
 	else if(strcmp(op, "=") == 0){
 		genAssign(q);
+		return;
 	}
 
 	// array access Quads
 	else if(strcmp(op, "[]") == 0){
 		genArrayAccess(q);
+		return;
 	}
 
 	// Control flow Quads
 	else if(strcmp(op, "ifFalse") == 0 || strcmp(op, "goto") == 0 
 		|| strcmp(op, "label") == 0){
 		genIfGoto(q);
+		return;
 	}
 
 	// Functional prologue - starting of the function
 	else if(strcmp(op, "func") == 0){
 		genFunctionPrologue(q);
+		return;
 	}
 	
 	// Functional epilogue - end of the function
 	else if(strcmp(op, "endfunc") == 0 || strcmp(op, "return") == 0){
 		genFunctionEpilogue(q);
+		return;
 	}
 
 	// call mechanism - arg, param, call
 	else if(strcmp(op, "call") == 0 || strcmp(op, "arg") == 0
 		|| strcmp(op, "param") == 0){
 		genFunctionCall(q);
+		return;
 	}
 
 	// IO operations
 	else if(strcmp(op, "in") == 0 || strcmp(op, "out") == 0){
 		genIO(q);
+		return;
 	}
-
-	// OOP constructs - entity or method or constructor block markers
-	// else if(strcmp(op, "entity") == 0 || strcmp(op, "end_entity") == 0
-	// 	|| strcmp(op, "method") == 0 || strcmp(op, "end_method") == 0
-	// 	|| strcmp(op, "constr") == 0 || strcmp(op, "end_constr") == 0){
-	// 	genEntityBlock(q);
-	// }
 
 	// OOP - runtime object operations
 	else if(strcmp(op, "new") == 0 || strcmp(op, "call_constr") == 0
 		|| strcmp(op, "call_method") == 0 || strcmp(op, "get_field") == 0
 		|| strcmp(op, "set_field") == 0 || strcmp(op, "push_ptr") == 0){
 		genObjectOps(q);
+		return;
+
 	}
-	
+
+	// entity block
+	else if(strcmp(op, "entity") == 0 || strcmp(op, "end_entity") == 0){
+		genEntityBlock(q);
+		return;
+	}
+
+	// constructor
+	else if(strcmp(op, "constr") == 0){
+		genConstructorPrologue(q);
+		return;
+	}
+
+	// end of the constructor
+	else if(strcmp(op, "end_constr") == 0){
+		genFunctionEpilogue(q);		// reuses the shared epilogue
+		return;
+	}
+
+	// starting the method of the constrctor
+	else if(strcmp(op, "method") == 0){
+		genMethodPrologue(q);
+	}
+
+	// closing of the method
+	else if(strcmp(op, "end_method") == 0){
+		genFunctionEpilogue(q);		// reuses the shred epilogue
+	}
 	// If any constrcut not yet handled then emit it as a comment to prevent from crashing
 	else{
 		asmComment(op);
 	}
 }
 
+/*
 // Used for handling the cases when when the getVarAddress returns invalid
 static int getVarOffset(const char* var_name){
 	const char* addr_str = getVarAddress(var_name);
@@ -1140,6 +1855,19 @@ static int getVarOffset(const char* var_name){
         	return 0;
     	}
     	return (int)offset;
+}
+*/
+
+static int getVarOffset(const char* var_name){
+	extern SymTable* current_scope;
+	if(!current_scope){
+		return 0;
+	}
+	Symbol* sym = lookup(current_scope, var_name);
+	if(!sym){
+		return 0;
+	}
+	return -(sym->offset + sym->size);
 }
 
 // genIfGoto - A function for handling the opcodes: label, goto and ifFalse in IR
@@ -1228,6 +1956,7 @@ void genFunctionCall(const Quad* q){
 // Also at the start of the function block we are required to store all the arguments in the a registers because they might be re-used or overwritten (use "load" functions for getting those values)
 // Current top of the stack frame pointer is required because we are required because it is required for correct loading of the values from the stored ones in the stack frame
 void genFunctionPrologue(const Quad* q){
+	pending_arg_count = 0;
 	const char* fname = q->arg1;
 	
 	asmBlank();
@@ -1236,6 +1965,10 @@ void genFunctionPrologue(const Quad* q){
 
 	// Perform a lookup in the symbol table for getting the parameter count
 	Symbol* fsym = lookup(global_scope, fname);
+
+	if(fsym && fsym->attr.func.scope){
+		setCurrentFuncScope(fsym->attr.func.scope);
+	}
 	int frame_size = 64;
 
 	if (fsym && (fsym->kind == KIND_FUNCTION || fsym->kind == KIND_METHOD)){
@@ -1278,6 +2011,117 @@ void genFunctionPrologue(const Quad* q){
 	current_frame_size = frame_size;
 }
 
+static void genConstructorPrologue(const Quad* q){
+	const char* cname = q->arg1;
+
+	asmBlank();
+	asmEmit("%s:", cname);
+	asmComment("-- constructor prologue --");
+
+	// Search for the constructor symbol at the entity scope
+	Symbol* csym = NULL;
+	for(int b = 0; b < HASH_SIZE && !csym; b++){
+		for(Symbol* s = global_scope->buckets[b]; s && !csym; s = s->next){
+			if(s->kind == KIND_ENTITY){
+				SymTable* es = s->attr.entity.scope;
+				if(es){
+					Symbol* c = lookup_local(es, cname);
+					if(c && c->kind == KIND_CONSTRUCTOR){
+						csym = c;
+					}
+				}
+			}
+		}
+	}
+
+	int param_count = csym ? csym->attr.ctor.param_count:0;
+	int frame_size = 4 + param_count * 4 + 64;
+	frame_size = (frame_size + 15) & ~15;
+
+	asmEmit("    addi sp, sp, -%d", frame_size);
+	asmEmit("    sw   ra, %d(sp)", frame_size - 4);
+	asmEmit("    sw   s0, %d(sp)", frame_size - 8);
+	asmEmit("    addi s0, sp, %d", frame_size);
+
+	asmComment("save 'this' pointer");
+	asmEmit("    sw   a0, -4(s0)");
+
+	if(csym && csym->attr.ctor.param_list){
+		ParamNode* p = csym->attr.ctor.param_list;
+		int i = 1;
+		while(p && i < MAX_ARG_REGS){
+			asmEmit("    sw   %s, %d(s0)", arg_regs[i], getVarOffset(p->name));
+			p = p->next;
+			i++;
+		}
+	}
+
+	if(csym && csym->attr.ctor.scope){
+		setCurrentFuncScope(csym->attr.ctor.scope);
+	}
+
+	asmComment("-- constructor prologue end --");
+	asmBlank();
+	strncpy(current_func_name, cname, sizeof(current_func_name) - 1);
+	current_frame_size = frame_size;
+}
+
+static void genMethodPrologue(const Quad* q){
+	const char* mname = q->arg1;
+
+	asmBlank();
+	asmEmit("%s:",mname);
+	asmComment("-- method prologue -- ");
+	Symbol* msym = NULL;
+
+	for (int b=0;b < HASH_SIZE && !msym; b++){
+		for(Symbol* s = global_scope->buckets[b]; s && !msym; s= s->next) {
+			if(s->kind == KIND_ENTITY) {
+				SymTable* es= s->attr.entity.scope;
+				if (es) {
+					Symbol* m = lookup_local(es,mname);
+					if(m && m->kind == KIND_METHOD)
+						msym = m;
+				}
+			}
+		}
+	}
+	int param_count = msym ? msym->attr.method.param_count: 0;
+	int frame_size = 4 + param_count * 4 + 64;
+	frame_size = (frame_size + 15) & ~15;
+
+	asmEmit("    addi sp, sp, -%d", frame_size);
+	asmEmit("    sw   ra, %d(sp)", frame_size - 4);
+	asmEmit("    sw   s0, %d(sp)", frame_size - 8);
+	asmEmit("    addi s0, sp, %d", frame_size);
+	
+	//save 'this' pointer
+	asmEmit("    sw   a0, -4(s0)");
+
+	if(msym && msym->attr.method.param_list){
+		ParamNode* p = msym->attr.method.param_list;
+		int i = 1;
+		while(p && i < MAX_ARG_REGS) {
+			asmEmit("    sw   %s, %d(s0)", arg_regs[i], getVarOffset(p->name));
+			p = p->next;
+			i++;
+		}
+	}
+
+	if(msym && msym->attr.method.scope)
+		setCurrentFuncScope(msym->attr.method.scope);
+
+	asmComment("-- method prologue end --");
+	asmBlank();
+
+	strncpy(current_func_name, mname, sizeof(current_func_name) - 1);
+	current_func_name[sizeof(current_func_name) - 1] = '\0';
+	current_frame_size = frame_size;
+}
+
+
+
+
 // Handles the exit of the function
 void genFunctionEpilogue(const Quad* q){
 	if(strcmp(q->op, "return") == 0){
@@ -1298,7 +2142,7 @@ void genFunctionEpilogue(const Quad* q){
 		}
 		return;
 	}
-	if(strcmp(q->op, "endfunc") == 0){
+	if(strcmp(q->op, "endfunc") == 0 || strcmp(q->op, "end_constr") == 0 || strcmp(q->op, "end_method") == 0){
 		// Emitting the shared epilogue label so that all return quads of the function would jump to this shared label
 		if(current_func_name[0] != '\0'){
 			asmEmit(".Lepi_%s:", current_func_name);
@@ -1323,6 +2167,7 @@ void genFunctionEpilogue(const Quad* q){
 		// clear the current function name so that it cannot be leaking to the next function
 		current_func_name[0] = '\0';
 		current_frame_size = 64;	// reset to the safe default for the next function
+		clearCurrentFuncScope();
 		return;
 	}
 }
@@ -1333,12 +2178,20 @@ void genIO(const Quad* q){
 	// If the quad is a output quad that is "out"
 	if(strcmp(q->op, "out") == 0){
 		int service = 1;	// assign the default value (printing integer
-		Symbol* sym = lookup(current_scope, q->arg1);
-		if(sym){
-			switch(sym->datatype){
-				case DT_FLOAT: service = 2; break;
-				case DT_STRING: service = 4; break;
-				default: service = 1; break;
+		
+		Symbol* sym = NULL;
+
+		if(isStringLiteral(q->arg1)){
+			service = 4;
+		}
+		else{
+			sym = lookupForCodeGen(q->arg1);
+			if(sym){
+				switch(sym->datatype){
+					case DT_FLOAT: service = 2; break;
+					case DT_STRING: service = 4; break;
+					default: service = 1; break;
+				}
 			}
 		}
 
@@ -1350,26 +2203,42 @@ void genIO(const Quad* q){
 		// For variable use "lw" instruction
 		// For string address load the base address of the string using the name of the string label (defined in .data section). "la" is the type of instruction used
 		// If it is a string pointer load it using "lw" with base address from the starting pointer of stack frame and offset computed from the symbol table
-		OperandType ot = getOperandType(q->arg1);
-		if(ot == OT_CONST){
-			asmEmit("    li     a0, %s", q->arg1);
+		if(isStringLiteral(q->arg1)){
+			const char* lbl = getStringLabel(q->arg1);
+			if(lbl){
+				asmEmit("    la     a0, %s", lbl);
+			}
+			else{
+				asmComment("String literal not found");
+			}
 		}
 		else if(sym && sym->datatype == DT_STRING){
-			asmEmit("    la     a0, %s", q->arg1);
+			if(sym->kind == KIND_ARRAY || sym->scope_level == 0){
+				asmEmit("    la     a0, %s", sym->name);
+			}
+			else{
+				int slot = -(sym->offset + sym->size);
+				asmEmit("    addi   a0, s0, %d", slot);
+			}
 		}
 		else{
-			asmEmit("    lw     a0, %d(s0)", getVarOffset(q->arg1));
+			OperandType ot = getOperandType(q->arg1);
+			if(ot == OT_CONST){
+				asmEmit("    li     a0, %s", q->arg1);
+			}
+			else{
+				asmEmit("    lw     a0, %d(s0)", getVarOffset(q->arg1));
+			}
 		}
 
-		// load the service number into a7
 		asmEmit("    li     a7, %d", service);
-		// now emit the "ecall" instruction
 		asmEmit("    ecall");
+
 	}
 	else if(strcmp(q->op, "in") == 0){
 		// Compute the correct read service number
 		int service = 5; 	// Set the default value to read integer
-		Symbol* sym = lookup(current_scope, q->result);
+		Symbol* sym = lookupForCodeGen(q->result);
 		if(sym){
 			switch(sym->datatype){
 				case DT_FLOAT: service = 6; break;
@@ -1383,15 +2252,17 @@ void genIO(const Quad* q){
 		// string - a0 should contain address of the buffer to read into and a1 should contain the maximum number of characters to read
 		// integer or float - no arguments are required and the result is direcrtly kept in a0
 		if(sym && sym->datatype == DT_STRING){
-			// Compute the offset of the string buffer on the stack and add it to the buffer base address that is a0
-			int slot_offset = -(sym->offset + sym->size);
-			asmEmit("    addi   a0, s0, %d", slot_offset);
-
-			asmEmit("    li     a1, %d", sym->size);
+			if(sym->scope_level == 0 || sym->kind == KIND_ARRAY){
+				asmEmit("    la     a0, %s", sym->name);
+			}
+			else{
+				int slot = -(sym->offset + sym->size);
+				asmEmit("    addi   a0, s0, %d", slot);
+			}
+			asmEmit("    li     a1, %d", (sym->size > 0) ? sym->size : 64);
 		}
 
 		asmEmit("    li     a7, %d", service);
-
 		asmEmit("    ecall");
 		
 		// Now we need to store the input taken from the user in the required register 
@@ -1414,6 +2285,7 @@ void genIO(const Quad* q){
 
 void generateASM(void)
 {
+	initRegs();
 	if(!asm_out){
 		asm_out = stdout;
 	}
@@ -1447,8 +2319,7 @@ void generateASM(void)
 
 	// generating .data section with format of strings specified for outputting the strings or taking input
 	// String literals are defined here using the format specifiers using the .asciz directive for internally generating a NULL-terminated string.
-	asmEmit(".section .data");
-	asmBlank();
+	genDataSection();
 
 	// Generating .text section
 	asmEmit(".section .text");

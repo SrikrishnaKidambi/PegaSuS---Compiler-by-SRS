@@ -263,7 +263,7 @@ Symbol* insert_symbol(SymTable* tbl, const char* name,
     if(strcmp(sym->name, "x") == 0){
 	    printf("Found that the current offset is %d\n", tbl->next_offset);
     }
-    sym->offset      = tbl->next_offset;
+    //sym->offset      = tbl->next_offset;
     sym->is_initialized = 0;
 
     /*if (kind == KIND_VAR   || kind == KIND_PARAM ||
@@ -298,7 +298,7 @@ Symbol* insert_symbol(SymTable* tbl, const char* name,
 
     sym->offset = tbl->next_offset;
 
-    if(kind == KIND_VAR || kind == KIND_PARAM || kind == KIND_FIELD){
+    if(kind == KIND_VAR || kind == KIND_PARAM || kind == KIND_FIELD || kind == KIND_OBJECT){
 	    tbl->next_offset += sym->size; 
     }	// advance by exact byte count
     // KIND_ARRAY  → parser does: current_scope->next_offset = sym->offset + sym->size
