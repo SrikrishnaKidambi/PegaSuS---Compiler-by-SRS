@@ -439,10 +439,10 @@ void genArith(const Quad* q) {
         freeReg(q->arg2);
         return;
     }
-
-    freeReg(q->arg1);
-    freeReg(q->arg2);
-    store(q->result, dst);
+    markDirty(dst);
+    //freeReg(q->arg1);
+    //freeReg(q->arg2);
+    //store(q->result, dst);
 }
 
 
@@ -462,8 +462,9 @@ void genLogic(const Quad* q) {
         const char* src = load(q->arg1);
         const char* dst = getReg(q->result);
         asmEmit("    seqz %s, %s", dst, src);
-        freeReg(q->arg1);
-        store(q->result, dst);
+	markDirty(dst);
+       // freeReg(q->arg1);
+       // store(q->result, dst);
         return;
     }
 
@@ -489,10 +490,10 @@ void genLogic(const Quad* q) {
         freeReg(q->arg2);
         return;
     }
-
-    freeReg(q->arg1);
-    freeReg(q->arg2);
-    store(q->result, dst);
+    markDirty(dst);
+   // freeReg(q->arg1);
+   // freeReg(q->arg2);
+    //store(q->result, dst);
 }
 
 
@@ -529,10 +530,10 @@ void genRelational(const Quad* q) {
         freeReg(q->arg2);
         return;
     }
-
-    freeReg(q->arg1);
-    freeReg(q->arg2);
-    store(q->result, dst);
+    markDirty(dst);
+    //freeReg(q->arg1);
+    //freeReg(q->arg2);
+    //store(q->result, dst);
 }
 
 
@@ -552,7 +553,8 @@ void genAssign(const Quad* q) {
     if (src[0] == '\'' && src[2] == '\'') {
         const char* dst = getReg(dst_name);
         asmEmit("    li   %s, %d", dst, (int)src[1]);
-        store(dst_name, dst);
+	markDirty(dst);
+       // store(dst_name, dst);
         return;
     }
 
@@ -560,14 +562,16 @@ void genAssign(const Quad* q) {
     if (isConstant(src)) {
         const char* dst = getReg(dst_name);
         asmEmit("    li   %s, %s", dst, src);
-        store(dst_name, dst);
+	markDirty(dst);
+       // store(dst_name, dst);
         return;
     }
     // string literal
     if (src[0] == '"') {
         const char* dst = getReg(dst_name);
         asmEmit("    la   %s, str_literal", dst);
-        store(dst_name, dst);
+	markDirty(dst);
+        //store(dst_name, dst);
         return;
     }
 
@@ -575,8 +579,9 @@ void genAssign(const Quad* q) {
     const char* r   = load(src);
     const char* dst = getReg(dst_name);
     asmEmit("    mv   %s, %s", dst, r);
-    freeReg(src);
-    store(dst_name, dst);
+    markDirty(dst);
+   // freeReg(src);
+    //store(dst_name, dst);
 }
 
 
@@ -1001,9 +1006,9 @@ const char* getVarAddress(const char* name){
 	}
 
 	if(sym->offset==0)
-		snprintf(addr_buf,sizeof(addr_buf),"0(s0)");
+		snprintf(addr_buf,sizeof(addr_buf),"-8(s0)");
 	else
-		snprintf(addr_buf,sizeof(addr_buf),"-%d(s0)",sym->offset);
+		snprintf(addr_buf,sizeof(addr_buf),"-%d(s0)",sym->offset+8);
 	return addr_buf;
 }
 
@@ -1204,7 +1209,7 @@ void store(const char* var, const char* reg){
 }
 
 //markDirty - when we write we need to mark dirty
-static void markDirty(const char* regname){
+void markDirty(const char* regname){
 	for(int i=0;i<NUM_REGS;i++){
 		if(strcmp(reg_name[i],regname)==0){
 			reg_dirty[i]=1;
