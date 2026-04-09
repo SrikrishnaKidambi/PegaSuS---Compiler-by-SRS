@@ -1507,10 +1507,18 @@ void yyerror(const char *s) {
             yylineno, yytext, s);
 }
 
-int main() {
+int main(int argc, char* argv[]) {
     	global_scope  = create_scope(SCOPE_GLOBAL, "global", NULL);
     	current_scope = global_scope;
 
+
+        //check --oalloc flag
+        for (int i=1;i<argc;i++){
+            if(strcmp(argv[i],"--oalloc")==0){
+                use_optimized_regalloc=1;
+                printf("Register allocation: OPTIMIZED\n");
+            }
+        }
     	yyin = stdin;
     	yyparse();
 
