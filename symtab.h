@@ -290,6 +290,7 @@ void overloaded_method_name(char* out,const char* name, ParamNode* param_list);
 //this function will encode the overloaded function name based on return type, name of the function and parameter count and their types.
 
 int name_in_list(NameNode* list, const char* name);//look if the name exists in the list
+void rehash_symbol(SymTable* tbl, Symbol* sym, const char* old_name); //rehash so the hash buckets hold the addii name
 
 extern SymTable* entity_scopes[MAX_ENTITIES];
 extern int entity_scope_count;

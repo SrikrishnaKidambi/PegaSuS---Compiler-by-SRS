@@ -289,13 +289,17 @@ method_decl
         {
             
             for (int i = 0; i < HASH_SIZE; i++) {
-                for (Symbol* s = current_scope->parent->buckets[i]; s; s = s->next) {
+                Symbol* s = current_scope->parent->buckets[i];
+                while (s) {
+                    Symbol* next = s->next;  /* save before rehash modifies list */
                     if (strcmp(s->name, $4) == 0 && s->kind == KIND_METHOD
                             && strchr(s->name, '$') == NULL) {
                         char newName[80];
                         overloaded_method_name(newName, $4, s->attr.method.param_list);
                         strncpy(s->name, newName, 63);
+                        rehash_symbol(current_scope->parent, s, $4);  /* fix: move to correct bucket */
                     }
+                    s = next;
                 }
             }
 
@@ -371,13 +375,17 @@ method_decl
         {
             
             for (int i = 0; i < HASH_SIZE; i++) {
-                for (Symbol* s = current_scope->parent->buckets[i]; s; s = s->next) {
+                Symbol* s = current_scope->parent->buckets[i];
+                while (s) {
+                    Symbol* next = s->next;  /* save before rehash modifies list */
                     if (strcmp(s->name, $4) == 0 && s->kind == KIND_METHOD
                             && strchr(s->name, '$') == NULL) {
                         char newName[80];
                         overloaded_method_name(newName, $4, s->attr.method.param_list);
                         strncpy(s->name, newName, 63);
+                        rehash_symbol(current_scope->parent, s, $4);  /* fix: move to correct bucket */
                     }
+                    s = next;
                 }
             }
 

@@ -20,6 +20,10 @@ static SymTable* current_func_scope = NULL;
 // A global variable that decides if we need to use template matching based algorithm for instruction selection phase in assembly code generation
 int use_template_matching = 1;	// By default it is 1 and it is turned off when the stats mode is used while compiling the input code
 
+//counts of loads and stores
+static int count_loads = 0;
+static int count_stores = 0;
+
 typedef enum{
 	MODE_REG,	// Value currently in register, so use it directly (no load instruction to be generated
 	MODE_IMM,	// Compile time constant - so use the instructions like li or immediate instruction
@@ -553,6 +557,7 @@ void genAssign(const Quad* q) {
     if (src[0] == '\'' && src[2] == '\'') {
         const char* dst = getReg(dst_name);
         asmEmit("    li   %s, %d", dst, (int)src[1]);
+		count_loads++;
 	markDirty(dst);
        // store(dst_name, dst);
         return;
@@ -562,6 +567,7 @@ void genAssign(const Quad* q) {
     if (isConstant(src)) {
         const char* dst = getReg(dst_name);
         asmEmit("    li   %s, %s", dst, src);
+		count_loads++;
 	markDirty(dst);
        // store(dst_name, dst);
         return;
@@ -570,6 +576,7 @@ void genAssign(const Quad* q) {
     if (src[0] == '"') {
         const char* dst = getReg(dst_name);
         asmEmit("    la   %s, str_literal", dst);
+		count_loads++;
 	markDirty(dst);
         //store(dst_name, dst);
         return;
@@ -608,6 +615,7 @@ void genArrayAccess(const Quad* q) {
     const char* r_base   = getReg("_arr_base_tmp");
     const char* addr_str = getVarAddress(q->arg1);
     asmEmit("    la   %s, %s", r_base, addr_str);   // base address 
+	count_loads++;
 
     // r_off = byte offset (already computed by the * quad before this) 
     const char* r_off = load(q->arg2);
@@ -618,6 +626,7 @@ void genArrayAccess(const Quad* q) {
 
     // load the 4-byte value from that address into result 
     asmEmit("    lw   %s, 0(%s)", r_ea, r_ea);
+	count_loads++;
 
     freeReg("_arr_base_tmp");
     freeReg(q->arg2);
@@ -663,9 +672,11 @@ void genObjectOps(const Quad* q) {
 	int class_size = cls && cls->kind == KIND_ENTITY ? cls->attr.entity.class_size:4;
 	spillAllRegs();
 	asmEmit("    li   a0, %d", class_size);
+	count_loads++;
 	asmEmit("    call malloc");
 	// Store the pointer directly instead of going through register allocator
 	asmEmit("    sw   a0, %d(s0)", getVarOffset(q->result));
+	count_stores++;
 	return;
     }
 
@@ -677,6 +688,7 @@ void genObjectOps(const Quad* q) {
     if(strcmp(q->op, "push_ptr") == 0){
 	    asmComment("push_ptr: load obj pointer into a0");
 	    asmEmit("    lw   a0, %d(s0)", getVarOffset(q->arg1));
+		count_loads++;
 	    return;
     }
 
@@ -690,19 +702,23 @@ void genObjectOps(const Quad* q) {
 	    // save "this" pointer below sp before spilling a0
 	    asmEmit("    addi sp, sp, -4");
 	    asmEmit("    sw   a0, 0(sp)");
+		count_stores++;
 	    spillAllRegs();
 	    // load arguments in constructor arguments into a1...a7
 	    for(int i = 0; i < pending_arg_count; i++){
 		    OperandType ot = getOperandType(pending_args[i]);
 		    if(ot == OT_CONST){
 			    asmEmit("    li   %s, %s", arg_regs[i+1], pending_args[i]);
+				count_loads++;
 		    }
 		    else{
 			    asmEmit("    lw   %s, %d(s0)", arg_regs[i+1], getVarOffset(pending_args[i]));
+				count_loads++;
 		    }
 	    }
 	    pending_arg_count = 0;
 	    asmEmit("    lw   a0, 0(sp)");
+		count_loads++;
 	    asmEmit("    addi sp, sp, 4");
 	    asmEmit("    call %s", q->arg1);
 	    return;
@@ -718,22 +734,27 @@ void genObjectOps(const Quad* q) {
         asmComment("call method");
 	asmEmit("    addi sp, sp, -4");
 	asmEmit("    sw   a0, 0(sp)");
+	count_stores++;
         spillAllRegs();
         for(int i = 0; i < pending_arg_count; i++){
 		OperandType ot = getOperandType(pending_args[i]);
 		if(ot == OT_CONST){
 			asmEmit("    li   %s, %s", arg_regs[i+1], pending_args[i]);
+			count_loads++;
 		}
 		else{
 			asmEmit("    lw   %s, %d(s0)", arg_regs[i+1], getVarOffset(pending_args[i]));
+			count_loads++;
 		}
 	}
 	pending_arg_count = 0;
 	asmEmit("    lw a0, 0(sp)");
+	count_loads++;
 	asmEmit("    addi sp, sp, 4");
 	asmEmit("    call %s", q->arg1);
 	if(q->result[0] != '\0'){
 		asmEmit("    sw  a0, %d(s0)", getVarOffset(q->result));
+		count_stores++;
 	}
         return;
     }
@@ -774,12 +795,15 @@ void genObjectOps(const Quad* q) {
 	    const char* r_obj = getReg("_obj_ptr_tmp");
 	    if(strcmp(q->arg1, "this") == 0){
 		    asmEmit("    lw  %s, -4(s0)", r_obj);
+			count_loads++;
 	    }
 	    else{
 		    asmEmit("    lw  %s, %d(s0)", r_obj, getVarOffset(q->arg1));
+			count_loads++;
 	    }
 	    const char* dst = getReg(q->result);
 	    asmEmit("    lw  %s, %d(%s)", dst, field_off, r_obj);
+		count_loads++;
 	    freeReg("_obj_ptr_tmp");
 	    store(q->result, dst);
 	    return;
@@ -819,19 +843,24 @@ void genObjectOps(const Quad* q) {
 	const char* r_obj = getReg("_obj_ptr_tmp");
 	if(strcmp(q->arg1, "this") == 0){
 		asmEmit("    lw  %s, -4(s0)", r_obj);
+		count_loads++;
 	}
 	else{
 		asmEmit("    lw  %s, %d(s0)", r_obj, getVarOffset(q->arg1));
+		count_loads++;
 	}
 	const char* r_val = getReg("_field_val_tmp");
 	OperandType vt = getOperandType(q->result);
 	if(vt == OT_CONST){
 		asmEmit("    li  %s, %s", r_val, q->result);
+		count_loads++;
 	}
 	else{
 		asmEmit("    lw  %s, %d(s0)", r_val, getVarOffset(q->result));
+		count_loads++;
 	}
 	asmEmit("    sw  %s, %d(%s)", r_val, field_off, r_obj);
+	count_stores++;
 	freeReg("_obj_ptr_tmp");
 	freeReg("_field_val_tmp");
 	return;
@@ -1036,9 +1065,6 @@ static int reg_dirty[NUM_REGS]; //1 if the value is modifed and need to be store
 
 //0 = basic spill, 1 = optimized next use spill coming from parser.y
 int use_optimized_regalloc = 0;
-//counts of loads and stores
-static int count_loads = 0;
-static int count_stores = 0;
 
 /*--------Next Use Information-------------
 For each instruction i and each variable v we store:
@@ -1583,6 +1609,7 @@ static void emitAssignWithMode(const Quad* q, OperandMode m1){
 	if(q->arg1[0] == '\'' && q->arg1[2] == '\''){
 		const char* dst = getReg(q->result);
 		asmEmit("    li   %s, %d", dst, (int)q->arg1[1]);
+		count_loads++;
 		markDirty(dst);
 		// store(q->result, dst);
 		return;
@@ -1594,6 +1621,7 @@ static void emitAssignWithMode(const Quad* q, OperandMode m1){
 		const char* dst = getReg(q->result);
 		if(lbl){
 			asmEmit("    la   %s, %s", dst, lbl);
+			count_loads++;
 		}
 		markDirty(dst);
 		// store(q->result, dst);
@@ -1606,6 +1634,7 @@ static void emitAssignWithMode(const Quad* q, OperandMode m1){
 		{
 			const char* dst = getReg(q->result);
 			asmEmit("    li   %s, %s", dst, q->arg1);
+			count_loads++;
 			// store(q->result, dst);
 			markDirty(dst);
 		}
@@ -1931,9 +1960,11 @@ void genFunctionCall(const Quad* q){
 			OperandType ot = getOperandType(pending_args[i]);
 			if(ot == OT_CONST){
 				asmEmit("    li     %s, %s", arg_regs[i], pending_args[i]);
+				count_loads++;
 			}
 			else{
 				asmEmit("    lw     %s, %d(s0)", arg_regs[i], getVarOffset(pending_args[i]));
+				count_loads++;
 			}
 		}
 		pending_arg_count = 0;	// Reset the count of the number of arguments for the next call
@@ -1944,6 +1975,7 @@ void genFunctionCall(const Quad* q){
 
 		if(q->result[0] != '\0'){
 			asmEmit("    sw     a0, %d(s0)", getVarOffset(q->result));
+			count_stores++;
 		}
 		return;
 	}
@@ -1983,7 +2015,9 @@ void genFunctionPrologue(const Quad* q){
 	
 	// Save the return address and the caller's frame pointer
 	asmEmit("    sw     ra, %d(sp)", frame_size - 4);
+	count_stores++;
 	asmEmit("    sw     s0, %d(sp)", frame_size - 8);
+	count_stores++;
 	
 	// Load current frame's pointer
 	asmEmit("    addi   s0, sp, %d", frame_size);
@@ -1996,6 +2030,7 @@ void genFunctionPrologue(const Quad* q){
 		int i = 0;
 		while(p && i < MAX_ARG_REGS){
 			asmEmit("    sw     %s, %d(s0)", arg_regs[i], getVarOffset(p->name));
+			count_stores++;
 			p = p->next;
 			i++;
 		}
@@ -2040,17 +2075,21 @@ static void genConstructorPrologue(const Quad* q){
 
 	asmEmit("    addi sp, sp, -%d", frame_size);
 	asmEmit("    sw   ra, %d(sp)", frame_size - 4);
+	count_stores++;
 	asmEmit("    sw   s0, %d(sp)", frame_size - 8);
+	count_stores++;
 	asmEmit("    addi s0, sp, %d", frame_size);
 
 	asmComment("save 'this' pointer");
 	asmEmit("    sw   a0, -4(s0)");
+	count_stores++;
 
 	if(csym && csym->attr.ctor.param_list){
 		ParamNode* p = csym->attr.ctor.param_list;
 		int i = 1;
 		while(p && i < MAX_ARG_REGS){
 			asmEmit("    sw   %s, %d(s0)", arg_regs[i], getVarOffset(p->name));
+			count_stores++;
 			p = p->next;
 			i++;
 		}
@@ -2092,17 +2131,21 @@ static void genMethodPrologue(const Quad* q){
 
 	asmEmit("    addi sp, sp, -%d", frame_size);
 	asmEmit("    sw   ra, %d(sp)", frame_size - 4);
+	count_stores++;
 	asmEmit("    sw   s0, %d(sp)", frame_size - 8);
+	count_stores++;
 	asmEmit("    addi s0, sp, %d", frame_size);
 	
 	//save 'this' pointer
 	asmEmit("    sw   a0, -4(s0)");
+	count_stores++;
 
 	if(msym && msym->attr.method.param_list){
 		ParamNode* p = msym->attr.method.param_list;
 		int i = 1;
 		while(p && i < MAX_ARG_REGS) {
 			asmEmit("    sw   %s, %d(s0)", arg_regs[i], getVarOffset(p->name));
+			count_stores++;
 			p = p->next;
 			i++;
 		}
@@ -2130,9 +2173,11 @@ void genFunctionEpilogue(const Quad* q){
 			OperandType ot = getOperandType(q->arg1);
 			if(ot == OT_CONST){
 				asmEmit("    li     a0, %s", q->arg1);
+				count_loads++;
 			}
 			else{
 				asmEmit("    lw     a0, %d(s0)", getVarOffset(q->arg1));
+				count_loads++;
 			}
 		}
 		
@@ -2153,7 +2198,9 @@ void genFunctionEpilogue(const Quad* q){
 
 		// Restore ra and s0 from the first and second 4 bytes of the stack frame (as saved in the prologue)
 		asmEmit("    lw     ra, %d(sp)", frame_size - 4);
+		count_loads++;
 		asmEmit("    lw     s0, %d(sp)", frame_size - 8);
+		count_loads++;
 
 
 		// Now shrink the stack frame by adding frame_size to the current stack pointer (sp)
@@ -2207,6 +2254,7 @@ void genIO(const Quad* q){
 			const char* lbl = getStringLabel(q->arg1);
 			if(lbl){
 				asmEmit("    la     a0, %s", lbl);
+				count_loads++;
 			}
 			else{
 				asmComment("String literal not found");
@@ -2215,6 +2263,7 @@ void genIO(const Quad* q){
 		else if(sym && sym->datatype == DT_STRING){
 			if(sym->kind == KIND_ARRAY || sym->scope_level == 0){
 				asmEmit("    la     a0, %s", sym->name);
+				count_loads++;
 			}
 			else{
 				int slot = -(sym->offset + sym->size);
@@ -2225,13 +2274,16 @@ void genIO(const Quad* q){
 			OperandType ot = getOperandType(q->arg1);
 			if(ot == OT_CONST){
 				asmEmit("    li     a0, %s", q->arg1);
+				count_loads++;
 			}
 			else{
 				asmEmit("    lw     a0, %d(s0)", getVarOffset(q->arg1));
+				count_loads++;
 			}
 		}
 
 		asmEmit("    li     a7, %d", service);
+		count_loads++;
 		asmEmit("    ecall");
 
 	}
@@ -2254,15 +2306,18 @@ void genIO(const Quad* q){
 		if(sym && sym->datatype == DT_STRING){
 			if(sym->scope_level == 0 || sym->kind == KIND_ARRAY){
 				asmEmit("    la     a0, %s", sym->name);
+				count_loads++;
 			}
 			else{
 				int slot = -(sym->offset + sym->size);
 				asmEmit("    addi   a0, s0, %d", slot);
 			}
 			asmEmit("    li     a1, %d", (sym->size > 0) ? sym->size : 64);
+			count_loads++;
 		}
 
 		asmEmit("    li     a7, %d", service);
+		count_loads++;
 		asmEmit("    ecall");
 		
 		// Now we need to store the input taken from the user in the required register 
@@ -2273,6 +2328,7 @@ void genIO(const Quad* q){
 			}
 			else{
 				asmEmit("    sw     a0, %d(s0)", getVarOffset(q->result));
+				count_stores++;
 			}
 		}
 	}
@@ -2333,6 +2389,7 @@ void generateASM(void)
 	// Emit a program exit at the end of the .text section so that simulator does not fall off the end of main and crash. The service for the exit program ecall is 10.
 	asmBlank();
 	asmEmit("    li     a7, 10");
+	count_loads++;
 	asmEmit("    ecall");
 
 	//print stats of register allocation

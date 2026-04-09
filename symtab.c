@@ -232,6 +232,22 @@ void overloaded_method_name(char* out, const char* name, ParamNode* param_list) 
 	strncpy(out,buf,79);
 }
 
+void rehash_symbol(SymTable* tbl, Symbol* sym, const char* old_name){
+    //Remove from old bucket
+    unsigned int old_h = hash_fn(old_name);
+    Symbol** pp = &tbl->buckets[old_h];
+    while(*pp && *pp != sym){
+        pp = &(*pp)->next;
+    }
+    if(*pp == sym)
+        *pp = sym->next;
+
+    //Insert into new bucket
+    unsigned int new_h = hash_fn(sym->name);
+    sym->next = tbl->buckets[new_h];
+    tbl->buckets[new_h] = sym;
+}
+
 int name_in_list(NameNode* list,const char* name){
 	for (NameNode* n = list;n;n=n->next){
 		if(strcmp(n->name,name)==0)return 1;
