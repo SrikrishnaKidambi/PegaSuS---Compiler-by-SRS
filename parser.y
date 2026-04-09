@@ -2,6 +2,7 @@
 #include "symtab.h"
 #include "optimizer.h"
 #include "asm_gen.h"
+#include "transpiler.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1507,7 +1508,7 @@ void yyerror(const char *s) {
             yylineno, yytext, s);
 }
 
-int main() {
+int main(int argc, char* argv[]) {
     	global_scope  = create_scope(SCOPE_GLOBAL, "global", NULL);
     	current_scope = global_scope;
 
@@ -1516,20 +1517,42 @@ int main() {
 
     	printf("\n========== GLOBAL SCOPE ==========\n");
     	print_table(global_scope);
+         
+int opt_level = 3;   //default=O3
+int do_python=0;
+for (int i = 1; i < argc; i++) {
+    if      (strcmp(argv[i], "-O0") == 0) opt_level = 0;
+    else if (strcmp(argv[i], "-O1") == 0) opt_level = 1;
+    else if (strcmp(argv[i], "-O2") == 0) opt_level = 2;
+    else if (strcmp(argv[i], "-O3") == 0) opt_level = 3;
+    else if (strcmp(argv[i], "-py") == 0) do_python = 1;
+}
+printf("Running Optimizations (-%c%d)\n", 'O', opt_level);
 
-	printf("Running Optimizations\n");
-	algebraic_simplification();
-    strength_reduction();
+//O1
+if (opt_level >= 1) {
+    algebraic_simplification();
     constant_folding();
     constant_propagation();
-    copy_propagation(); 
+    copy_propagation(opt_level);
+    //second pass to clean up copies exposed by propagation 
+    constant_folding();
+    constant_propagation();
+}
+
+//O2
+if (opt_level >= 2) {
     common_subexpression_elimination();
-    constant_folding();               // second pass, cleans up after CSE
-    constant_propagation();           // second pass, cleans up after CSE
-    dead_code_elimination();          // remove dead code before LICM
+    dead_code_elimination();
+}
+
+//O3
+if (opt_level >= 3) {
+    strength_reduction();
     loop_invariant_code_motion();
     induction_variable_elimination();
-    dead_code_elimination();          // final cleanup after IVE
+    dead_code_elimination();   // final cleanup after loop optimizations
+}
        printf("\n========== IR Code Visualization Section ==========\n");
 	print_original_IR();
 	print_opt_IR();
@@ -1550,6 +1573,18 @@ int main() {
 
     fclose(asm_file);
     printf("Assembly code saved to 'output.s'\n");
+   
+ if (do_python) {
+    FILE* py_file = fopen("output.py", "w");
+    if (!py_file) {
+        perror("Failed to open output.py");
+    } else {
+        printf("\nTranspiling to Python...\n");
+        transpile_to_python(py_file);
+        fclose(py_file);
+        printf("Python code saved to 'output.py'\n");
+    }
+}
     return 0;
 }
 
