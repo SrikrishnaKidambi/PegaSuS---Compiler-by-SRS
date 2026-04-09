@@ -241,6 +241,7 @@ constructor_decl
 
             emit("constr", $1, "", "");
             SymTable* cs = create_scope(SCOPE_CONSTRUCTOR, $1, current_scope);
+ 	    if(sym) sym->attr.ctor.scope = cs;
             current_scope = cs;
         }
       LPAREN param_list_opt RPAREN block
@@ -265,7 +266,8 @@ method_decl
         {
             Symbol* sym = insert_symbol(current_scope, $4,
                                         KIND_METHOD, $2, yylineno);
-            if (sym) {
+            current_function = sym;
+	    if (sym) {
                 sym->attr.method.return_type = $2;
                 sym->attr.method.access      = $1;
                 sym->attr.method.param_count = 0;
@@ -279,6 +281,7 @@ method_decl
             //emit("method",...) moved to closing action
             
             SymTable* ms = create_scope(SCOPE_METHOD, $4, current_scope);
+	    if(sym) sym->attr.method.scope = ms;
             current_scope = ms;
         }
       LPAREN param_list_opt RPAREN block
@@ -337,6 +340,7 @@ method_decl
             emit("method", mangled_ir, "", "");
             print_table(current_scope);
             current_scope = current_scope->parent;
+	    current_function = NULL;
             emit("end_method", mangled_ir, "", "");
         }
 
@@ -345,7 +349,8 @@ method_decl
         {
             Symbol* sym = insert_symbol(current_scope, $4,
                                         KIND_METHOD, DT_ENTITY, yylineno);
-            if (sym) {
+            current_function = sym;
+	    if (sym) {
                 sym->attr.method.return_type = DT_ENTITY;
                 sym->attr.method.access      = $1;
                 sym->attr.method.param_count = 0;
@@ -358,6 +363,7 @@ method_decl
                                         current_scope->name);
             
             SymTable* ms = create_scope(SCOPE_METHOD, $4, current_scope);
+	    if(sym) sym->attr.method.scope = ms;
             current_scope = ms;
         }
       LPAREN param_list_opt RPAREN block
@@ -414,6 +420,7 @@ method_decl
             emit("method", mangled_ir, "", "");
             print_table(current_scope);
             current_scope = current_scope->parent;
+	    current_function = NULL;
             emit("end_method", mangled_ir, "", "");
         }
     | access_modifier type FUNC IDENTIFIER
@@ -478,6 +485,7 @@ object_decl
             }
             emit("new", $5, "", $2);
             emit("call_constr", $5, "", $2);
+	    call_arg_count = 0;
         }
     | type IDENTIFIER ASSIGN IDENTIFIER DOT IDENTIFIER LPAREN arg_list_opt RPAREN SEMICOLON
         {
@@ -598,7 +606,10 @@ var_decl
             emit("=", $4, "", $2);
             Symbol* sym = insert_symbol(current_scope, $2,
                                         KIND_VAR, $1, yylineno);
-            if (sym) sym->is_initialized = 1;
+            if (sym){
+		sym->is_initialized = 1;
+		strncpy(sym->init_value, $4, 63); 
+	    }	
         }
 
     /* Dog d;  or  Dog d1, d2; — entity-typed vars */
@@ -818,6 +829,9 @@ function_decl
 	    current_function = sym;	// Storing the current function we are in when we are entering the function declaration
             emit("func", $3, "", "");
             SymTable* fs = create_scope(SCOPE_FUNCTION, $3, current_scope);
+	    if(sym){
+		sym->attr.func.scope = fs;
+            }
             current_scope = fs;
         }
       LPAREN param_list_opt RPAREN block
@@ -846,6 +860,9 @@ function_decl
 	    current_function = sym; 	// Storing the current function symbol being parsed to handle correct type of value(or variable) being returned
             emit("func", $3, "", "");
             SymTable* fs = create_scope(SCOPE_FUNCTION, $3, current_scope);
+            if(sym){
+                sym->attr.func.scope = fs;
+            }
             current_scope = fs;
         }
       LPAREN param_list_opt RPAREN block
@@ -1051,7 +1068,8 @@ assignment
 		if(entity_name){
 			Symbol* entity_sym = lookup(global_scope, entity_name);
 			if(entity_sym && entity_sym->kind == KIND_ENTITY){
-				Symbol* field = lookup(global_scope, $3);
+				SymTable* esc = find_entity_scope(entity_name);
+				Symbol* field = esc ? lookup_local(esc, $3):NULL;
 				while(field){
 					if(field->kind == KIND_FIELD && strcmp(field->attr.field.belongs_to, entity_name) == 0){
 						break;
@@ -1507,10 +1525,18 @@ void yyerror(const char *s) {
             yylineno, yytext, s);
 }
 
-int main() {
+int main(int argc, char* argv[]) {
+	// Parse the -S flag (stats mode)
+	int compare_mode = 0;
+	for(int i = 1; i < argc; i++){
+		if(strcmp(argv[i], "-S") == 0){
+			compare_mode = 1;
+			printf("Mode: Comparision (standard + optimal both generated)\n");
+		}
+	}	
+
     	global_scope  = create_scope(SCOPE_GLOBAL, "global", NULL);
     	current_scope = global_scope;
-
     	yyin = stdin;
     	yyparse();
 
@@ -1519,18 +1545,18 @@ int main() {
 
 	printf("Running Optimizations\n");
 	algebraic_simplification();
-    strength_reduction();
-    constant_folding();
-    constant_propagation();
-    copy_propagation(); 
-    common_subexpression_elimination();
-    constant_folding();               // second pass, cleans up after CSE
-    constant_propagation();           // second pass, cleans up after CSE
-    dead_code_elimination();          // remove dead code before LICM
-    loop_invariant_code_motion();
-    induction_variable_elimination();
-    dead_code_elimination();          // final cleanup after IVE
-       printf("\n========== IR Code Visualization Section ==========\n");
+   	strength_reduction();
+    	constant_folding();
+    	constant_propagation();
+    	copy_propagation(); 
+    	common_subexpression_elimination();
+    	constant_folding();               // second pass, cleans up after CSE
+    	constant_propagation();           // second pass, cleans up after CSE
+    	dead_code_elimination();          // remove dead code before LICM
+    	loop_invariant_code_motion();
+    	induction_variable_elimination();
+    	dead_code_elimination();          // final cleanup after IVE
+       	printf("\n========== IR Code Visualization Section ==========\n");
 	print_original_IR();
 	print_opt_IR();
 
@@ -1539,17 +1565,35 @@ int main() {
     for (int i = 0; i < IR_idx; i++)
         printf("%-15s %-15s %-15s %-15s\n",
                IR[i].op, IR[i].arg1, IR[i].arg2, IR[i].result);*/
-    FILE *asm_file = fopen("output.s", "w");
-    if (!asm_file) {
-        perror("Failed to open assembly file");
-        return 1;
-    }
-    asmSetOutput(asm_file);
-    printf("\nGenerating RISC-V Assembly...\n");
-    generateASM(); 
+    	FILE *asm_file = fopen("output.s", "w");
+    	if (!asm_file) {
+        	perror("Failed to open assembly file");
+       		 return 1;
+    	}
+    	asmSetOutput(asm_file);
+	use_template_matching = 1;	// Turning on the optimal instruction selection
+    	printf("\nGenerating RISC-V Assembly...\n");
+    	generateASM(); 
 
-    fclose(asm_file);
-    printf("Assembly code saved to 'output.s'\n");
-    return 0;
+    	fclose(asm_file);
+    	printf("Assembly code saved to 'output.s'\n");
+
+	if(compare_mode){
+		FILE* std_file = fopen("output_standard.s", "w");
+		if(!std_file){
+			perror("Failed to open output_standard.s");
+			return 1;
+		}
+		asmSetOutput(std_file);
+		use_template_matching = 0;	// turn off the optimal ins selection
+		printf("Generating Assembly code using standard if/else chain");
+		generateASM();
+		fclose(std_file);
+		printf("Standard Assembly code saved to 'output_standard.s' file\n");
+	
+		// Now compare the code from two files using a function
+			
+	}
+   	return 0;
 }
 

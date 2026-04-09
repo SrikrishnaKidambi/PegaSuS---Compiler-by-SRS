@@ -18,6 +18,9 @@ typedef struct {
 extern Quad   IR[];
 extern int    IR_idx;
 
+// A global variable that is used for checking if the template mathing is turned on or not. By default it is always turned on
+extern int use_template_matching;
+
 typedef enum {
     OT_TEMP,    /* t0, t1, t2 …  (genVar temporaries) */
     OT_VAR,     /* named user variable / parameter    */
