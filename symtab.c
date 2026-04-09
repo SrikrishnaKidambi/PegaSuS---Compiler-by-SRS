@@ -232,6 +232,16 @@ void overloaded_method_name(char* out, const char* name, ParamNode* param_list) 
 	strncpy(out,buf,79);
 }
 
+void overloaded_ctor_name(char* out,const char* name,ParamNode* param_list){
+    char buf[256];
+    strcpy(buf,name);
+    strcat(buf,"$");
+    for(ParamNode* p = param_list;p; p=p->next){
+        char code[2] = {dt_code(p->datatype), '\0'};
+        strcat(buf,code);
+    }
+    strncpy(out,buf,79);
+}
 void rehash_symbol(SymTable* tbl, Symbol* sym, const char* old_name){
     //Remove from old bucket
     unsigned int old_h = hash_fn(old_name);
