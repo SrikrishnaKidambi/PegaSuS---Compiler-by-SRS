@@ -1,0 +1,139 @@
+# test.peg  (assuming your language extension)
+
+entity Animal {
+    private int age;
+    private int weight;
+
+    Animal(int a, int w) {
+        this.age = a;
+        this.weight = w;
+    }
+
+    public int _func getAge() {
+        return this.age;
+    }
+
+    public int _func getWeight() {
+        return this.weight;
+    }
+
+    public int _func isHeavierThan(int threshold) {
+        if (this.weight > threshold) {
+            return 1;
+        }
+        return 0;
+    }
+}
+
+int _func add(int a, int b) {
+    return a + b;
+}
+
+int _func factorial(int n) {
+    if (n < 2) {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+void _func testArrays() {
+    int[] arr = {10, 20, 30, 40, 50};
+    int i = 0;
+    int sum = 0;
+    for (i = 0; i < 5; i = i + 1) {
+        sum = sum + arr[i];
+    }
+    show(sum);
+}
+
+void _func testArith() {
+    int x = 10;
+    int y = 3;
+    int r1 = x + y;
+    int r2 = x - y;
+    int r3 = x * y;
+    int r4 = x / y;
+    int r5 = x % y;
+    show(r1);
+    show(r2);
+    show(r3);
+    show(r4);
+    show(r5);
+}
+
+void _func testLogic() {
+    bool a = true;
+    bool b = false;
+    bool r1 = a && b;
+    bool r2 = a || b;
+    bool r3 = !a;
+    show(r1);
+    show(r2);
+    show(r3);
+}
+
+void _func testNested() {
+    int x = 5;
+    string str = "hello";
+    int result = 0;
+    if (x > 3) {
+        if (x > 4) {
+            result = 100;
+        } elif (x > 2) {
+            result = 50;
+        } else {
+            result = 10;
+        }
+    } else {
+        result = 0;
+    }
+    show(result);
+}
+
+void _func main() {
+    # test basic arithmetic
+    testArith();
+
+    # test function call and return
+    int s = add(3, 4);
+    show(s);
+
+    # test recursion
+    int f = factorial(5);
+    show(f);
+
+    # test arrays
+    testArrays();
+
+    # test logic
+    testLogic();
+
+    # test nested if/elif/else
+    testNested();
+
+    # test entity
+    Animal a = new Animal(3, 80);
+    int age = a.getAge();
+    int weight = a.getWeight();
+    show(age);
+    show(weight);
+
+    int heavy = a.isHeavierThan(50);
+    show(heavy);
+
+    # test field assignment
+    a.age = 5;
+    show(a.getAge());
+
+    # test 2D array
+    int[][] mat = {{1, 2}, {3, 4}};
+    show(mat[0][0]);
+    show(mat[1][1]);
+
+    # test compound assignment
+    int c = 10;
+    c += 5;
+    show(c);
+    c -= 3;
+    show(c);
+}

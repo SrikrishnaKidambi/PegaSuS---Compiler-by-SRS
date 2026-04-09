@@ -882,21 +882,21 @@ static const yytype_int16 yyrline[] =
 {
        0,   140,   140,   141,   145,   146,   147,   151,   152,   153,
      154,   155,   156,   157,   158,   159,   160,   169,   168,   208,
-     207,   218,   219,   223,   224,   225,   229,   228,   254,   253,
-     266,   265,   346,   345,   421,   420,   431,   445,   461,   462,
-     466,   483,   540,   541,   545,   552,   562,   561,   571,   572,
-     580,   581,   586,   593,   606,   613,   624,   631,   638,   639,
-     640,   641,   642,   646,   664,   682,   681,   716,   715,   756,
-     760,   764,   770,   779,   791,   809,   808,   837,   836,   862,
-     861,   872,   873,   877,   878,   882,   883,   888,   909,   932,
-     946,   958,   966,   967,   971,   974,   986,  1007,  1020,  1031,
-    1043,  1045,  1070,  1096,  1100,  1102,  1104,  1106,  1110,  1112,
-    1114,  1118,  1123,  1127,  1131,  1135,  1142,  1148,  1152,  1158,
-    1164,  1170,  1174,  1205,  1274,  1281,  1282,  1283,  1284,  1285,
-    1286,  1287,  1288,  1293,  1310,  1312,  1317,  1292,  1321,  1330,
-    1347,  1349,  1354,  1329,  1356,  1361,  1360,  1372,  1377,  1376,
-    1400,  1409,  1416,  1423,  1408,  1428,  1429,  1430,  1434,  1438,
-    1451,  1459,  1461,  1463
+     207,   218,   219,   223,   224,   225,   229,   228,   255,   254,
+     267,   266,   350,   349,   428,   427,   438,   452,   468,   469,
+     473,   491,   548,   549,   553,   560,   570,   569,   579,   580,
+     588,   589,   594,   601,   617,   624,   635,   642,   649,   650,
+     651,   652,   653,   657,   675,   693,   692,   727,   726,   767,
+     771,   775,   781,   790,   802,   820,   819,   851,   850,   879,
+     878,   889,   890,   894,   895,   899,   900,   905,   926,   949,
+     963,   975,   983,   984,   988,   991,  1003,  1024,  1037,  1048,
+    1060,  1062,  1088,  1114,  1118,  1120,  1122,  1124,  1128,  1130,
+    1132,  1136,  1141,  1145,  1149,  1153,  1160,  1166,  1170,  1176,
+    1182,  1188,  1192,  1223,  1292,  1299,  1300,  1301,  1302,  1303,
+    1304,  1305,  1306,  1311,  1328,  1330,  1335,  1310,  1339,  1348,
+    1365,  1367,  1372,  1347,  1374,  1379,  1378,  1390,  1395,  1394,
+    1418,  1427,  1434,  1441,  1426,  1446,  1447,  1448,  1452,  1456,
+    1469,  1477,  1479,  1481
 };
 #endif
 
@@ -1808,43 +1808,45 @@ yyreduce:
 
             emit("constr", (yyvsp[0].sval), "", "");
             SymTable* cs = create_scope(SCOPE_CONSTRUCTOR, (yyvsp[0].sval), current_scope);
+ 	    if(sym) sym->attr.ctor.scope = cs;
             current_scope = cs;
         }
-#line 1814 "y.tab.c"
+#line 1815 "y.tab.c"
     break;
 
   case 27: /* constructor_decl: IDENTIFIER $@3 LPAREN param_list_opt RPAREN block  */
-#line 248 "parser.y"
+#line 249 "parser.y"
         {
             print_table(current_scope);
             current_scope = current_scope->parent;
             emit("end_constr", (yyvsp[-5].sval), "", "");
         }
-#line 1824 "y.tab.c"
+#line 1825 "y.tab.c"
     break;
 
   case 28: /* $@4: %empty  */
-#line 254 "parser.y"
+#line 255 "parser.y"
         { emit("constr", (yyvsp[0].sval), "", ""); }
-#line 1830 "y.tab.c"
+#line 1831 "y.tab.c"
     break;
 
   case 29: /* constructor_decl: IDENTIFIER $@4 LPAREN error RPAREN block  */
-#line 256 "parser.y"
+#line 257 "parser.y"
         {
             printf("Invalid constructor parameters at line %d\n", yylineno);
             yyerrok;
             emit("end_constr", (yyvsp[-5].sval), "", "");
         }
-#line 1840 "y.tab.c"
+#line 1841 "y.tab.c"
     break;
 
   case 30: /* $@5: %empty  */
-#line 266 "parser.y"
+#line 267 "parser.y"
         {
             Symbol* sym = insert_symbol(current_scope, (yyvsp[0].sval),
                                         KIND_METHOD, (yyvsp[-2].dtype), yylineno);
-            if (sym) {
+            current_function = sym;
+	    if (sym) {
                 sym->attr.method.return_type = (yyvsp[-2].dtype);
                 sym->attr.method.access      = (yyvsp[-3].access);
                 sym->attr.method.param_count = 0;
@@ -1858,13 +1860,14 @@ yyreduce:
             //emit("method",...) moved to closing action
             
             SymTable* ms = create_scope(SCOPE_METHOD, (yyvsp[0].sval), current_scope);
+	    if(sym) sym->attr.method.scope = ms;
             current_scope = ms;
         }
-#line 1864 "y.tab.c"
+#line 1867 "y.tab.c"
     break;
 
   case 31: /* method_decl: access_modifier type FUNC IDENTIFIER $@5 LPAREN param_list_opt RPAREN block  */
-#line 286 "parser.y"
+#line 289 "parser.y"
         {
             
             for (int i = 0; i < HASH_SIZE; i++) {
@@ -1920,17 +1923,19 @@ yyreduce:
             emit("method", mangled_ir, "", "");
             print_table(current_scope);
             current_scope = current_scope->parent;
+	    current_function = NULL;
             emit("end_method", mangled_ir, "", "");
         }
-#line 1926 "y.tab.c"
+#line 1930 "y.tab.c"
     break;
 
   case 32: /* $@6: %empty  */
-#line 346 "parser.y"
+#line 350 "parser.y"
         {
             Symbol* sym = insert_symbol(current_scope, (yyvsp[0].sval),
                                         KIND_METHOD, DT_ENTITY, yylineno);
-            if (sym) {
+            current_function = sym;
+	    if (sym) {
                 sym->attr.method.return_type = DT_ENTITY;
                 sym->attr.method.access      = (yyvsp[-3].access);
                 sym->attr.method.param_count = 0;
@@ -1943,13 +1948,14 @@ yyreduce:
                                         current_scope->name);
             
             SymTable* ms = create_scope(SCOPE_METHOD, (yyvsp[0].sval), current_scope);
+	    if(sym) sym->attr.method.scope = ms;
             current_scope = ms;
         }
-#line 1949 "y.tab.c"
+#line 1955 "y.tab.c"
     break;
 
   case 33: /* method_decl: access_modifier IDENTIFIER FUNC IDENTIFIER $@6 LPAREN param_list_opt RPAREN block  */
-#line 365 "parser.y"
+#line 371 "parser.y"
         {
             
             for (int i = 0; i < HASH_SIZE; i++) {
@@ -2003,29 +2009,30 @@ yyreduce:
             emit("method", mangled_ir, "", "");
             print_table(current_scope);
             current_scope = current_scope->parent;
+	    current_function = NULL;
             emit("end_method", mangled_ir, "", "");
         }
-#line 2009 "y.tab.c"
+#line 2016 "y.tab.c"
     break;
 
   case 34: /* $@7: %empty  */
-#line 421 "parser.y"
+#line 428 "parser.y"
         { emit("method", (yyvsp[0].sval), "", ""); }
-#line 2015 "y.tab.c"
+#line 2022 "y.tab.c"
     break;
 
   case 35: /* method_decl: access_modifier type FUNC IDENTIFIER $@7 LPAREN error RPAREN block  */
-#line 423 "parser.y"
+#line 430 "parser.y"
         {
             printf("Invalid method parameters at line %d\n", yylineno);
             yyerrok;
             emit("end_method", (yyvsp[-5].sval), "", "");
         }
-#line 2025 "y.tab.c"
+#line 2032 "y.tab.c"
     break;
 
   case 36: /* access_var_decl: access_modifier type IDENTIFIER SEMICOLON  */
-#line 432 "parser.y"
+#line 439 "parser.y"
         {
             Symbol* sym = insert_symbol(current_scope, (yyvsp[-1].sval),
                                         KIND_FIELD, (yyvsp[-2].dtype), yylineno);
@@ -2038,11 +2045,11 @@ yyreduce:
             if (entity_sym && entity_sym->kind == KIND_ENTITY)
                 add_name(&entity_sym->attr.entity.fields_list, (yyvsp[-1].sval));
         }
-#line 2042 "y.tab.c"
+#line 2049 "y.tab.c"
     break;
 
   case 37: /* access_var_decl: access_modifier IDENTIFIER IDENTIFIER SEMICOLON  */
-#line 446 "parser.y"
+#line 453 "parser.y"
         {
             Symbol* sym = insert_symbol(current_scope, (yyvsp[-1].sval),
                                         KIND_FIELD, DT_ENTITY, yylineno);
@@ -2055,23 +2062,23 @@ yyreduce:
             if (entity_sym && entity_sym->kind == KIND_ENTITY)
                 add_name(&entity_sym->attr.entity.fields_list, (yyvsp[-1].sval));
         }
-#line 2059 "y.tab.c"
+#line 2066 "y.tab.c"
     break;
 
   case 38: /* access_modifier: PUBLIC  */
-#line 461 "parser.y"
+#line 468 "parser.y"
               { (yyval.access) = ACC_PUBLIC;  }
-#line 2065 "y.tab.c"
+#line 2072 "y.tab.c"
     break;
 
   case 39: /* access_modifier: PRIVATE  */
-#line 462 "parser.y"
+#line 469 "parser.y"
               { (yyval.access) = ACC_PRIVATE; }
-#line 2071 "y.tab.c"
+#line 2078 "y.tab.c"
     break;
 
   case 40: /* object_decl: IDENTIFIER IDENTIFIER ASSIGN NEW IDENTIFIER LPAREN arg_list_opt RPAREN SEMICOLON  */
-#line 467 "parser.y"
+#line 474 "parser.y"
         {
             Symbol* class_sym = lookup(current_scope, (yyvsp[-4].sval));
             if(!class_sym || class_sym->kind != KIND_ENTITY){
@@ -2087,12 +2094,13 @@ yyreduce:
             }
             emit("new", (yyvsp[-4].sval), "", (yyvsp[-7].sval));
             emit("call_constr", (yyvsp[-4].sval), "", (yyvsp[-7].sval));
+	    call_arg_count = 0;
         }
-#line 2092 "y.tab.c"
+#line 2100 "y.tab.c"
     break;
 
   case 41: /* object_decl: type IDENTIFIER ASSIGN IDENTIFIER DOT IDENTIFIER LPAREN arg_list_opt RPAREN SEMICOLON  */
-#line 484 "parser.y"
+#line 492 "parser.y"
         {
             /* build mangled call name from arg types */
             char mangled_call[80];
@@ -2146,74 +2154,74 @@ yyreduce:
             emit("call_method", mangled_call, "", t);
             emit("=", t, "", (yyvsp[-8].sval));
         }
-#line 2150 "y.tab.c"
+#line 2158 "y.tab.c"
     break;
 
   case 43: /* arg_list_opt: %empty  */
-#line 541 "parser.y"
+#line 549 "parser.y"
                         { call_arg_count = 0; }
-#line 2156 "y.tab.c"
+#line 2164 "y.tab.c"
     break;
 
   case 44: /* arg_list: arg_list COMMA expression  */
-#line 546 "parser.y"
+#line 554 "parser.y"
         {
 		if(call_arg_count < 64){
 			call_arg_types[call_arg_count++] = last_expr_type;
 		} 
 		emit("arg", (yyvsp[0].sval), "", ""); 
 	}
-#line 2167 "y.tab.c"
+#line 2175 "y.tab.c"
     break;
 
   case 45: /* arg_list: expression  */
-#line 553 "parser.y"
+#line 561 "parser.y"
         { 
 		call_arg_count = 0;
 		call_arg_types[call_arg_count++] = last_expr_type;
 		emit("arg", (yyvsp[0].sval), "", ""); 
 	}
-#line 2177 "y.tab.c"
+#line 2185 "y.tab.c"
     break;
 
   case 46: /* $@8: %empty  */
-#line 562 "parser.y"
+#line 570 "parser.y"
         {
             SymTable* bs = create_scope(SCOPE_BLOCK, "block", current_scope);
             current_scope = bs;
         }
-#line 2186 "y.tab.c"
+#line 2194 "y.tab.c"
     break;
 
   case 47: /* block: LBRACE $@8 stmt_list RBRACE  */
-#line 567 "parser.y"
+#line 575 "parser.y"
         {
             print_table(current_scope);
             current_scope = current_scope->parent;
         }
-#line 2195 "y.tab.c"
+#line 2203 "y.tab.c"
     break;
 
   case 49: /* block: LBRACE error RBRACE  */
-#line 573 "parser.y"
+#line 581 "parser.y"
         {
             printf("Error inside block at line %d\n", yylineno);
             yyerrok;
         }
-#line 2204 "y.tab.c"
+#line 2212 "y.tab.c"
     break;
 
   case 52: /* var_decl: type id_list SEMICOLON  */
-#line 587 "parser.y"
+#line 595 "parser.y"
         {
             insert_var_list((yyvsp[-1].sval), (yyvsp[-2].dtype));
             free((yyvsp[-1].sval));
         }
-#line 2213 "y.tab.c"
+#line 2221 "y.tab.c"
     break;
 
   case 53: /* var_decl: type IDENTIFIER ASSIGN expression SEMICOLON  */
-#line 594 "parser.y"
+#line 602 "parser.y"
         {
 	    if(last_expr_type != DT_UNKNOWN && last_expr_type != (yyvsp[-4].dtype)){
 		//printf("==== $1 = %d and last_expr_type = %d\n", $1, last_expr_type);
@@ -2222,22 +2230,25 @@ yyreduce:
             emit("=", (yyvsp[-1].sval), "", (yyvsp[-3].sval));
             Symbol* sym = insert_symbol(current_scope, (yyvsp[-3].sval),
                                         KIND_VAR, (yyvsp[-4].dtype), yylineno);
-            if (sym) sym->is_initialized = 1;
+            if (sym){
+		sym->is_initialized = 1;
+		strncpy(sym->init_value, (yyvsp[-1].sval), 63); 
+	    }	
         }
-#line 2228 "y.tab.c"
+#line 2239 "y.tab.c"
     break;
 
   case 54: /* var_decl: IDENTIFIER id_list SEMICOLON  */
-#line 607 "parser.y"
+#line 618 "parser.y"
         {
             insert_var_list((yyvsp[-1].sval), DT_ENTITY);
             free((yyvsp[-1].sval));
         }
-#line 2237 "y.tab.c"
+#line 2248 "y.tab.c"
     break;
 
   case 55: /* var_decl: IDENTIFIER IDENTIFIER ASSIGN expression SEMICOLON  */
-#line 614 "parser.y"
+#line 625 "parser.y"
         {
 		fprintf(stderr, "ERROR line %d: cannot initialize entity variable '%s' with value of type %s.\n", yylineno, (yyvsp[-3].sval), dt_names[last_expr_type]);
 		emit("=", (yyvsp[-1].sval), "", (yyvsp[-3].sval));
@@ -2245,60 +2256,60 @@ yyreduce:
 						KIND_VAR, DT_ENTITY, yylineno);
 		if (sym) sym->is_initialized = 1;
         }
-#line 2249 "y.tab.c"
+#line 2260 "y.tab.c"
     break;
 
   case 56: /* id_list: id_list COMMA IDENTIFIER  */
-#line 625 "parser.y"
+#line 636 "parser.y"
         {
             char* buf = malloc(strlen((yyvsp[-2].sval)) + strlen((yyvsp[0].sval)) + 2);
             sprintf(buf, "%s,%s", (yyvsp[-2].sval), (yyvsp[0].sval));
             free((yyvsp[-2].sval));
             (yyval.sval) = buf;
         }
-#line 2260 "y.tab.c"
+#line 2271 "y.tab.c"
     break;
 
   case 57: /* id_list: IDENTIFIER  */
-#line 632 "parser.y"
+#line 643 "parser.y"
         {
             (yyval.sval) = strdup((yyvsp[0].sval));
         }
-#line 2268 "y.tab.c"
+#line 2279 "y.tab.c"
     break;
 
   case 58: /* type: INT  */
-#line 638 "parser.y"
+#line 649 "parser.y"
              { (yyval.dtype) = DT_INT;    }
-#line 2274 "y.tab.c"
+#line 2285 "y.tab.c"
     break;
 
   case 59: /* type: FP  */
-#line 639 "parser.y"
+#line 650 "parser.y"
              { (yyval.dtype) = DT_FLOAT;  }
-#line 2280 "y.tab.c"
+#line 2291 "y.tab.c"
     break;
 
   case 60: /* type: CHR  */
-#line 640 "parser.y"
+#line 651 "parser.y"
              { (yyval.dtype) = DT_CHAR;   }
-#line 2286 "y.tab.c"
+#line 2297 "y.tab.c"
     break;
 
   case 61: /* type: STRING  */
-#line 641 "parser.y"
+#line 652 "parser.y"
              { (yyval.dtype) = DT_STRING; }
-#line 2292 "y.tab.c"
+#line 2303 "y.tab.c"
     break;
 
   case 62: /* type: BOOL  */
-#line 642 "parser.y"
+#line 653 "parser.y"
              { (yyval.dtype) = DT_BOOL;   }
-#line 2298 "y.tab.c"
+#line 2309 "y.tab.c"
     break;
 
   case 63: /* array_decl: type SEQ1 IDENTIFIER LBRACKET INT_LITERAL RBRACKET SEMICOLON  */
-#line 647 "parser.y"
+#line 658 "parser.y"
         {
             Symbol* sym = insert_symbol(current_scope, (yyvsp[-4].sval),
                                         KIND_ARRAY, (yyvsp[-6].dtype), yylineno);
@@ -2314,11 +2325,11 @@ yyreduce:
 		
             }
         }
-#line 2318 "y.tab.c"
+#line 2329 "y.tab.c"
     break;
 
   case 64: /* array_decl: type SEQ2 IDENTIFIER LBRACKET INT_LITERAL RBRACKET LBRACKET INT_LITERAL RBRACKET SEMICOLON  */
-#line 666 "parser.y"
+#line 677 "parser.y"
         {
             Symbol* sym = insert_symbol(current_scope, (yyvsp[-7].sval),
                                         KIND_ARRAY, (yyvsp[-9].dtype), yylineno);
@@ -2331,20 +2342,20 @@ yyreduce:
                 current_scope->next_offset = sym->offset + sym->size;
         }
 }
-#line 2335 "y.tab.c"
+#line 2346 "y.tab.c"
     break;
 
   case 65: /* $@9: %empty  */
-#line 682 "parser.y"
+#line 693 "parser.y"
         {
 		current_array_elem_type = (yyvsp[-3].dtype);
 		array_type_errors = 0;
 	}
-#line 2344 "y.tab.c"
+#line 2355 "y.tab.c"
     break;
 
   case 66: /* array_decl: type SEQ1 IDENTIFIER ASSIGN $@9 array_init SEMICOLON  */
-#line 687 "parser.y"
+#line 698 "parser.y"
         {
             Symbol* sym = insert_symbol(current_scope, (yyvsp[-4].sval),
                                         KIND_ARRAY, (yyvsp[-6].dtype), yylineno);
@@ -2373,22 +2384,22 @@ yyreduce:
             arr_init_count = 0; 
 		current_array_elem_type = DT_UNKNOWN;
         }
-#line 2377 "y.tab.c"
+#line 2388 "y.tab.c"
     break;
 
   case 67: /* $@10: %empty  */
-#line 716 "parser.y"
+#line 727 "parser.y"
         {
 		current_array_elem_type = (yyvsp[-3].dtype);
 		array_type_errors = 0;
 		arr2d_rows = 0;
 		arr2d_cols = 0;
 	}
-#line 2388 "y.tab.c"
+#line 2399 "y.tab.c"
     break;
 
   case 68: /* array_decl: type SEQ2 IDENTIFIER ASSIGN $@10 array_init2d SEMICOLON  */
-#line 723 "parser.y"
+#line 734 "parser.y"
         {
 		Symbol* sym = insert_symbol(current_scope, (yyvsp[-4].sval), KIND_ARRAY, (yyvsp[-6].dtype), yylineno);
 		if(sym) {
@@ -2419,43 +2430,43 @@ yyreduce:
 		arr_init_count = 0;
 		current_array_elem_type = DT_UNKNOWN;
 	}
-#line 2423 "y.tab.c"
+#line 2434 "y.tab.c"
     break;
 
   case 69: /* array_init: LBRACE expr_list RBRACE  */
-#line 756 "parser.y"
+#line 767 "parser.y"
                               { (yyval.ival) = (yyvsp[-1].ival); }
-#line 2429 "y.tab.c"
+#line 2440 "y.tab.c"
     break;
 
   case 70: /* array_init2d: LBRACE row_list RBRACE  */
-#line 760 "parser.y"
+#line 771 "parser.y"
                                    { (yyval.ival) = (yyvsp[-1].ival); }
-#line 2435 "y.tab.c"
+#line 2446 "y.tab.c"
     break;
 
   case 71: /* row_list: row_list COMMA LBRACE expr_list RBRACE  */
-#line 765 "parser.y"
+#line 776 "parser.y"
         { 
 		arr2d_rows++;
 		arr2d_cols = (yyvsp[-1].ival);
 		(yyval.ival) = (yyvsp[-4].ival) + (yyvsp[-1].ival); 
 	}
-#line 2445 "y.tab.c"
+#line 2456 "y.tab.c"
     break;
 
   case 72: /* row_list: LBRACE expr_list RBRACE  */
-#line 771 "parser.y"
+#line 782 "parser.y"
         { 
 		arr2d_rows = 1;
 		arr2d_cols = (yyvsp[-1].ival);
 		(yyval.ival) = (yyvsp[-1].ival); 
 	}
-#line 2455 "y.tab.c"
+#line 2466 "y.tab.c"
     break;
 
   case 73: /* expr_list: expr_list COMMA expression  */
-#line 780 "parser.y"
+#line 791 "parser.y"
         {
 		if(current_array_elem_type != DT_UNKNOWN && last_expr_type != DT_UNKNOWN && last_expr_type != current_array_elem_type){
 			{
@@ -2467,11 +2478,11 @@ yyreduce:
             strncpy(arr_init_vals[arr_init_count++], (yyvsp[0].sval), 31);
 		(yyval.ival) = (yyvsp[-2].ival) + 1;
 	}
-#line 2471 "y.tab.c"
+#line 2482 "y.tab.c"
     break;
 
   case 74: /* expr_list: expression  */
-#line 792 "parser.y"
+#line 803 "parser.y"
         {
                 if(current_array_elem_type != DT_UNKNOWN && last_expr_type != DT_UNKNOWN && last_expr_type != current_array_elem_type){
                         {
@@ -2484,11 +2495,11 @@ yyreduce:
             strncpy(arr_init_vals[arr_init_count++], (yyvsp[0].sval), 31);
 		(yyval.ival) = 1;
 	}
-#line 2488 "y.tab.c"
+#line 2499 "y.tab.c"
     break;
 
   case 75: /* $@11: %empty  */
-#line 809 "parser.y"
+#line 820 "parser.y"
         {
             Symbol* sym = insert_symbol(current_scope, (yyvsp[0].sval),
                                         KIND_FUNCTION, (yyvsp[-2].dtype), yylineno);
@@ -2502,13 +2513,16 @@ yyreduce:
 	    current_function = sym;	// Storing the current function we are in when we are entering the function declaration
             emit("func", (yyvsp[0].sval), "", "");
             SymTable* fs = create_scope(SCOPE_FUNCTION, (yyvsp[0].sval), current_scope);
+	    if(sym){
+		sym->attr.func.scope = fs;
+            }
             current_scope = fs;
         }
-#line 2508 "y.tab.c"
+#line 2522 "y.tab.c"
     break;
 
   case 76: /* function_decl: func_type FUNC IDENTIFIER $@11 LPAREN param_list_opt RPAREN block  */
-#line 825 "parser.y"
+#line 839 "parser.y"
         {
             /* Do NOT write next_offset into sym->size.
                Function size in global scope = 0 always.
@@ -2518,11 +2532,11 @@ yyreduce:
 	    current_function = NULL; 	// Clearing the variable when we are at the end of the current function declaration 
             emit("endfunc", "", "", "");
         }
-#line 2522 "y.tab.c"
+#line 2536 "y.tab.c"
     break;
 
   case 77: /* $@12: %empty  */
-#line 837 "parser.y"
+#line 851 "parser.y"
         {
             Symbol* sym = insert_symbol(current_scope, (yyvsp[0].sval),
                                         KIND_FUNCTION, DT_ENTITY, yylineno);
@@ -2536,52 +2550,55 @@ yyreduce:
 	    current_function = sym; 	// Storing the current function symbol being parsed to handle correct type of value(or variable) being returned
             emit("func", (yyvsp[0].sval), "", "");
             SymTable* fs = create_scope(SCOPE_FUNCTION, (yyvsp[0].sval), current_scope);
+            if(sym){
+                sym->attr.func.scope = fs;
+            }
             current_scope = fs;
         }
-#line 2542 "y.tab.c"
+#line 2559 "y.tab.c"
     break;
 
   case 78: /* function_decl: IDENTIFIER FUNC IDENTIFIER $@12 LPAREN param_list_opt RPAREN block  */
-#line 853 "parser.y"
+#line 870 "parser.y"
         {
             print_table(current_scope);
             current_scope = current_scope->parent;
 	    current_function = NULL;
             emit("endfunc", "", "", "");
         }
-#line 2553 "y.tab.c"
+#line 2570 "y.tab.c"
     break;
 
   case 79: /* $@13: %empty  */
-#line 862 "parser.y"
+#line 879 "parser.y"
         { emit("func", (yyvsp[0].sval), "", ""); }
-#line 2559 "y.tab.c"
+#line 2576 "y.tab.c"
     break;
 
   case 80: /* function_decl: func_type FUNC IDENTIFIER $@13 LPAREN error RPAREN block  */
-#line 864 "parser.y"
+#line 881 "parser.y"
         {
             printf("Invalid parameter list at line %d\n", yylineno);
             yyerrok;
             emit("endfunc", "", "", "");
         }
-#line 2569 "y.tab.c"
+#line 2586 "y.tab.c"
     break;
 
   case 81: /* func_type: type  */
-#line 872 "parser.y"
+#line 889 "parser.y"
            { (yyval.dtype) = (yyvsp[0].dtype);      }
-#line 2575 "y.tab.c"
+#line 2592 "y.tab.c"
     break;
 
   case 82: /* func_type: VOID  */
-#line 873 "parser.y"
+#line 890 "parser.y"
            { (yyval.dtype) = DT_VOID; }
-#line 2581 "y.tab.c"
+#line 2598 "y.tab.c"
     break;
 
   case 87: /* param: type IDENTIFIER  */
-#line 889 "parser.y"
+#line 906 "parser.y"
         {
             emit("param", (yyvsp[0].sval), "", "");
             Symbol* sym = insert_symbol(current_scope, (yyvsp[0].sval),
@@ -2601,11 +2618,11 @@ yyreduce:
             }
             (void)sym;
         }
-#line 2605 "y.tab.c"
+#line 2622 "y.tab.c"
     break;
 
   case 88: /* param: IDENTIFIER IDENTIFIER  */
-#line 910 "parser.y"
+#line 927 "parser.y"
         {
             emit("param", (yyvsp[0].sval), "", "");
             Symbol* sym = insert_symbol(current_scope, (yyvsp[0].sval),
@@ -2625,11 +2642,11 @@ yyreduce:
             }
             (void)sym;
         }
-#line 2629 "y.tab.c"
+#line 2646 "y.tab.c"
     break;
 
   case 89: /* return_stmt: RETURN expression SEMICOLON  */
-#line 933 "parser.y"
+#line 950 "parser.y"
         { 
 		if(current_function) {
 			DataType expected = current_function->attr.func.return_type;
@@ -2643,11 +2660,11 @@ yyreduce:
 		}
 		emit("return", (yyvsp[-1].sval), "", ""); 
 	}
-#line 2647 "y.tab.c"
+#line 2664 "y.tab.c"
     break;
 
   case 90: /* return_stmt: RETURN SEMICOLON  */
-#line 947 "parser.y"
+#line 964 "parser.y"
         {
 		if(current_function){
 			DataType expected = current_function->attr.func.return_type;
@@ -2658,26 +2675,26 @@ yyreduce:
 		} 
 		emit("return", "", "", ""); 
 	}
-#line 2662 "y.tab.c"
+#line 2679 "y.tab.c"
     break;
 
   case 91: /* return_stmt: RETURN error SEMICOLON  */
-#line 959 "parser.y"
+#line 976 "parser.y"
         {
             printf("Invalid return statement at line %d\n", yylineno);
             yyerrok;
         }
-#line 2671 "y.tab.c"
+#line 2688 "y.tab.c"
     break;
 
   case 94: /* expression: assignment  */
-#line 971 "parser.y"
+#line 988 "parser.y"
                  { (yyval.sval) = (yyvsp[0].sval); }
-#line 2677 "y.tab.c"
+#line 2694 "y.tab.c"
     break;
 
   case 95: /* indexed_id: IDENTIFIER LBRACKET expression RBRACKET  */
-#line 975 "parser.y"
+#line 992 "parser.y"
         {
 	    Symbol* asym = require_declared(current_scope, (yyvsp[-3].sval), yylineno);
 	    char width_str[16];
@@ -2689,11 +2706,11 @@ yyreduce:
             char* t2 = genVar(); emit("[]", (yyvsp[-3].sval), t1,t2);
             (yyval.sval) = t2;
         }
-#line 2693 "y.tab.c"
+#line 2710 "y.tab.c"
     break;
 
   case 96: /* indexed_id: IDENTIFIER LBRACKET expression RBRACKET LBRACKET expression RBRACKET  */
-#line 987 "parser.y"
+#line 1004 "parser.y"
         {
             Symbol* asym = require_declared(current_scope, (yyvsp[-6].sval), yylineno);
 	    char cols_str[16];
@@ -2711,11 +2728,11 @@ yyreduce:
             char* t4 = genVar(); emit("[]", (yyvsp[-6].sval), t3,t4);
             (yyval.sval) = t4;
         }
-#line 2715 "y.tab.c"
+#line 2732 "y.tab.c"
     break;
 
   case 97: /* assignment: IDENTIFIER ASSIGN assignment  */
-#line 1008 "parser.y"
+#line 1025 "parser.y"
         {
 		// Checking the type before assignment
 		Symbol* lhs = require_declared(current_scope, (yyvsp[-2].sval), yylineno);
@@ -2728,11 +2745,11 @@ yyreduce:
 		emit("=", (yyvsp[0].sval), "", (yyvsp[-2].sval)); 
 		(yyval.sval) = strdup((yyvsp[-2].sval)); 
 	}
-#line 2732 "y.tab.c"
+#line 2749 "y.tab.c"
     break;
 
   case 98: /* assignment: IDENTIFIER ADD_ASSIGN assignment  */
-#line 1021 "parser.y"
+#line 1038 "parser.y"
         { 
 		Symbol* lhs = require_declared(current_scope, (yyvsp[-2].sval), yylineno);
 		if(lhs && last_expr_type != DT_UNKNOWN && lhs->datatype != last_expr_type){
@@ -2743,11 +2760,11 @@ yyreduce:
 		emit("=", t, "", (yyvsp[-2].sval)); 
 		(yyval.sval) = t; 
 	}
-#line 2747 "y.tab.c"
+#line 2764 "y.tab.c"
     break;
 
   case 99: /* assignment: IDENTIFIER SUB_ASSIGN assignment  */
-#line 1032 "parser.y"
+#line 1049 "parser.y"
         { 	
 		Symbol* lhs = require_declared(current_scope, (yyvsp[-2].sval), yylineno);
 		if(lhs && last_expr_type != DT_UNKNOWN && lhs->datatype != last_expr_type){
@@ -2759,17 +2776,17 @@ yyreduce:
 		emit("=", t, "", (yyvsp[-2].sval)); 	
 		(yyval.sval) = t; 
 	}
-#line 2763 "y.tab.c"
+#line 2780 "y.tab.c"
     break;
 
   case 100: /* assignment: indexed_id ASSIGN assignment  */
-#line 1044 "parser.y"
+#line 1061 "parser.y"
         { (yyval.sval) = (yyvsp[0].sval); }
-#line 2769 "y.tab.c"
+#line 2786 "y.tab.c"
     break;
 
   case 101: /* assignment: THIS DOT IDENTIFIER ASSIGN assignment  */
-#line 1046 "parser.y"
+#line 1063 "parser.y"
         { //check_field_access("this", $3); 
 		//Symbol* method_sym = lookup(current_scope, current_scope->name);
 		const char* entity_name = NULL;
@@ -2779,7 +2796,8 @@ yyreduce:
 		if(entity_name){
 			Symbol* entity_sym = lookup(global_scope, entity_name);
 			if(entity_sym && entity_sym->kind == KIND_ENTITY){
-				Symbol* field = lookup(global_scope, (yyvsp[-2].sval));
+				SymTable* esc = find_entity_scope(entity_name);
+				Symbol* field = esc ? lookup_local(esc, (yyvsp[-2].sval)):NULL;
 				while(field){
 					if(field->kind == KIND_FIELD && strcmp(field->attr.field.belongs_to, entity_name) == 0){
 						break;
@@ -2794,11 +2812,11 @@ yyreduce:
 		emit("set_field", "this", (yyvsp[-2].sval), (yyvsp[0].sval)); 
 		(yyval.sval) = (yyvsp[0].sval); 
 	}
-#line 2798 "y.tab.c"
+#line 2816 "y.tab.c"
     break;
 
   case 102: /* assignment: IDENTIFIER DOT IDENTIFIER ASSIGN assignment  */
-#line 1071 "parser.y"
+#line 1089 "parser.y"
         { 
 		check_field_access((yyvsp[-4].sval),(yyvsp[-2].sval),yylineno); 
 		Symbol* obj = lookup(current_scope, (yyvsp[-4].sval));
@@ -2824,153 +2842,153 @@ yyreduce:
 		emit("set_field", (yyvsp[-4].sval), (yyvsp[-2].sval), (yyvsp[0].sval)); 
 		(yyval.sval) = (yyvsp[0].sval); 
 	}
-#line 2828 "y.tab.c"
-    break;
-
-  case 103: /* assignment: logic_expr  */
-#line 1096 "parser.y"
-                 { (yyval.sval) = (yyvsp[0].sval); }
-#line 2834 "y.tab.c"
-    break;
-
-  case 104: /* logic_expr: logic_expr OR logic_expr  */
-#line 1101 "parser.y"
-        { char* t = genVar(); emit("||", (yyvsp[-2].sval), (yyvsp[0].sval), t); (yyval.sval) = t; }
-#line 2840 "y.tab.c"
-    break;
-
-  case 105: /* logic_expr: logic_expr AND logic_expr  */
-#line 1103 "parser.y"
-        { char* t = genVar(); emit("&&", (yyvsp[-2].sval), (yyvsp[0].sval), t); (yyval.sval) = t; }
 #line 2846 "y.tab.c"
     break;
 
-  case 106: /* logic_expr: NOT logic_expr  */
-#line 1105 "parser.y"
-        { char* t = genVar(); emit("!", (yyvsp[0].sval), "", t); (yyval.sval) = t; }
+  case 103: /* assignment: logic_expr  */
+#line 1114 "parser.y"
+                 { (yyval.sval) = (yyvsp[0].sval); }
 #line 2852 "y.tab.c"
     break;
 
-  case 107: /* logic_expr: bitwise_expr  */
-#line 1106 "parser.y"
-                   { (yyval.sval) = (yyvsp[0].sval); }
+  case 104: /* logic_expr: logic_expr OR logic_expr  */
+#line 1119 "parser.y"
+        { char* t = genVar(); emit("||", (yyvsp[-2].sval), (yyvsp[0].sval), t); (yyval.sval) = t; }
 #line 2858 "y.tab.c"
     break;
 
-  case 108: /* bitwise_expr: bitwise_expr BITAND bitwise_expr  */
-#line 1111 "parser.y"
-        { char* t = genVar(); emit("&", (yyvsp[-2].sval), (yyvsp[0].sval), t); (yyval.sval) = t; }
+  case 105: /* logic_expr: logic_expr AND logic_expr  */
+#line 1121 "parser.y"
+        { char* t = genVar(); emit("&&", (yyvsp[-2].sval), (yyvsp[0].sval), t); (yyval.sval) = t; }
 #line 2864 "y.tab.c"
     break;
 
-  case 109: /* bitwise_expr: bitwise_expr BITOR bitwise_expr  */
-#line 1113 "parser.y"
-        { char* t = genVar(); emit("|", (yyvsp[-2].sval), (yyvsp[0].sval), t); (yyval.sval) = t; }
+  case 106: /* logic_expr: NOT logic_expr  */
+#line 1123 "parser.y"
+        { char* t = genVar(); emit("!", (yyvsp[0].sval), "", t); (yyval.sval) = t; }
 #line 2870 "y.tab.c"
     break;
 
-  case 110: /* bitwise_expr: rel_expr  */
-#line 1114 "parser.y"
-               { (yyval.sval) = (yyvsp[0].sval); }
+  case 107: /* logic_expr: bitwise_expr  */
+#line 1124 "parser.y"
+                   { (yyval.sval) = (yyvsp[0].sval); }
 #line 2876 "y.tab.c"
     break;
 
+  case 108: /* bitwise_expr: bitwise_expr BITAND bitwise_expr  */
+#line 1129 "parser.y"
+        { char* t = genVar(); emit("&", (yyvsp[-2].sval), (yyvsp[0].sval), t); (yyval.sval) = t; }
+#line 2882 "y.tab.c"
+    break;
+
+  case 109: /* bitwise_expr: bitwise_expr BITOR bitwise_expr  */
+#line 1131 "parser.y"
+        { char* t = genVar(); emit("|", (yyvsp[-2].sval), (yyvsp[0].sval), t); (yyval.sval) = t; }
+#line 2888 "y.tab.c"
+    break;
+
+  case 110: /* bitwise_expr: rel_expr  */
+#line 1132 "parser.y"
+               { (yyval.sval) = (yyvsp[0].sval); }
+#line 2894 "y.tab.c"
+    break;
+
   case 111: /* rel_expr: arith_expr GT arith_expr  */
-#line 1119 "parser.y"
+#line 1137 "parser.y"
         {
           char* t = genVar(); emit(">", (yyvsp[-2].sval), (yyvsp[0].sval), t); (yyval.sval) = t;
             
         }
-#line 2885 "y.tab.c"
+#line 2903 "y.tab.c"
     break;
 
   case 112: /* rel_expr: arith_expr LT arith_expr  */
-#line 1124 "parser.y"
+#line 1142 "parser.y"
         {
                 char* t = genVar(); emit("<", (yyvsp[-2].sval), (yyvsp[0].sval), t); (yyval.sval) = t;
         }
-#line 2893 "y.tab.c"
+#line 2911 "y.tab.c"
     break;
 
   case 113: /* rel_expr: arith_expr EQ arith_expr  */
-#line 1128 "parser.y"
+#line 1146 "parser.y"
         {
                 char* t = genVar(); emit("==", (yyvsp[-2].sval), (yyvsp[0].sval), t); (yyval.sval) = t;
         }
-#line 2901 "y.tab.c"
+#line 2919 "y.tab.c"
     break;
 
   case 114: /* rel_expr: arith_expr  */
-#line 1131 "parser.y"
+#line 1149 "parser.y"
                  { (yyval.sval) = (yyvsp[0].sval); }
-#line 2907 "y.tab.c"
+#line 2925 "y.tab.c"
     break;
 
   case 115: /* arith_expr: arith_expr PLUS term  */
-#line 1136 "parser.y"
+#line 1154 "parser.y"
        {
                 char* t = genVar();
                 emit("+", (yyvsp[-2].sval), (yyvsp[0].sval), t);
                 (yyval.sval) = t;
              
         }
-#line 2918 "y.tab.c"
+#line 2936 "y.tab.c"
     break;
 
   case 116: /* arith_expr: arith_expr MINUS term  */
-#line 1143 "parser.y"
+#line 1161 "parser.y"
         {  
                 char* t = genVar();
                 emit("-", (yyvsp[-2].sval), (yyvsp[0].sval), t);
                 (yyval.sval) = t;
         }
-#line 2928 "y.tab.c"
+#line 2946 "y.tab.c"
     break;
 
   case 117: /* arith_expr: term  */
-#line 1148 "parser.y"
+#line 1166 "parser.y"
            { (yyval.sval) = (yyvsp[0].sval); }
-#line 2934 "y.tab.c"
+#line 2952 "y.tab.c"
     break;
 
   case 118: /* term: term MUL factor  */
-#line 1153 "parser.y"
+#line 1171 "parser.y"
         {
                 char* t = genVar();
                 emit("*", (yyvsp[-2].sval), (yyvsp[0].sval), t);
                 (yyval.sval) = t;
         }
-#line 2944 "y.tab.c"
+#line 2962 "y.tab.c"
     break;
 
   case 119: /* term: term DIV factor  */
-#line 1159 "parser.y"
+#line 1177 "parser.y"
         {
                 char* t = genVar();
                 emit("/", (yyvsp[-2].sval), (yyvsp[0].sval), t);
                 (yyval.sval) = t;
         }
-#line 2954 "y.tab.c"
+#line 2972 "y.tab.c"
     break;
 
   case 120: /* term: term MOD factor  */
-#line 1165 "parser.y"
+#line 1183 "parser.y"
         {
                 char* t = genVar();
                 emit("%", (yyvsp[-2].sval), (yyvsp[0].sval), t);
                 (yyval.sval) = t;
         }
-#line 2964 "y.tab.c"
+#line 2982 "y.tab.c"
     break;
 
   case 121: /* term: factor  */
-#line 1170 "parser.y"
+#line 1188 "parser.y"
              { (yyval.sval) = (yyvsp[0].sval); }
-#line 2970 "y.tab.c"
+#line 2988 "y.tab.c"
     break;
 
   case 122: /* factor: IDENTIFIER LPAREN arg_list_opt RPAREN  */
-#line 1175 "parser.y"
+#line 1193 "parser.y"
         { 
 		char* t = genVar(); 
 		Symbol* fsym = require_declared(current_scope, (yyvsp[-3].sval), yylineno);
@@ -3001,11 +3019,11 @@ yyreduce:
 		emit("call", (yyvsp[-3].sval), "", t);
 		(yyval.sval) = t; 
 	}
-#line 3005 "y.tab.c"
+#line 3023 "y.tab.c"
     break;
 
   case 123: /* factor: IDENTIFIER DOT IDENTIFIER  */
-#line 1206 "parser.y"
+#line 1224 "parser.y"
     {
         char* t = genVar();
         last_expr_type = DT_UNKNOWN;  /* safe default */
@@ -3074,69 +3092,69 @@ yyreduce:
         emit("get_field", (yyvsp[-2].sval), (yyvsp[0].sval), t);
         (yyval.sval) = t;
     }
-#line 3078 "y.tab.c"
+#line 3096 "y.tab.c"
     break;
 
   case 124: /* factor: IDENTIFIER  */
-#line 1276 "parser.y"
+#line 1294 "parser.y"
         { 
 		Symbol* s = require_declared(current_scope, (yyvsp[0].sval), yylineno);
 		last_expr_type = s ? s->datatype : DT_UNKNOWN;
 		(yyval.sval) = strdup((yyvsp[0].sval)); 
 	}
-#line 3088 "y.tab.c"
-    break;
-
-  case 125: /* factor: indexed_id  */
-#line 1281 "parser.y"
-                      { (yyval.sval) = (yyvsp[0].sval); }
-#line 3094 "y.tab.c"
-    break;
-
-  case 126: /* factor: INT_LITERAL  */
-#line 1282 "parser.y"
-                      { char b[20]; sprintf(b, "%d",   (yyvsp[0].ival)); (yyval.sval) = strdup(b); last_expr_type = DT_INT; }
-#line 3100 "y.tab.c"
-    break;
-
-  case 127: /* factor: FLOAT_LITERAL  */
-#line 1283 "parser.y"
-                      { char b[20]; sprintf(b, "%f",   (yyvsp[0].fval)); (yyval.sval) = strdup(b);  last_expr_type = DT_FLOAT; }
 #line 3106 "y.tab.c"
     break;
 
-  case 128: /* factor: CHAR_LITERAL  */
-#line 1284 "parser.y"
-                      { char b[20]; sprintf(b, "'%c'", (yyvsp[0].cval)); (yyval.sval) = strdup(b); last_expr_type = DT_CHAR; }
+  case 125: /* factor: indexed_id  */
+#line 1299 "parser.y"
+                      { (yyval.sval) = (yyvsp[0].sval); }
 #line 3112 "y.tab.c"
     break;
 
-  case 129: /* factor: STRING_LITERAL  */
-#line 1285 "parser.y"
-                      { (yyval.sval) = strdup((yyvsp[0].sval));  last_expr_type = DT_STRING; }
+  case 126: /* factor: INT_LITERAL  */
+#line 1300 "parser.y"
+                      { char b[20]; sprintf(b, "%d",   (yyvsp[0].ival)); (yyval.sval) = strdup(b); last_expr_type = DT_INT; }
 #line 3118 "y.tab.c"
     break;
 
-  case 130: /* factor: TRUE  */
-#line 1286 "parser.y"
-                      { (yyval.sval) = strdup("1"); last_expr_type = DT_BOOL; }
+  case 127: /* factor: FLOAT_LITERAL  */
+#line 1301 "parser.y"
+                      { char b[20]; sprintf(b, "%f",   (yyvsp[0].fval)); (yyval.sval) = strdup(b);  last_expr_type = DT_FLOAT; }
 #line 3124 "y.tab.c"
     break;
 
-  case 131: /* factor: FALSE  */
-#line 1287 "parser.y"
-                      { (yyval.sval) = strdup("0"); last_expr_type = DT_BOOL; }
+  case 128: /* factor: CHAR_LITERAL  */
+#line 1302 "parser.y"
+                      { char b[20]; sprintf(b, "'%c'", (yyvsp[0].cval)); (yyval.sval) = strdup(b); last_expr_type = DT_CHAR; }
 #line 3130 "y.tab.c"
     break;
 
-  case 132: /* factor: LPAREN expression RPAREN  */
-#line 1288 "parser.y"
-                               { (yyval.sval) = (yyvsp[-1].sval); }
+  case 129: /* factor: STRING_LITERAL  */
+#line 1303 "parser.y"
+                      { (yyval.sval) = strdup((yyvsp[0].sval));  last_expr_type = DT_STRING; }
 #line 3136 "y.tab.c"
     break;
 
+  case 130: /* factor: TRUE  */
+#line 1304 "parser.y"
+                      { (yyval.sval) = strdup("1"); last_expr_type = DT_BOOL; }
+#line 3142 "y.tab.c"
+    break;
+
+  case 131: /* factor: FALSE  */
+#line 1305 "parser.y"
+                      { (yyval.sval) = strdup("0"); last_expr_type = DT_BOOL; }
+#line 3148 "y.tab.c"
+    break;
+
+  case 132: /* factor: LPAREN expression RPAREN  */
+#line 1306 "parser.y"
+                               { (yyval.sval) = (yyvsp[-1].sval); }
+#line 3154 "y.tab.c"
+    break;
+
   case 133: /* $@14: %empty  */
-#line 1293 "parser.y"
+#line 1311 "parser.y"
         {
             char* f = getLabel();
             char* e = getLabel();
@@ -3153,47 +3171,47 @@ yyreduce:
             SymTable* is = create_scope(SCOPE_IF, if_name, current_scope);
             current_scope = is;
         }
-#line 3157 "y.tab.c"
+#line 3175 "y.tab.c"
     break;
 
   case 134: /* $@15: %empty  */
-#line 1310 "parser.y"
+#line 1328 "parser.y"
         { emit("ifFalse", (yyvsp[0].sval), "", topFalse()); }
-#line 3163 "y.tab.c"
+#line 3181 "y.tab.c"
     break;
 
   case 135: /* $@16: %empty  */
-#line 1312 "parser.y"
+#line 1330 "parser.y"
         {
             print_table(current_scope);
             current_scope = current_scope->parent;
         }
-#line 3172 "y.tab.c"
+#line 3190 "y.tab.c"
     break;
 
   case 136: /* $@17: %empty  */
-#line 1317 "parser.y"
+#line 1335 "parser.y"
         { emit("goto", "", "", topEnd()); emit("label", "", "", topFalse()); }
-#line 3178 "y.tab.c"
+#line 3196 "y.tab.c"
     break;
 
   case 137: /* if_stmt: IF LPAREN $@14 expression $@15 RPAREN $@16 block $@17 elif_list else_opt  */
-#line 1319 "parser.y"
+#line 1337 "parser.y"
         { emit("label", "", "", topEnd()); popIfLabels(); }
-#line 3184 "y.tab.c"
+#line 3202 "y.tab.c"
     break;
 
   case 138: /* if_stmt: IF LPAREN error RPAREN block  */
-#line 1322 "parser.y"
+#line 1340 "parser.y"
         {
             printf("Invalid IF condition at line %d\n", yylineno);
             yyerrok;
         }
-#line 3193 "y.tab.c"
+#line 3211 "y.tab.c"
     break;
 
   case 139: /* $@18: %empty  */
-#line 1330 "parser.y"
+#line 1348 "parser.y"
         {
             char* n = getLabel();
             free(falseStack[topPtr]);
@@ -3210,63 +3228,63 @@ yyreduce:
             SymTable* es = create_scope(SCOPE_ELIF, elif_name, current_scope);
             current_scope = es;
         }
-#line 3214 "y.tab.c"
+#line 3232 "y.tab.c"
     break;
 
   case 140: /* $@19: %empty  */
-#line 1347 "parser.y"
+#line 1365 "parser.y"
         { emit("ifFalse", (yyvsp[0].sval), "", topFalse()); }
-#line 3220 "y.tab.c"
+#line 3238 "y.tab.c"
     break;
 
   case 141: /* $@20: %empty  */
-#line 1349 "parser.y"
+#line 1367 "parser.y"
         {
             print_table(current_scope);
             current_scope = current_scope->parent;
         }
-#line 3229 "y.tab.c"
+#line 3247 "y.tab.c"
     break;
 
   case 142: /* $@21: %empty  */
-#line 1354 "parser.y"
+#line 1372 "parser.y"
         { emit("goto", "", "", topEnd()); emit("label", "", "", topFalse()); }
-#line 3235 "y.tab.c"
+#line 3253 "y.tab.c"
     break;
 
   case 145: /* $@22: %empty  */
-#line 1361 "parser.y"
+#line 1379 "parser.y"
         {
             char else_name[32];
             snprintf(else_name, 32, "else_%d", if_cnt++);
             SymTable* es = create_scope(SCOPE_ELSE, else_name, current_scope);
             current_scope = es;
         }
-#line 3246 "y.tab.c"
+#line 3264 "y.tab.c"
     break;
 
   case 146: /* else_opt: ELSE $@22 block  */
-#line 1368 "parser.y"
+#line 1386 "parser.y"
         {
             print_table(current_scope);
             current_scope = current_scope->parent;
         }
-#line 3255 "y.tab.c"
+#line 3273 "y.tab.c"
     break;
 
   case 148: /* $@23: %empty  */
-#line 1377 "parser.y"
+#line 1395 "parser.y"
         {
             char for_name[32];
             snprintf(for_name, 32, "for_%d", for_cnt++);
             SymTable* fs = create_scope(SCOPE_FOR, for_name, current_scope);
             current_scope = fs;
         }
-#line 3266 "y.tab.c"
+#line 3284 "y.tab.c"
     break;
 
   case 149: /* for_stmt: FOR LPAREN $@23 for_header block  */
-#line 1384 "parser.y"
+#line 1402 "parser.y"
         {
             for (int i = 0; i < forIncIdx[forDepth]; i++) {
                 emit(forIncBuff[forDepth][i].op,
@@ -3282,56 +3300,56 @@ yyreduce:
             print_table(current_scope);
             current_scope = current_scope->parent;
         }
-#line 3286 "y.tab.c"
+#line 3304 "y.tab.c"
     break;
 
   case 150: /* for_stmt: FOR LPAREN error RPAREN block  */
-#line 1401 "parser.y"
+#line 1419 "parser.y"
         {
             printf("Invalid FOR header at line %d\n", yylineno);
             yyerrok;
         }
-#line 3295 "y.tab.c"
+#line 3313 "y.tab.c"
     break;
 
   case 151: /* $@24: %empty  */
-#line 1409 "parser.y"
+#line 1427 "parser.y"
         {
             char* b = getLabel();
             char* e = getLabel();
             pushIfLabels(b, e);
             emit("label", "", "", b);
         }
-#line 3306 "y.tab.c"
+#line 3324 "y.tab.c"
     break;
 
   case 152: /* $@25: %empty  */
-#line 1416 "parser.y"
+#line 1434 "parser.y"
         {
             emit("ifFalse", (yyvsp[-1].sval), "", topEnd());
             forDepth++;
             forIncIdx[forDepth]      = 0;
             inForIncrement[forDepth] = 1;
         }
-#line 3317 "y.tab.c"
+#line 3335 "y.tab.c"
     break;
 
   case 153: /* $@26: %empty  */
-#line 1423 "parser.y"
+#line 1441 "parser.y"
         { inForIncrement[forDepth] = 0; }
-#line 3323 "y.tab.c"
+#line 3341 "y.tab.c"
     break;
 
   case 158: /* var_decl_no_semi: type IDENTIFIER  */
-#line 1435 "parser.y"
+#line 1453 "parser.y"
         {
             insert_symbol(current_scope, (yyvsp[0].sval), KIND_VAR, (yyvsp[-1].dtype), yylineno);
         }
-#line 3331 "y.tab.c"
+#line 3349 "y.tab.c"
     break;
 
   case 159: /* var_decl_no_semi: type IDENTIFIER ASSIGN expression  */
-#line 1439 "parser.y"
+#line 1457 "parser.y"
         {
 	    	if(last_expr_type != DT_UNKNOWN && last_expr_type != (yyvsp[-3].dtype)){
 			fprintf(stderr, "ERROR line %d: Cannot initialize '%s' (declared as %s) with value of type %s.\n", yylineno, (yyvsp[-2].sval), dt_names[(yyvsp[-3].dtype)], dt_names[last_expr_type]);
@@ -3341,11 +3359,11 @@ yyreduce:
                                         KIND_VAR, (yyvsp[-3].dtype), yylineno);
             	if (sym) sym->is_initialized = 1;
         }
-#line 3345 "y.tab.c"
+#line 3363 "y.tab.c"
     break;
 
   case 160: /* io_stmt: IDENTIFIER ASSIGN FEED LPAREN STRING_LITERAL RPAREN SEMICOLON  */
-#line 1452 "parser.y"
+#line 1470 "parser.y"
         {
 		Symbol* var = require_declared(current_scope, (yyvsp[-6].sval), yylineno);
 		if(!var){
@@ -3353,33 +3371,33 @@ yyreduce:
 		}
 		emit("in", "", "", (yyvsp[-6].sval)); 
 	}
-#line 3357 "y.tab.c"
+#line 3375 "y.tab.c"
     break;
 
   case 161: /* io_stmt: type IDENTIFIER ASSIGN FEED LPAREN STRING_LITERAL RPAREN SEMICOLON  */
-#line 1460 "parser.y"
+#line 1478 "parser.y"
         { emit("in", "", "", (yyvsp[-6].sval)); }
-#line 3363 "y.tab.c"
+#line 3381 "y.tab.c"
     break;
 
   case 162: /* io_stmt: SHOW LPAREN expression RPAREN SEMICOLON  */
-#line 1462 "parser.y"
+#line 1480 "parser.y"
         { emit("out", (yyvsp[-2].sval), "", ""); }
-#line 3369 "y.tab.c"
+#line 3387 "y.tab.c"
     break;
 
   case 163: /* io_stmt: SHOW LPAREN expression LBRACKET expression RBRACKET RPAREN SEMICOLON  */
-#line 1464 "parser.y"
+#line 1482 "parser.y"
         {
             char* t = genVar();
             emit("[]",  (yyvsp[-5].sval), (yyvsp[-3].sval), t);
             emit("out", t,  "", "");
         }
-#line 3379 "y.tab.c"
+#line 3397 "y.tab.c"
     break;
 
 
-#line 3383 "y.tab.c"
+#line 3401 "y.tab.c"
 
       default: break;
     }
@@ -3572,7 +3590,7 @@ yyreturnlab:
   return yyresult;
 }
 
-#line 1471 "parser.y"
+#line 1489 "parser.y"
 
 
 char* genVar() {
@@ -3617,6 +3635,23 @@ int main(int argc, char* argv[]) {
     	global_scope  = create_scope(SCOPE_GLOBAL, "global", NULL);
     	current_scope = global_scope;
 
+
+        //check --oalloc flag
+	    // Parse the -S flag (stats mode)
+	    int compare_mode = 0;
+	    for(int i = 1; i < argc; i++){
+	    	if(strcmp(argv[i], "-S") == 0){
+	    		compare_mode = 1;
+	    		printf("Mode: Comparision (standard + optimal both generated)\n");
+	    	}
+            else if(strcmp(argv[i],"--oalloc")==0){
+                use_optimized_regalloc=1;
+                printf("Register allocation: OPTIMIZED\n");
+            }
+	    }	
+
+    	//global_scope  = create_scope(SCOPE_GLOBAL, "global", NULL);
+    	//current_scope = global_scope;
     	yyin = stdin;
     	yyparse();
 
@@ -3667,14 +3702,15 @@ if (opt_level >= 3) {
     for (int i = 0; i < IR_idx; i++)
         printf("%-15s %-15s %-15s %-15s\n",
                IR[i].op, IR[i].arg1, IR[i].arg2, IR[i].result);*/
-    FILE *asm_file = fopen("output.s", "w");
-    if (!asm_file) {
-        perror("Failed to open assembly file");
-        return 1;
-    }
-    asmSetOutput(asm_file);
-    printf("\nGenerating RISC-V Assembly...\n");
-    generateASM(); 
+    	FILE *asm_file = fopen("output.s", "w");
+    	if (!asm_file) {
+        	perror("Failed to open assembly file");
+       		 return 1;
+    	}
+    	asmSetOutput(asm_file);
+	use_template_matching = 1;	// Turning on the optimal instruction selection
+    	printf("\nGenerating RISC-V Assembly...\n");
+    	generateASM(); 
 
     fclose(asm_file);
     printf("Assembly code saved to 'output.s'\n");
@@ -3690,6 +3726,23 @@ if (opt_level >= 3) {
         printf("Python code saved to 'output.py'\n");
     }
 }
-    return 0;
+
+	if(compare_mode){
+		FILE* std_file = fopen("output_standard.s", "w");
+		if(!std_file){
+			perror("Failed to open output_standard.s");
+			return 1;
+		}
+		asmSetOutput(std_file);
+		use_template_matching = 0;	// turn off the optimal ins selection
+		printf("Generating Assembly code using standard if/else chain");
+		generateASM();
+		fclose(std_file);
+		printf("Standard Assembly code saved to 'output_standard.s' file\n");
+	
+		// Now compare the code from two files using a function
+			
+	}
+   	return 0;
 }
 

@@ -1,8 +1,13 @@
+
 #ifndef ASM_GEN_H
 #define ASM_GEN_H
 
 #include "symtab.h"   /* DataType, Symbol, SymTable — already defined */
 #include <stdio.h>
+#include <limits.h>
+#include <string.h>
+#define MAX_VARS 256
+#define IR_SIZE 10000
 
 #ifndef QUAD_DEFINED
 #define QUAD_DEFINED
@@ -17,6 +22,9 @@ typedef struct {
 /* Shared IR array — defined in parser.y, extern here */
 extern Quad   IR[];
 extern int    IR_idx;
+
+// A global variable that is used for checking if the template mathing is turned on or not. By default it is always turned on
+extern int use_template_matching;
 
 typedef enum {
     OT_TEMP,    /* t0, t1, t2 …  (genVar temporaries) */
@@ -94,5 +102,7 @@ int isConstant(const char* operand);
 
 /* True if the operand is a compiler-generated temporary (t0…). */
 int isTemp(const char* operand);
+void markDirty(const char* regname);
 
+extern int use_optimized_regalloc;
 #endif /* ASM_GEN_H */
