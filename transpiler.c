@@ -16,8 +16,6 @@ typedef struct {
 extern Quad IR[];
 extern int  IR_idx;
 
-// when "def/class/if/while" indent_level++ on exit indent_level--
-
 static int indent_level = 0;
 
 static void write_indent(FILE* out) {
@@ -42,14 +40,16 @@ static void safe_name(const char* in, char* out_buf) {
     }
 }
 
-static int is_num(const char* s) {
-    if (!s || !*s) return 0;
-    char* e;
-    strtod(s, &e);
-    return (*e == '\0');
+static void resolve_this(const char* name, char* buf) {
+    if (strcmp(name, "this") == 0 ||
+        strcmp(name, "self") == 0 ||
+        strcmp(name, "0")    == 0) {
+        strcpy(buf, "self");
+    } else {
+        safe_name(name, buf);
+    }
 }
 
-//label-book keeping
 #define MAX_LABELS 256
 
 typedef struct {
@@ -60,7 +60,6 @@ typedef struct {
 static LabelInfo labels[MAX_LABELS];
 static int       label_cnt = 0;
 
-//It scans all quads once at start and records every label quad and its index position in OPT_IR[].
 static void collect_labels(void) {
     label_cnt = 0;
     for (int i = 0; i < IR_idx; i++) {
@@ -71,31 +70,23 @@ static void collect_labels(void) {
         }
     }
 }
-//Given a label like "L2", this function returns which quad index it sits at!.
+
 static int label_pos(const char* name) {
     for (int i = 0; i < label_cnt; i++)
         if (strcmp(labels[i].name, name) == 0)
             return labels[i].quad_idx;
     return -1;
 }
-//A goto is a back edge(loop) if it jumps to a label that appears earlier in the IR than the goto itself. Forward jumps are if/else.
+
 static int is_back_edge(int goto_idx, const char* target) {
     int lp = label_pos(target);
     return (lp >= 0 && lp < goto_idx);
 }
 
-//arg accumulator
-//python need "t0=add(x,y)"so we must not emit the parameters before so we just push the argument into "arf_buf" and when we finally hit the "call" quad we use "arg_buf" to build the argument list and then reset "arg_cnt" to zero.
 static char arg_buf[64][64];
 static int  arg_cnt = 0;
-
-//object context
 static char current_obj[64] = "";
-
-//consumed map
-static int consumed[10000];
-
-// control flow analysis 
+static int  consumed[10000];
 
 typedef enum { CF_IF, CF_WHILE, CF_UNKNOWN } CFKind;
 
@@ -122,23 +113,21 @@ static CFInfo analyse_ifFalse(int if_pos) {
 
     cf.false_label_pos = flp;
 
-    // find goto just before the false label 
     for (int k = if_pos + 1; k < flp; k++) {
         if (strcmp(IR[k].op, "goto") == 0)
             cf.goto_pos = k;
     }
 
     if (cf.goto_pos >= 0 && is_back_edge(cf.goto_pos, IR[cf.goto_pos].result)) {
-        //while loop — goto jumps back to loop header
         cf.kind          = CF_WHILE;
         cf.end_label_pos = label_pos(IR[cf.goto_pos].result);
         cf.has_else      = 0;
     } else {
         cf.kind = CF_IF;
         if (cf.goto_pos >= 0) {
-            const char* end_lbl  = IR[cf.goto_pos].result;
-            cf.end_label_pos     = label_pos(end_lbl);
-            cf.has_else          = (cf.end_label_pos > cf.false_label_pos + 1);
+            const char* end_lbl = IR[cf.goto_pos].result;
+            cf.end_label_pos    = label_pos(end_lbl);
+            cf.has_else         = (cf.end_label_pos > cf.false_label_pos + 1);
         } else {
             cf.end_label_pos = flp;
             cf.has_else      = 0;
@@ -147,14 +136,12 @@ static CFInfo analyse_ifFalse(int if_pos) {
     return cf;
 }
 
-// forward declaration
 static void emit_range(FILE* out, int from, int to);
 
 static int find_cond_quad(int if_pos, const char* cond_var) {
     static const char* relops[] = {
         "<", ">", "==", "&&", "||", "!", "<=", ">=", NULL
     };
-    // search backwards within a small window
     for (int k = if_pos - 1; k >= 0 && k >= if_pos - 5; k--) {
         if (strcmp(IR[k].result, cond_var) == 0) {
             for (int j = 0; relops[j]; j++) {
@@ -166,14 +153,12 @@ static int find_cond_quad(int if_pos, const char* cond_var) {
     return -1;
 }
 
-// this builds a python condition string from a relational quad
 static void build_cond_str(int cq, char* buf) {
     char a1[64], a2[64];
     safe_name(IR[cq].arg1, a1);
     safe_name(IR[cq].arg2, a2);
     const char* op = IR[cq].op;
 
-    // map IR op to python op 
     const char* pyop = op;
     if      (strcmp(op, "&&") == 0) pyop = "and";
     else if (strcmp(op, "||") == 0) pyop = "or";
@@ -187,35 +172,180 @@ static void build_cond_str(int cq, char* buf) {
     else
         sprintf(buf, "%s", a1);
 }
-// main emitter 
+
+/*
+ * USE-COUNT PASS
+ * Count how many times each result-variable is referenced as arg1 or arg2
+ * anywhere in the IR.  A result with use_count == 0 is dead.
+ */
+#define MAX_VARS 512
+
+typedef struct {
+    char name[32];
+    int  use_count;
+    int  def_quad;
+} VarInfo;
+
+static VarInfo var_table[MAX_VARS];
+static int     var_cnt = 0;
+
+static int find_or_add_var(const char* name) {
+    for (int i = 0; i < var_cnt; i++)
+        if (strcmp(var_table[i].name, name) == 0) return i;
+    if (var_cnt >= MAX_VARS) return -1;
+    strncpy(var_table[var_cnt].name, name, 31);
+    var_table[var_cnt].use_count = 0;
+    var_table[var_cnt].def_quad  = -1;
+    return var_cnt++;
+}
+
+static void build_use_counts(void) {
+    var_cnt = 0;
+    for (int i = 0; i < IR_idx; i++) {
+        if (IR[i].result[0]) {
+            int vi = find_or_add_var(IR[i].result);
+            if (vi >= 0 && var_table[vi].def_quad < 0)
+                var_table[vi].def_quad = i;
+        }
+        if (IR[i].arg1[0]) {
+            int vi = find_or_add_var(IR[i].arg1);
+            if (vi >= 0) var_table[vi].use_count++;
+        }
+        if (IR[i].arg2[0]) {
+            int vi = find_or_add_var(IR[i].arg2);
+            if (vi >= 0) var_table[vi].use_count++;
+        }
+    }
+}
+
+static int get_use_count(const char* name) {
+    for (int i = 0; i < var_cnt; i++)
+        if (strcmp(var_table[i].name, name) == 0)
+            return var_table[i].use_count;
+    return 0;
+}
+
+/*
+ * SUBSTITUTION TABLE
+ * When we see  "X = Y"  (plain copy) and X is never used again
+ * OR Y is a dead temp, we record  alias[X] = Y  so that any later
+ * reference to X emits Y instead.
+ * Also used to propagate: if t0=a+b is dead (use_count==0) but
+ * t1=a+b appears next and IS used, we rename t0→t1 in the emission.
+ */
+#define MAX_ALIASES 512
+
+typedef struct {
+    char from[32];
+    char to[32];
+} Alias;
+
+static Alias aliases[MAX_ALIASES];
+static int   alias_cnt = 0;
+
+static void add_alias(const char* from, const char* to) {
+    if (alias_cnt >= MAX_ALIASES) return;
+    strncpy(aliases[alias_cnt].from, from, 31);
+    strncpy(aliases[alias_cnt].to,   to,   31);
+    alias_cnt++;
+}
+
+static const char* resolve_alias(const char* name) {
+    for (int i = alias_cnt - 1; i >= 0; i--)
+        if (strcmp(aliases[i].from, name) == 0)
+            return aliases[i].to;
+    return name;
+}
+
+/*
+ * PRE-PASS: mark dead assignments and build alias/substitution map.
+ *
+ * Pattern handled:
+ *   quad[i]:   result=R  op=BIN  arg1=A  arg2=B    use_count(R)==0  → dead
+ *   quad[i+1]: result=R2 op=BIN  arg1=A  arg2=B    (same computation, different name)
+ * In that case alias R→R2 and suppress quad[i].
+ *
+ * Also handles plain copy:
+ *   quad[i]:  X = Y   → alias X→Y, suppress quad[i]
+ *             (only when this is a redundant rename, not a user-visible assignment)
+ */
+static int dead[10000];
+
+static int is_temp(const char* name) {
+    return (name[0] == 't' && name[1] >= '0' && name[1] <= '9');
+}
+
+static void pre_pass(void) {
+    memset(dead, 0, sizeof(dead));
+    alias_cnt = 0;
+    build_use_counts();
+
+    for (int i = 0; i < IR_idx - 1; i++) {
+        Quad* q  = &IR[i];
+        Quad* qn = &IR[i + 1];
+
+        if (!q->result[0]) continue;
+
+        if (strcmp(q->op, "=") == 0 && q->arg2[0] == '\0') {
+            if (is_temp(q->result) && get_use_count(q->result) == 0) {
+                dead[i] = 1;
+                continue;
+            }
+            if (is_temp(q->result)) {
+                add_alias(q->result, q->arg1);
+                dead[i] = 1;
+                continue;
+            }
+        }
+
+        if (get_use_count(q->result) == 0 && is_temp(q->result)) {
+            if (strcmp(qn->op,   q->op)   == 0 &&
+                strcmp(qn->arg1, q->arg1) == 0 &&
+                strcmp(qn->arg2, q->arg2) == 0) {
+                add_alias(q->result, qn->result);
+                dead[i] = 1;
+            } else {
+                dead[i] = 1;
+            }
+        }
+    }
+    if (IR_idx > 0) {
+        int last = IR_idx - 1;
+        Quad* q = &IR[last];
+        if (q->result[0] && get_use_count(q->result) == 0 && is_temp(q->result))
+            dead[last] = 1;
+    }
+}
+
+static void rname(const char* raw, char* buf) {
+    const char* resolved = resolve_alias(raw);
+    resolve_this(resolved, buf);
+}
+
 static void emit_range(FILE* out, int from, int to) {
     for (int i = from; i <= to; i++) {
         if (i < 0 || i >= IR_idx) continue;
-        if (consumed[i]) continue;
+        if (consumed[i])          continue;
+        if (dead[i])              continue;
 
         Quad* q = &IR[i];
         char a1[64], a2[64], res[64];
-        safe_name(q->arg1,   a1);
-        safe_name(q->arg2,   a2);
-        safe_name(q->result, res);
+        rname(q->arg1,   a1);
+        rname(q->arg2,   a2);
+        rname(q->result, res);
 
-        //func
         if (strcmp(q->op, "func") == 0) {
             fprintf(out, "\n");
             write_indent(out);
-            // function name is in arg1
             fprintf(out, "def %s(", a1);
-            int pi = i + 1;
-            int first = 1;
+            int pi = i + 1, first = 1;
             while (pi <= to && strcmp(IR[pi].op, "param") == 0) {
-                char pn[64]; safe_name(IR[pi].arg1, pn);
+                char pn[64]; resolve_this(IR[pi].arg1, pn);
                 if (!first) fprintf(out, ", ");
                 fprintf(out, "%s", pn);
                 first = 0;
-                consumed[pi] = 1;
-                pi++;
+                consumed[pi++] = 1;
             }
-            // empty body guard
             fprintf(out, "):\n");
             indent_level++;
             consumed[i] = 1;
@@ -229,11 +359,9 @@ static void emit_range(FILE* out, int from, int to) {
             continue;
         }
 
-        // entity → class
         if (strcmp(q->op, "entity") == 0) {
             fprintf(out, "\n");
             write_indent(out);
-            //entity name is in arg1 
             fprintf(out, "class %s:\n", a1);
             indent_level++;
             consumed[i] = 1;
@@ -247,18 +375,39 @@ static void emit_range(FILE* out, int from, int to) {
             continue;
         }
 
-        // method 
+        if (strcmp(q->op, "constr") == 0) {
+            fprintf(out, "\n");
+            write_indent(out);
+            fprintf(out, "def __init__(self");
+            int pi = i + 1;
+            while (pi <= to && strcmp(IR[pi].op, "param") == 0) {
+                char pn[64]; resolve_this(IR[pi].arg1, pn);
+                if (strcmp(pn, "self") != 0)
+                    fprintf(out, ", %s", pn);
+                consumed[pi++] = 1;
+            }
+            fprintf(out, "):\n");
+            indent_level++;
+            consumed[i] = 1;
+            continue;
+        }
+
+        if (strcmp(q->op, "end_constr") == 0) {
+            indent_level--;
+            consumed[i] = 1;
+            continue;
+        }
+
         if (strcmp(q->op, "method") == 0) {
             fprintf(out, "\n");
             write_indent(out);
-            //method name is in arg1 
             fprintf(out, "def %s(self", a1);
             int pi = i + 1;
             while (pi <= to && strcmp(IR[pi].op, "param") == 0) {
-                char pn[64]; safe_name(IR[pi].arg1, pn);
-                fprintf(out, ", %s", pn);
-                consumed[pi] = 1;
-                pi++;
+                char pn[64]; resolve_this(IR[pi].arg1, pn);
+                if (strcmp(pn, "self") != 0)
+                    fprintf(out, ", %s", pn);
+                consumed[pi++] = 1;
             }
             fprintf(out, "):\n");
             indent_level++;
@@ -273,115 +422,81 @@ static void emit_range(FILE* out, int from, int to) {
             continue;
         }
 
-        //constructor
-        if (strcmp(q->op, "constr") == 0) {
-            fprintf(out, "\n");
-            write_indent(out);
-            fprintf(out, "def __init__(self");
-            int pi = i + 1;
-            while (pi <= to && strcmp(IR[pi].op, "param") == 0) {
-                char pn[64]; safe_name(IR[pi].arg1, pn);
-                fprintf(out, ", %s", pn);
-                consumed[pi] = 1;
-                pi++;
-            }
-            fprintf(out, "):\n");
-            indent_level++;
-            consumed[i] = 1;
-            continue;
-        }
-
-        if (strcmp(q->op, "end_constr") == 0) {
-            indent_level--;
-            consumed[i] = 1;
-            continue;
-        }
-
-        // ---- param (already consumed above)
         if (strcmp(q->op, "param") == 0) {
             consumed[i] = 1;
             continue;
         }
 
-        // label / goto consumed by ifFalse look-ahead
-        if (strcmp(q->op, "label") == 0) {
+        if (strcmp(q->op, "label") == 0 ||
+            strcmp(q->op, "goto")  == 0) {
             consumed[i] = 1;
             continue;
         }
 
-        if (strcmp(q->op, "goto") == 0) {
+        if (strcmp(q->op, "ifFalse") == 0) {
+            CFInfo cf = analyse_ifFalse(i);
             consumed[i] = 1;
+
+            char cond_str[128];
+            int cq = find_cond_quad(i, q->arg1);
+            if (cq >= 0) {
+                build_cond_str(cq, cond_str);
+                consumed[cq] = 1;
+            } else {
+                safe_name(q->arg1, cond_str);
+            }
+
+            if (cf.kind == CF_WHILE) {
+                write_indent(out);
+                fprintf(out, "while %s:\n", cond_str);
+                indent_level++;
+                int body_end = cf.goto_pos - 1;
+                consumed[cf.goto_pos] = 1;
+                if (cf.false_label_pos >= 0) consumed[cf.false_label_pos] = 1;
+                if (cf.end_label_pos   >= 0) consumed[cf.end_label_pos]   = 1;
+                emit_range(out, i + 1, body_end);
+                indent_level--;
+            } else {
+                write_indent(out);
+                fprintf(out, "if %s:\n", cond_str);
+                indent_level++;
+                int true_end = (cf.goto_pos >= 0) ? cf.goto_pos - 1
+                                                   : cf.false_label_pos - 1;
+                if (cf.goto_pos        >= 0) consumed[cf.goto_pos]        = 1;
+                if (cf.false_label_pos >= 0) consumed[cf.false_label_pos] = 1;
+                if (cf.end_label_pos   >= 0) consumed[cf.end_label_pos]   = 1;
+                emit_range(out, i + 1, true_end);
+                indent_level--;
+
+                if (cf.has_else) {
+                    write_indent(out);
+                    fprintf(out, "else:\n");
+                    indent_level++;
+                    int else_end = (cf.end_label_pos >= 0)
+                                   ? cf.end_label_pos - 1 : to;
+                    emit_range(out, cf.false_label_pos + 1, else_end);
+                    indent_level--;
+                }
+            }
             continue;
         }
 
-        // ifFalse → if / while 
-         if (strcmp(q->op, "ifFalse") == 0) {
-    CFInfo cf = analyse_ifFalse(i);
-    consumed[i] = 1;
-
-    // we try to inline the condition instead of using the temp variable 
-    char cond_str[128];
-    int cq = find_cond_quad(i, q->arg1);  // q->arg1 is the condition var e.g. t0 
-    if (cq >= 0) {
-        build_cond_str(cq, cond_str);
-        consumed[cq] = 1;   // mark the condition quad consumed so it doesn't emit as assignment 
-    } else {
-        // fallback — use the temp variable as-is 
-        safe_name(q->arg1, cond_str);
-    }
-
-    if (cf.kind == CF_WHILE) {
-        write_indent(out);
-        fprintf(out, "while %s:\n", cond_str);   // inlined condition 
-        indent_level++;
-        int body_end = cf.goto_pos - 1;
-        consumed[cf.goto_pos] = 1;
-        if (cf.false_label_pos >= 0) consumed[cf.false_label_pos] = 1;
-        if (cf.end_label_pos   >= 0) consumed[cf.end_label_pos]   = 1;
-        emit_range(out, i + 1, body_end);
-        indent_level--;
-    } else {
-        // IF 
-        write_indent(out);
-        fprintf(out, "if %s:\n", cond_str);      // inlined condition 
-        indent_level++;
-        int true_end = (cf.goto_pos >= 0) ? cf.goto_pos - 1
-                                           : cf.false_label_pos - 1;
-        if (cf.goto_pos        >= 0) consumed[cf.goto_pos]        = 1;
-        if (cf.false_label_pos >= 0) consumed[cf.false_label_pos] = 1;
-        if (cf.end_label_pos   >= 0) consumed[cf.end_label_pos]   = 1;
-        emit_range(out, i + 1, true_end);
-        indent_level--;
-
-        if (cf.has_else) {
-            write_indent(out);
-            fprintf(out, "else:\n");
-            indent_level++;
-            int else_end = (cf.end_label_pos >= 0) ? cf.end_label_pos - 1 : to;
-            emit_range(out, cf.false_label_pos + 1, else_end);
-            indent_level--;
-        }
-    }
-    continue;
-}
-        // arg accumulation
         if (strcmp(q->op, "arg") == 0) {
             if (arg_cnt < 64) strncpy(arg_buf[arg_cnt++], a1, 63);
             consumed[i] = 1;
             continue;
         }
 
-        // push_ptr (object for method call)
         if (strcmp(q->op, "push_ptr") == 0) {
             strncpy(current_obj, a1, 63);
             consumed[i] = 1;
             continue;
         }
 
-        // call
         if (strcmp(q->op, "call") == 0) {
             write_indent(out);
-            if (res[0]) fprintf(out, "%s = ", res);
+            if (res[0] && strcmp(res, "_") != 0)
+                fprintf(out, "%s = ", res);
             fprintf(out, "%s(", a1);
             for (int k = 0; k < arg_cnt; k++) {
                 if (k) fprintf(out, ", ");
@@ -393,11 +508,12 @@ static void emit_range(FILE* out, int from, int to) {
             continue;
         }
 
-        // call_method 
         if (strcmp(q->op, "call_method") == 0) {
             write_indent(out);
-            if (res[0]) fprintf(out, "%s = ", res);
-            fprintf(out, "%s.%s(", current_obj[0] ? current_obj : "self", a1);
+            if (res[0] && strcmp(res, "_") != 0)
+                fprintf(out, "%s = ", res);
+            const char* obj = (current_obj[0]) ? current_obj : "self";
+            fprintf(out, "%s.%s(", obj, a1);
             for (int k = 0; k < arg_cnt; k++) {
                 if (k) fprintf(out, ", ");
                 fprintf(out, "%s", arg_buf[k]);
@@ -409,16 +525,13 @@ static void emit_range(FILE* out, int from, int to) {
             continue;
         }
 
-        //call_constr (handled by new)
         if (strcmp(q->op, "call_constr") == 0) {
             consumed[i] = 1;
             continue;
         }
 
-        //new
         if (strcmp(q->op, "new") == 0) {
             write_indent(out);
-            // new  ClassName  ""  obj_var 
             fprintf(out, "%s = %s(", res, a1);
             for (int k = 0; k < arg_cnt; k++) {
                 if (k) fprintf(out, ", ");
@@ -430,7 +543,6 @@ static void emit_range(FILE* out, int from, int to) {
             continue;
         }
 
-        //get_field
         if (strcmp(q->op, "get_field") == 0) {
             write_indent(out);
             fprintf(out, "%s = %s.%s\n", res, a1, a2);
@@ -438,7 +550,6 @@ static void emit_range(FILE* out, int from, int to) {
             continue;
         }
 
-        //set_field  obj  field  value
         if (strcmp(q->op, "set_field") == 0) {
             write_indent(out);
             fprintf(out, "%s.%s = %s\n", a1, a2, res);
@@ -446,7 +557,13 @@ static void emit_range(FILE* out, int from, int to) {
             continue;
         }
 
-        //return
+        if (strcmp(q->op, "self_set") == 0) {
+            write_indent(out);
+            fprintf(out, "self.%s = %s\n", a1, res);
+            consumed[i] = 1;
+            continue;
+        }
+
         if (strcmp(q->op, "return") == 0) {
             write_indent(out);
             if (a1[0]) fprintf(out, "return %s\n", a1);
@@ -455,7 +572,6 @@ static void emit_range(FILE* out, int from, int to) {
             continue;
         }
 
-        //out → print
         if (strcmp(q->op, "out") == 0) {
             write_indent(out);
             fprintf(out, "print(%s)\n", a1);
@@ -463,7 +579,6 @@ static void emit_range(FILE* out, int from, int to) {
             continue;
         }
 
-        // in → input
         if (strcmp(q->op, "in") == 0) {
             write_indent(out);
             fprintf(out, "%s = int(input())\n", res);
@@ -471,7 +586,6 @@ static void emit_range(FILE* out, int from, int to) {
             continue;
         }
 
-        //simple assignment  result = arg1 
         if (strcmp(q->op, "=") == 0 && q->arg2[0] == '\0') {
             write_indent(out);
             fprintf(out, "%s = %s\n", res, a1);
@@ -479,7 +593,6 @@ static void emit_range(FILE* out, int from, int to) {
             continue;
         }
 
-        //array index
         if (strcmp(q->op, "[]") == 0) {
             write_indent(out);
             fprintf(out, "%s = %s[%s]\n", res, a1, a2);
@@ -487,7 +600,6 @@ static void emit_range(FILE* out, int from, int to) {
             continue;
         }
 
-        //unary NOT
         if (strcmp(q->op, "!") == 0) {
             write_indent(out);
             fprintf(out, "%s = not %s\n", res, a1);
@@ -495,14 +607,15 @@ static void emit_range(FILE* out, int from, int to) {
             continue;
         }
 
-        // binary ops
         static const char* ir_ops[] = {
             "+", "-", "*", "/", "%", "<<", ">>",
-            "&", "|", "&&", "||", "==", ">", "<", NULL
+            "&", "|", "&&", "||", "==", "!=",
+            ">", "<", ">=", "<=", NULL
         };
         static const char* py_ops[] = {
             "+", "-", "*", "//", "%", "<<", ">>",
-            "&", "|", "and", "or", "==", ">", "<", NULL
+            "&", "|", "and", "or", "==", "!=",
+            ">", "<", ">=", "<=", NULL
         };
 
         int matched = 0;
@@ -524,7 +637,6 @@ static void emit_range(FILE* out, int from, int to) {
     }
 }
 
-// public entry point
 void transpile_to_python(FILE* out) {
     memset(consumed, 0, sizeof(consumed));
     arg_cnt        = 0;
@@ -532,13 +644,13 @@ void transpile_to_python(FILE* out) {
     current_obj[0] = '\0';
 
     collect_labels();
+    pre_pass();
 
     fprintf(out, "# Generated by Pegasus transpiler\n\n");
     emit_range(out, 0, IR_idx - 1);
 
-    // emit if __name__ == '__main__' guard if main() exists 
     for (int i = 0; i < IR_idx; i++) {
-        if (strcmp(IR[i].op, "func") == 0 &&
+        if (strcmp(IR[i].op, "func")  == 0 &&
             strcmp(IR[i].arg1, "main") == 0) {
             fprintf(out, "\nif __name__ == '__main__':\n    main()\n");
             break;
