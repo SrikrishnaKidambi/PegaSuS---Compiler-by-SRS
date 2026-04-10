@@ -229,7 +229,7 @@ constructor_decl
         {
             Symbol* sym = insert_symbol(current_scope, $1,
                                         KIND_CONSTRUCTOR, DT_VOID, yylineno);
-            if (sym) {
+            if(sym){
                 strncpy(sym->attr.ctor.belongs_to, current_scope->name, 63);
                 sym->attr.ctor.param_count = 0;
                 sym->attr.ctor.param_list  = NULL;
@@ -237,19 +237,73 @@ constructor_decl
             }
             Symbol* entity_sym = lookup(current_scope->parent,
                                         current_scope->name);
-            if (entity_sym && entity_sym->kind == KIND_ENTITY)
+            if(entity_sym && entity_sym->kind == KIND_ENTITY)
                 add_name(&entity_sym->attr.entity.constructors_list, $1);
 
-            emit("constr", $1, "", "");
             SymTable* cs = create_scope(SCOPE_CONSTRUCTOR, $1, current_scope);
- 	    if(sym) sym->attr.ctor.scope = cs;
+            if(sym) sym->attr.ctor.scope = cs;
             current_scope = cs;
         }
       LPAREN param_list_opt RPAREN block
         {
+            //Step 1: mangle the constructor symbol name in entity scope
+            for(int i = 0; i < HASH_SIZE; i++){
+                Symbol* s = current_scope->parent->buckets[i];
+                while(s){
+                    Symbol* next = s->next;
+                    if(strcmp(s->name, $1) == 0 && s->kind == KIND_CONSTRUCTOR
+                            && strchr(s->name, '$') == NULL){
+                        char newName[80];
+                        overloaded_ctor_name(newName, $1, s->attr.ctor.param_list);
+                        strncpy(s->name, newName, 63);
+                        rehash_symbol(current_scope->parent, s, $1);
+                    }
+                    s = next;
+                }
+            }
+
+            //step2: add mangled name to entity constructors list
+            Symbol* entity_sym2 = lookup(current_scope->parent->parent,
+                                         current_scope->parent->name);
+            if(entity_sym2 && entity_sym2->kind == KIND_ENTITY){
+                for(int i = 0; i < HASH_SIZE; i++){
+                    for(Symbol* s = current_scope->parent->buckets[i]; s; s = s->next){
+                        if(s->kind == KIND_CONSTRUCTOR &&
+                           strncmp(s->name, $1, strlen($1)) == 0 &&
+                           s->name[strlen($1)] == '$'){
+                            if(!name_in_list(entity_sym2->attr.entity.constructors_list, s->name)){
+                                add_name(&entity_sym2->attr.entity.constructors_list, s->name);
+                            }
+                        }
+                    }
+                }
+            }
+
+            //step 3: find the mangled name for this specific constructor by matching param count against current constructor scope
+            char mangled_ir[80];
+            strcpy(mangled_ir, $1);   /* fallback */
+            for(int i = 0; i < HASH_SIZE; i++){
+                for(Symbol* s = current_scope->parent->buckets[i]; s; s = s->next){
+                    if(s->kind == KIND_CONSTRUCTOR &&
+                       strncmp(s->name, $1, strlen($1)) == 0 &&
+                       s->name[strlen($1)] == '$'){
+                        int pc = 0;
+                        for(ParamNode* p = s->attr.ctor.param_list; p; p = p->next) pc++;
+                        int cur_pc = 0;
+                        for(int b = 0; b < HASH_SIZE; b++)
+                            for(Symbol* ps = current_scope->buckets[b]; ps; ps = ps->next)
+                                if(ps->kind == KIND_PARAM) cur_pc++;
+                        if(pc == cur_pc)
+                            strncpy(mangled_ir, s->name, 79);
+                    }
+                }
+            }
+
+            //emit the mangled name
+            emit("constr", mangled_ir, "", "");
             print_table(current_scope);
             current_scope = current_scope->parent;
-            emit("end_constr", $1, "", "");
+            emit("end_constr", mangled_ir, "", "");
         }
     | IDENTIFIER
         { emit("constr", $1, "", ""); }
@@ -289,13 +343,17 @@ method_decl
         {
             
             for (int i = 0; i < HASH_SIZE; i++) {
-                for (Symbol* s = current_scope->parent->buckets[i]; s; s = s->next) {
+                Symbol* s = current_scope->parent->buckets[i];
+                while (s) {
+                    Symbol* next = s->next;  /* save before rehash modifies list */
                     if (strcmp(s->name, $4) == 0 && s->kind == KIND_METHOD
                             && strchr(s->name, '$') == NULL) {
                         char newName[80];
                         overloaded_method_name(newName, $4, s->attr.method.param_list);
                         strncpy(s->name, newName, 63);
+                        rehash_symbol(current_scope->parent, s, $4);  /* fix: move to correct bucket */
                     }
+                    s = next;
                 }
             }
 
@@ -371,13 +429,17 @@ method_decl
         {
             
             for (int i = 0; i < HASH_SIZE; i++) {
-                for (Symbol* s = current_scope->parent->buckets[i]; s; s = s->next) {
+                Symbol* s = current_scope->parent->buckets[i];
+                while (s) {
+                    Symbol* next = s->next;  /* save before rehash modifies list */
                     if (strcmp(s->name, $4) == 0 && s->kind == KIND_METHOD
                             && strchr(s->name, '$') == NULL) {
                         char newName[80];
                         overloaded_method_name(newName, $4, s->attr.method.param_list);
                         strncpy(s->name, newName, 63);
+                        rehash_symbol(current_scope->parent, s, $4);  /* fix: move to correct bucket */
                     }
+                    s = next;
                 }
             }
 
@@ -475,18 +537,46 @@ object_decl
             Symbol* class_sym = lookup(current_scope, $5);
             if(!class_sym || class_sym->kind != KIND_ENTITY){
                 char buf[256];
-                snprintf(buf, sizeof(buf), "line %d: Entity '%s' not found to instantiate", yylineno, $1);
+                snprintf(buf, sizeof(buf),
+                    "line %d: Entity '%s' not found to instantiate", yylineno, $5);
                 semantic_error(buf);
             }
-            Symbol* obj = insert_symbol(current_scope, $2, KIND_OBJECT, DT_OBJECT, yylineno);
+            Symbol* obj = insert_symbol(current_scope, $2,
+                                        KIND_OBJECT, DT_OBJECT, yylineno);
             if(obj){
-                strncpy(obj->attr.object.entity_name, class_sym->attr.entity.class_name, 63);
+                strncpy(obj->attr.object.entity_name,
+                        class_sym->attr.entity.class_name, 63);
                 obj->size = class_sym->attr.entity.class_size;
                 current_scope->next_offset += obj->size;
             }
+
+            //build mangled constructor name from arg types
+            char mangled_ctor[80];
+            strcpy(mangled_ctor, $5);
+            strcat(mangled_ctor, "$");
+            for(int i = 0; i < call_arg_count; i++){
+                char code[2] = {dt_code(call_arg_types[i]), '\0'};
+                strcat(mangled_ctor, code);
+            }
+            //verify if the constructor exists
+
+            if(class_sym && class_sym->kind == KIND_ENTITY){
+                SymTable* esc = find_entity_scope(class_sym->attr.entity.class_name);
+                if(esc){
+                    Symbol* ctor_sym = lookup_local(esc, mangled_ctor);
+                    if(!ctor_sym || ctor_sym->kind != KIND_CONSTRUCTOR){
+                        fprintf(stderr,
+                            "ERROR line %d: No constructor '%s' matches"
+                            " the given argument types.\n",
+                            yylineno, mangled_ctor);
+                    }
+                }
+            }
+
             emit("new", $5, "", $2);
-            emit("call_constr", $5, "", $2);
-	    call_arg_count = 0;
+            emit("push_ptr", $2, "", "");
+            emit("call_constr", mangled_ctor, "", "");
+            call_arg_count = 0;
         }
     | type IDENTIFIER ASSIGN IDENTIFIER DOT IDENTIFIER LPAREN arg_list_opt RPAREN SEMICOLON
         {
