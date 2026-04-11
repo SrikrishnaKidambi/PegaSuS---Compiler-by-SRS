@@ -1056,10 +1056,10 @@ const char* getVarAddress(const char* name){
 // so we first go from t1 to t6 and in imp case we use t1
 
 static const char* reg_name[NUM_REGS] = {
-	"t1", "t2", "t3", "t4", "t5", "t6", "t0", "s1"
-	//s1 callee saved (used in functions and control) and we use it if needed
+    "t1", "t2", "t3", "t4", "t5", "t6", "t0",   // 7 caller-saved
+    "s1", "s2", "s3", "s4", "s5",                 // 5 callee-saved
+    "s6", "s7", "s8", "s9", "s10", "s11"          // 6 more callee-saved
 };
-
 static char reg_contents[NUM_REGS][64]; // operand name int this register
 static int reg_dirty[NUM_REGS]; //1 if the value is modifed and need to be stored.
 
