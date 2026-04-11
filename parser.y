@@ -61,6 +61,14 @@ static Symbol* current_function = NULL;         // A global variable that is use
 static DataType call_arg_types[64];	// Array for storing the type of argument in each function call
 static int call_arg_count = 0;		// Store the number of arguments collected till now
 
+// helper function for generating ir_name for a variable name in the loops 
+static const char* ir_name_of(const char* name){
+	Symbol* sym = lookup(current_scope, name);
+	if(sym && sym->ir_name[0] != '\0'){
+		return sym->ir_name;
+	}
+	return name;
+}
 
 void pushIfLabels(char* falseLabel, char* endLabel) {
     topPtr++;
@@ -608,9 +616,14 @@ var_decl
                                         KIND_VAR, $1, yylineno);
             if (sym){
 		sym->is_initialized = 1;
-		strncpy(sym->init_value, $4, 63); 
-	    }	
-        }
+		if(isConstant($4)){
+			strncpy(sym->init_value, $4, 63); 
+		}
+		else{
+			sym->init_value[0] = '\0';	// Populate the init value only when it is a constant else compute during the runtime
+		}
+	    }
+	}	
 
     /* Dog d;  or  Dog d1, d2; — entity-typed vars */
     | IDENTIFIER id_list SEMICOLON
@@ -1030,7 +1043,7 @@ assignment
 				"(declared as %s).\n", yylineno, dt_names[last_expr_type], $1, dt_names[lhs->datatype]);
 			}
 		} 
-		emit("=", $3, "", $1); 
+		emit("=", $3, "", ir_name_of($1)); 
 		$$ = strdup($1); 
 	}
     | IDENTIFIER ADD_ASSIGN assignment
@@ -1040,8 +1053,9 @@ assignment
 			fprintf(stderr, "ERROR line %d: type mismatch in '+=' : '%s' is %s but RHS is %s.\n", yylineno, $1, dt_names[lhs->datatype], dt_names[last_expr_type]);
 		}
 		char* t = genVar(); 
-		emit("+", $1, $3, t); 
-		emit("=", t, "", $1); 
+		const char* irn = ir_name_of($1);
+		emit("+", irn, $3, t); 
+		emit("=", t, "", irn); 
 		$$ = t; 
 	}
     | IDENTIFIER SUB_ASSIGN assignment
@@ -1052,8 +1066,9 @@ assignment
 		}
 			
 		char* t = genVar(); 
-		emit("-", $1, $3, t); 
-		emit("=", t, "", $1); 	
+		const char* irn = ir_name_of($1);
+		emit("-", irn, $3, t); 
+		emit("=", t, "", irn); 	
 		$$ = t; 
 	}
     | indexed_id ASSIGN assignment
@@ -1293,7 +1308,7 @@ factor
 	{ 
 		Symbol* s = require_declared(current_scope, $1, yylineno);
 		last_expr_type = s ? s->datatype : DT_UNKNOWN;
-		$$ = strdup($1); 
+		$$ = strdup(ir_name_of($1)); 
 	}
     | indexed_id      { $$ = $1; }
     | INT_LITERAL     { char b[20]; sprintf(b, "%d",   $1); $$ = strdup(b); last_expr_type = DT_INT; }
@@ -1457,10 +1472,11 @@ var_decl_no_semi
 	    	if(last_expr_type != DT_UNKNOWN && last_expr_type != $1){
 			fprintf(stderr, "ERROR line %d: Cannot initialize '%s' (declared as %s) with value of type %s.\n", yylineno, $2, dt_names[$1], dt_names[last_expr_type]);
 		}
-            	emit("=", $4, "", $2);
+            	//emit("=", $4, "", $2);
            	Symbol* sym = insert_symbol(current_scope, $2,
                                         KIND_VAR, $1, yylineno);
             	if (sym) sym->is_initialized = 1;
+		emit("=", $4, "", ir_name_of($2));
         }
     ;
 
