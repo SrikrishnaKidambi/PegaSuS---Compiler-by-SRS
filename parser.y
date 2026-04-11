@@ -52,6 +52,11 @@ static int arr2d_cols = 0;
 static char arr_init_vals[256][32];
 static int  arr_init_count = 0;
 
+//store the idx for functions/methods and contructors (fix to issue pointed by Raghavendra)
+static int pending_constr_ir_idx = -1;
+static int pending_method_ir_idx = -1;
+static int pending_func_ir_idx = -1;
+
 DataType last_expr_type = DT_UNKNOWN;
 DataType current_array_elem_type = DT_UNKNOWN;
 int array_type_errors = 0;
@@ -240,12 +245,17 @@ constructor_decl
             if(entity_sym && entity_sym->kind == KIND_ENTITY)
                 add_name(&entity_sym->attr.entity.constructors_list, $1);
 
+
             SymTable* cs = create_scope(SCOPE_CONSTRUCTOR, $1, current_scope);
             if(sym) sym->attr.ctor.scope = cs;
             current_scope = cs;
+            emit("constr", $1, "", "");           // emit with original name as placeholder
+            pending_constr_ir_idx = IR_idx - 1;  // record which quad to patch later
         }
       LPAREN param_list_opt RPAREN block
         {
+            
+
             //Step 1: mangle the constructor symbol name in entity scope
             for(int i = 0; i < HASH_SIZE; i++){
                 Symbol* s = current_scope->parent->buckets[i];
@@ -300,7 +310,11 @@ constructor_decl
             }
 
             //emit the mangled name
-            emit("constr", mangled_ir, "", "");
+            if(pending_constr_ir_idx >= 0){
+                strncpy(IR[pending_constr_ir_idx].arg1, mangled_ir, 19);
+                pending_constr_ir_idx = -1;
+            }
+
             print_table(current_scope);
             current_scope = current_scope->parent;
             emit("end_constr", mangled_ir, "", "");
@@ -334,10 +348,13 @@ method_decl
             Symbol* entity_sym = lookup(current_scope->parent,
                                         current_scope->name);
             //emit("method",...) moved to closing action
-            
+
             SymTable* ms = create_scope(SCOPE_METHOD, $4, current_scope);
 	    if(sym) sym->attr.method.scope = ms;
             current_scope = ms;
+
+            emit("method", $4, "",""); //placeholder
+            pending_method_ir_idx = IR_idx - 1;  // record index
         }
       LPAREN param_list_opt RPAREN block
         {
@@ -395,8 +412,11 @@ method_decl
                 }
             }
 
+            if(pending_method_ir_idx >= 0){
+                strncpy(IR[pending_method_ir_idx].arg1, mangled_ir, 19);
+                pending_method_ir_idx = -1;
+            }
             
-            emit("method", mangled_ir, "", "");
             print_table(current_scope);
             current_scope = current_scope->parent;
 	    current_function = NULL;
@@ -905,66 +925,151 @@ expr_list
     ;
 
 function_decl
-    /* int func add(...)  /  void func main(...) */
     : func_type FUNC IDENTIFIER
         {
             Symbol* sym = insert_symbol(current_scope, $3,
                                         KIND_FUNCTION, $1, yylineno);
-            if (sym) {
+            if(sym){
                 sym->attr.func.return_type = $1;
                 sym->attr.func.param_count = 0;
                 sym->attr.func.param_list  = NULL;
                 snprintf(sym->attr.func.entry_label, 32, "func_%s", $3);
-                /* size stays 0 — functions occupy no slot in parent scope */
             }
-	    current_function = sym;	// Storing the current function we are in when we are entering the function declaration
+            current_function = sym;
+
+            // emit func with original name as placeholder, record index
             emit("func", $3, "", "");
+            pending_func_ir_idx = IR_idx - 1;
+
             SymTable* fs = create_scope(SCOPE_FUNCTION, $3, current_scope);
-	    if(sym){
-		sym->attr.func.scope = fs;
-            }
+            if(sym) sym->attr.func.scope = fs;
             current_scope = fs;
         }
       LPAREN param_list_opt RPAREN block
         {
-            /* Do NOT write next_offset into sym->size.
-               Function size in global scope = 0 always.
-               The frame size is visible in the function's own scope table. */
+            // Step 1: mangle the symbol in global scope
+            for(int i = 0; i < HASH_SIZE; i++){
+                Symbol* s = current_scope->parent->buckets[i];
+                while(s){
+                    Symbol* next = s->next;
+                    if(strcmp(s->name, $3) == 0 && s->kind == KIND_FUNCTION
+                            && strchr(s->name, '$') == NULL){
+                        char newName[80];
+                        overloaded_method_name(newName, $3,
+                                               s->attr.func.param_list);
+                        strncpy(s->name, newName, 63);
+                        rehash_symbol(current_scope->parent, s, $3);
+                    }
+                    s = next;
+                }
+            }
+
+            // Step 2: find mangled name matching current param count
+            char mangled_ir[80];
+            strcpy(mangled_ir, $3);
+            for(int i = 0; i < HASH_SIZE; i++){
+                for(Symbol* s = current_scope->parent->buckets[i];
+                    s; s = s->next){
+                    if(s->kind == KIND_FUNCTION &&
+                       strncmp(s->name, $3, strlen($3)) == 0 &&
+                       s->name[strlen($3)] == '$'){
+                        int pc = 0;
+                        for(ParamNode* p = s->attr.func.param_list;
+                            p; p = p->next) pc++;
+                        int cur_pc = 0;
+                        for(int b = 0; b < HASH_SIZE; b++)
+                            for(Symbol* ps = current_scope->buckets[b];
+                                ps; ps = ps->next)
+                                if(ps->kind == KIND_PARAM) cur_pc++;
+                        if(pc == cur_pc)
+                            strncpy(mangled_ir, s->name, 79);
+                    }
+                }
+            }
+
+            // Step 3: patch the placeholder func quad
+            if(pending_func_ir_idx >= 0){
+                strncpy(IR[pending_func_ir_idx].arg1, mangled_ir, 19);
+                pending_func_ir_idx = -1;
+            }
+
             print_table(current_scope);
             current_scope = current_scope->parent;
-	    current_function = NULL; 	// Clearing the variable when we are at the end of the current function declaration 
+            current_function = NULL;
             emit("endfunc", "", "", "");
         }
 
-    /* Dog func create(...) — entity return type */
     | IDENTIFIER FUNC IDENTIFIER
         {
             Symbol* sym = insert_symbol(current_scope, $3,
                                         KIND_FUNCTION, DT_ENTITY, yylineno);
-            if (sym) {
+            if(sym){
                 sym->attr.func.return_type = DT_ENTITY;
                 sym->attr.func.param_count = 0;
                 sym->attr.func.param_list  = NULL;
                 snprintf(sym->attr.func.entry_label, 32, "func_%s", $3);
-                /* size stays 0 */
             }
-	    current_function = sym; 	// Storing the current function symbol being parsed to handle correct type of value(or variable) being returned
+            current_function = sym;
+
             emit("func", $3, "", "");
+            pending_func_ir_idx = IR_idx - 1;
+
             SymTable* fs = create_scope(SCOPE_FUNCTION, $3, current_scope);
-            if(sym){
-                sym->attr.func.scope = fs;
-            }
+            if(sym) sym->attr.func.scope = fs;
             current_scope = fs;
         }
       LPAREN param_list_opt RPAREN block
         {
+            // same mangling steps
+            for(int i = 0; i < HASH_SIZE; i++){
+                Symbol* s = current_scope->parent->buckets[i];
+                while(s){
+                    Symbol* next = s->next;
+                    if(strcmp(s->name, $3) == 0 && s->kind == KIND_FUNCTION
+                            && strchr(s->name, '$') == NULL){
+                        char newName[80];
+                        overloaded_method_name(newName, $3,
+                                               s->attr.func.param_list);
+                        strncpy(s->name, newName, 63);
+                        rehash_symbol(current_scope->parent, s, $3);
+                    }
+                    s = next;
+                }
+            }
+
+            char mangled_ir[80];
+            strcpy(mangled_ir, $3);
+            for(int i = 0; i < HASH_SIZE; i++){
+                for(Symbol* s = current_scope->parent->buckets[i];
+                    s; s = s->next){
+                    if(s->kind == KIND_FUNCTION &&
+                       strncmp(s->name, $3, strlen($3)) == 0 &&
+                       s->name[strlen($3)] == '$'){
+                        int pc = 0;
+                        for(ParamNode* p = s->attr.func.param_list;
+                            p; p = p->next) pc++;
+                        int cur_pc = 0;
+                        for(int b = 0; b < HASH_SIZE; b++)
+                            for(Symbol* ps = current_scope->buckets[b];
+                                ps; ps = ps->next)
+                                if(ps->kind == KIND_PARAM) cur_pc++;
+                        if(pc == cur_pc)
+                            strncpy(mangled_ir, s->name, 79);
+                    }
+                }
+            }
+
+            if(pending_func_ir_idx >= 0){
+                strncpy(IR[pending_func_ir_idx].arg1, mangled_ir, 19);
+                pending_func_ir_idx = -1;
+            }
+
             print_table(current_scope);
             current_scope = current_scope->parent;
-	    current_function = NULL;
+            current_function = NULL;
             emit("endfunc", "", "", "");
         }
 
-    /* error recovery */
     | func_type FUNC IDENTIFIER
         { emit("func", $3, "", ""); }
       LPAREN error RPAREN block
@@ -1280,36 +1385,73 @@ term
 
 factor
     : IDENTIFIER LPAREN arg_list_opt RPAREN
-        { 
-		char* t = genVar(); 
-		Symbol* fsym = require_declared(current_scope, $1, yylineno);
-		if(!fsym) {
-			//fprintf(stderr, 
-				//"ERROR line %d: call to undeclared function '%s'.\n",yylineno, $1);
-			last_expr_type = DT_UNKNOWN;
-		}
-		else if(fsym->kind != KIND_FUNCTION && fsym->kind != KIND_METHOD){
-			fprintf(stderr, "ERROR line %d: '%s' is not a function.\n", yylineno, $1);
-			last_expr_type = DT_UNKNOWN;
-		}
-		else{
-			ParamNode* ep = (fsym->kind == KIND_FUNCTION) ? fsym->attr.func.param_list : fsym->attr.method.param_list;
-			int expected_count = (fsym->kind == KIND_FUNCTION) ? fsym->attr.func.param_count : fsym->attr.method.param_count;
-			if(call_arg_count != expected_count) {
-				fprintf(stderr, "ERROR line %d:, function '%s' expects %d arg(s), got %d.\n", yylineno, $1, expected_count, call_arg_count);
-			}
-			else{
-				for(int i = 0; i < call_arg_count && ep; i++, ep=ep->next) {
-					if(call_arg_types[i] != DT_UNKNOWN && call_arg_types[i] != ep->datatype) {
-						fprintf(stderr, "ERROR line %d: function '%s' argument %d - expected %s, but got %s.\n", yylineno, $1, i+1, dt_names[ep->datatype], dt_names[call_arg_types[i]]);
-					}
-				}
-			}
-			last_expr_type = (fsym->kind == KIND_FUNCTION) ? fsym->attr.func.return_type : fsym->attr.method.return_type;
-		}
-		emit("call", $1, "", t);
-		$$ = t; 
-	}
+    {
+        char* t = genVar();
+
+        // Build mangled name from collected arg types
+        char mangled_call[80];
+        strcpy(mangled_call, $1);
+        strcat(mangled_call, "$");
+        for(int i = 0; i < call_arg_count; i++){
+            char code[2] = {dt_code(call_arg_types[i]), '\0'};
+            strcat(mangled_call, code);
+        }
+
+        // Try mangled name first, fall back to original name
+        Symbol* fsym = lookup(current_scope, mangled_call);
+        if(!fsym){
+            fsym = lookup(current_scope, $1);
+        }
+
+        if(!fsym){
+            fprintf(stderr,
+                "ERROR line %d: call to undeclared function '%s'.\n",
+                yylineno, $1);
+            last_expr_type = DT_UNKNOWN;
+        }
+        else if(fsym->kind != KIND_FUNCTION && fsym->kind != KIND_METHOD){
+            fprintf(stderr,
+                "ERROR line %d: '%s' is not a function.\n", yylineno, $1);
+            last_expr_type = DT_UNKNOWN;
+        }
+        else{
+            ParamNode* ep = (fsym->kind == KIND_FUNCTION)
+                            ? fsym->attr.func.param_list
+                            : fsym->attr.method.param_list;
+            int expected_count = (fsym->kind == KIND_FUNCTION)
+                                  ? fsym->attr.func.param_count
+                                  : fsym->attr.method.param_count;
+            if(call_arg_count != expected_count){
+                fprintf(stderr,
+                    "ERROR line %d: function '%s' expects %d arg(s),"
+                    " got %d.\n",
+                    yylineno, $1, expected_count, call_arg_count);
+            }
+            else{
+                for(int i = 0; i < call_arg_count && ep;
+                    i++, ep = ep->next){
+                    if(call_arg_types[i] != DT_UNKNOWN &&
+                       call_arg_types[i] != ep->datatype){
+                        fprintf(stderr,
+                            "ERROR line %d: function '%s' argument %d"
+                            " - expected %s, but got %s.\n",
+                            yylineno, $1, i+1,
+                            dt_names[ep->datatype],
+                            dt_names[call_arg_types[i]]);
+                    }
+                }
+            }
+            last_expr_type = (fsym->kind == KIND_FUNCTION)
+                              ? fsym->attr.func.return_type
+                              : fsym->attr.method.return_type;
+        }
+
+        // emit with mangled name if overloaded, original otherwise
+        const char* emit_name = (fsym && strchr(fsym->name, '$'))
+                                 ? fsym->name : $1;
+        emit("call", emit_name, "", t);
+        $$ = t;
+    }
     | IDENTIFIER DOT IDENTIFIER
     {
         char* t = genVar();

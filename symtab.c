@@ -272,12 +272,18 @@ Symbol* insert_symbol(SymTable* tbl, const char* name,
     // It's valid to have  int x;  at global level AND  int x;
     // inside a function — that's shadowing, not redeclaration.
     if (lookup_local(tbl, name)) {
-	if(tbl->kind == SCOPE_ENTITY && kind == KIND_METHOD){
-	}else{
-        fprintf(stderr,
-            "ERROR line %d: '%s' already declared in scope '%s'\n",
-            line, name, tbl->name);
-        return NULL;}
+        if(tbl->kind == SCOPE_ENTITY && kind == KIND_METHOD){
+            //allow for overloading - fall through
+        }
+        else if(tbl->kind == SCOPE_GLOBAL && kind == KIND_FUNCTION){
+            //allow for overloading - fall through
+        }
+        else{
+            fprintf(stderr,
+                "ERROR line %d: '%s' already declared in scope '%s'\n",
+                line, name, tbl->name);
+            return NULL;
+        }
     }
 
     Symbol* sym      = calloc(1, sizeof(Symbol));  // zero everything
