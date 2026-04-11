@@ -36,7 +36,7 @@ typedef enum {
 
 OperandType getOperandType(const char* operand);
 
-#define NUM_REGS 8   /* number of general-purpose registers available */
+#define NUM_REGS 18   /* number of general-purpose registers available */
 
 /* Map a temp/var name to a physical register name (e.g. "rax").
    Returns the register string; never NULL. */
