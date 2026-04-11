@@ -1832,7 +1832,7 @@ yyreduce:
                 while(s){
                     Symbol* next = s->next;
                     if(strcmp(s->name, (yyvsp[-5].sval)) == 0 && s->kind == KIND_CONSTRUCTOR
-                            && strchr(s->name, '$') == NULL){
+                            && strchr(s->name, '_') == NULL){
                         char newName[80];
                         overloaded_ctor_name(newName, (yyvsp[-5].sval), s->attr.ctor.param_list);
                         strncpy(s->name, newName, 63);
@@ -1850,7 +1850,7 @@ yyreduce:
                     for(Symbol* s = current_scope->parent->buckets[i]; s; s = s->next){
                         if(s->kind == KIND_CONSTRUCTOR &&
                            strncmp(s->name, (yyvsp[-5].sval), strlen((yyvsp[-5].sval))) == 0 &&
-                           s->name[strlen((yyvsp[-5].sval))] == '$'){
+                           s->name[strlen((yyvsp[-5].sval))] == '_'){
                             if(!name_in_list(entity_sym2->attr.entity.constructors_list, s->name)){
                                 add_name(&entity_sym2->attr.entity.constructors_list, s->name);
                             }
@@ -1866,7 +1866,7 @@ yyreduce:
                 for(Symbol* s = current_scope->parent->buckets[i]; s; s = s->next){
                     if(s->kind == KIND_CONSTRUCTOR &&
                        strncmp(s->name, (yyvsp[-5].sval), strlen((yyvsp[-5].sval))) == 0 &&
-                       s->name[strlen((yyvsp[-5].sval))] == '$'){
+                       s->name[strlen((yyvsp[-5].sval))] == '_'){
                         int pc = 0;
                         for(ParamNode* p = s->attr.ctor.param_list; p; p = p->next) pc++;
                         int cur_pc = 0;
@@ -1964,7 +1964,7 @@ yyreduce:
                     for (Symbol* s = current_scope->parent->buckets[i]; s; s = s->next) {
                         if (s->kind == KIND_METHOD &&
                             strncmp(s->name, (yyvsp[-5].sval), strlen((yyvsp[-5].sval))) == 0 &&
-                            s->name[strlen((yyvsp[-5].sval))] == '$') {
+                            s->name[strlen((yyvsp[-5].sval))] == '_') {
                             if (!name_in_list(entity_sym2->attr.entity.methods_list, s->name)) {
                                 add_name(&entity_sym2->attr.entity.methods_list, s->name);
                             }
@@ -1980,7 +1980,7 @@ yyreduce:
                 for (Symbol* s = current_scope->parent->buckets[i]; s; s = s->next) {
                     if (s->kind == KIND_METHOD &&
                         strncmp(s->name, (yyvsp[-5].sval), strlen((yyvsp[-5].sval))) == 0 &&
-                        s->name[strlen((yyvsp[-5].sval))] == '$') {
+                        s->name[strlen((yyvsp[-5].sval))] == '_') {
                         /* match by param count against current method scope */
                         int pc = 0;
                         for (ParamNode* p = s->attr.method.param_list; p; p = p->next) pc++;
@@ -2059,7 +2059,7 @@ yyreduce:
                     for (Symbol* s = current_scope->parent->buckets[i]; s; s = s->next) {
                         if (s->kind == KIND_METHOD &&
                             strncmp(s->name, (yyvsp[-5].sval), strlen((yyvsp[-5].sval))) == 0 &&
-                            s->name[strlen((yyvsp[-5].sval))] == '$') {
+                            s->name[strlen((yyvsp[-5].sval))] == '_') {
                             if (!name_in_list(entity_sym2->attr.entity.methods_list, s->name)) {
                                 add_name(&entity_sym2->attr.entity.methods_list, s->name);
                             }
@@ -2075,7 +2075,7 @@ yyreduce:
                 for (Symbol* s = current_scope->parent->buckets[i]; s; s = s->next) {
                     if (s->kind == KIND_METHOD &&
                         strncmp(s->name, (yyvsp[-5].sval), strlen((yyvsp[-5].sval))) == 0 &&
-                        s->name[strlen((yyvsp[-5].sval))] == '$') {
+                        s->name[strlen((yyvsp[-5].sval))] == '_') {
                         int pc = 0;
                         for (ParamNode* p = s->attr.method.param_list; p; p = p->next) pc++;
                         int cur_pc = 0;
@@ -2181,7 +2181,7 @@ yyreduce:
             //build mangled constructor name from arg types
             char mangled_ctor[80];
             strcpy(mangled_ctor, (yyvsp[-4].sval));
-            strcat(mangled_ctor, "$");
+            strcat(mangled_ctor, "_");
             for(int i = 0; i < call_arg_count; i++){
                 char code[2] = {dt_code(call_arg_types[i]), '\0'};
                 strcat(mangled_ctor, code);
@@ -2215,7 +2215,7 @@ yyreduce:
             /* build mangled call name from arg types */
             char mangled_call[80];
             strcpy(mangled_call, (yyvsp[-4].sval));
-            strcat(mangled_call, "$");
+            strcat(mangled_call, "_");
             for (int i = 0; i < call_arg_count; i++) {
                 char code[2] = { dt_code(call_arg_types[i]), '\0' };
                 strcat(mangled_call, code);
@@ -2641,7 +2641,7 @@ yyreduce:
                 while(s){
                     Symbol* next = s->next;
                     if(strcmp(s->name, (yyvsp[-5].sval)) == 0 && s->kind == KIND_FUNCTION
-                            && strchr(s->name, '$') == NULL){
+                            && strchr(s->name, '_') == NULL){
                         char newName[80];
                         overloaded_method_name(newName, (yyvsp[-5].sval),
                                                s->attr.func.param_list);
@@ -2660,7 +2660,7 @@ yyreduce:
                     s; s = s->next){
                     if(s->kind == KIND_FUNCTION &&
                        strncmp(s->name, (yyvsp[-5].sval), strlen((yyvsp[-5].sval))) == 0 &&
-                       s->name[strlen((yyvsp[-5].sval))] == '$'){
+                       s->name[strlen((yyvsp[-5].sval))] == '_'){
                         int pc = 0;
                         for(ParamNode* p = s->attr.func.param_list;
                             p; p = p->next) pc++;
@@ -2721,7 +2721,7 @@ yyreduce:
                 while(s){
                     Symbol* next = s->next;
                     if(strcmp(s->name, (yyvsp[-5].sval)) == 0 && s->kind == KIND_FUNCTION
-                            && strchr(s->name, '$') == NULL){
+                            && strchr(s->name, '_') == NULL){
                         char newName[80];
                         overloaded_method_name(newName, (yyvsp[-5].sval),
                                                s->attr.func.param_list);
@@ -2739,7 +2739,7 @@ yyreduce:
                     s; s = s->next){
                     if(s->kind == KIND_FUNCTION &&
                        strncmp(s->name, (yyvsp[-5].sval), strlen((yyvsp[-5].sval))) == 0 &&
-                       s->name[strlen((yyvsp[-5].sval))] == '$'){
+                       s->name[strlen((yyvsp[-5].sval))] == '_'){
                         int pc = 0;
                         for(ParamNode* p = s->attr.func.param_list;
                             p; p = p->next) pc++;
@@ -3193,7 +3193,7 @@ yyreduce:
         // Build mangled name from collected arg types
         char mangled_call[80];
         strcpy(mangled_call, (yyvsp[-3].sval));
-        strcat(mangled_call, "$");
+        strcat(mangled_call, "_");
         for(int i = 0; i < call_arg_count; i++){
             char code[2] = {dt_code(call_arg_types[i]), '\0'};
             strcat(mangled_call, code);
@@ -3249,7 +3249,7 @@ yyreduce:
         }
 
         // emit with mangled name if overloaded, original otherwise
-        const char* emit_name = (fsym && strchr(fsym->name, '$'))
+        const char* emit_name = (fsym && strchr(fsym->name, '_'))
                                  ? fsym->name : (yyvsp[-3].sval);
         emit("call", emit_name, "", t);
         (yyval.sval) = t;
