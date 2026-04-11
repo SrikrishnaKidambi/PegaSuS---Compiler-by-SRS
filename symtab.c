@@ -224,7 +224,7 @@ char dt_code(DataType dt){
 void overloaded_method_name(char* out, const char* name, ParamNode* param_list) {
 	char buf[256];
 	strcpy(buf,name);
-	strcat(buf,"$");
+	strcat(buf,"_");
 	for (ParamNode* p = param_list; p;p=p->next) {
 		char code[2] = {dt_code(p->datatype),'\0'};
 		strcat(buf,code);
@@ -235,7 +235,7 @@ void overloaded_method_name(char* out, const char* name, ParamNode* param_list) 
 void overloaded_ctor_name(char* out,const char* name,ParamNode* param_list){
     char buf[256];
     strcpy(buf,name);
-    strcat(buf,"$");
+    strcat(buf,"_");
     for(ParamNode* p = param_list;p; p=p->next){
         char code[2] = {dt_code(p->datatype), '\0'};
         strcat(buf,code);
