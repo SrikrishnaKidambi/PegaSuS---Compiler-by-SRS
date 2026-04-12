@@ -1,11 +1,18 @@
 Entity Calculator{
 	Calculator(string m){
-		this.message=m;
+		this.mesage=m;
 		show(m);
+	}
+
+	public int _func add(int x,int y){
+		int r=x+y;
+		return r;
 	}
 }
 
-	Calculator calc = new Calculator("Hello");
+Calculator calc = new Calculator("Hello");
+int result=calc.add(5,6);
+show(result);
 
 
 

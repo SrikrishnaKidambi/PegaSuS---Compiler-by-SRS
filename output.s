@@ -21,7 +21,7 @@
     #  -- global scope end --
 
 
-    Calculator$s:
+    Calculator_s:
     # -- constructor prologue --
         addi sp, sp, -240
         sw   ra, 236(sp)
@@ -37,7 +37,7 @@
         lw  t1, -4(s0)
         lw  t2, -8(s0)
         sw  t2, 0(t1)
-    Lepi_Calculator$s:
+    Lepi_Calculator_s:
     # -- epilogue --
         lw     ra, 236(sp)
         lw     s0, 232(sp)
@@ -46,7 +46,7 @@
     # -- epilogue end --
 
 
-    add$ii:
+    add_ii:
     # -- method prologue -- 
         addi sp, sp, -240
         sw   ra, 236(sp)
@@ -65,8 +65,8 @@
     lw t3, -12(s0)
         add  t1, t2, t3
         mv     a0, t1
-        j      Lepi_add$ii
-    Lepi_add$ii:
+        j      Lepi_add_ii
+    Lepi_add_ii:
     # -- epilogue --
         lw     ra, 236(sp)
         lw     s0, 232(sp)
@@ -91,7 +91,7 @@
         li   a1, "Casio"
         lw   a0, 0(sp)
         addi sp, sp, 4
-        call Calculator$s
+        call Calculator_s
     # push_ptr: load obj pointer into a0
         lw   a0, -16(s0)
     # call method
@@ -102,7 +102,7 @@
         li   a2, 5
         lw a0, 0(sp)
         addi sp, sp, 4
-        call add$ii
+        call add_ii
         sw  a0, -28(s0)
     # ISSUE: symbol not found for addres lookup
     lw t1, 0(s0) # unknown: t1

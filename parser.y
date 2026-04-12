@@ -270,7 +270,7 @@ constructor_decl
                 while(s){
                     Symbol* next = s->next;
                     if(strcmp(s->name, $1) == 0 && s->kind == KIND_CONSTRUCTOR
-                            && strchr(s->name, '$') == NULL){
+                            && strchr(s->name, '_') == NULL){
                         char newName[80];
                         overloaded_ctor_name(newName, $1, s->attr.ctor.param_list);
                         strncpy(s->name, newName, 63);
@@ -288,7 +288,7 @@ constructor_decl
                     for(Symbol* s = current_scope->parent->buckets[i]; s; s = s->next){
                         if(s->kind == KIND_CONSTRUCTOR &&
                            strncmp(s->name, $1, strlen($1)) == 0 &&
-                           s->name[strlen($1)] == '$'){
+                           s->name[strlen($1)] == '_'){
                             if(!name_in_list(entity_sym2->attr.entity.constructors_list, s->name)){
                                 add_name(&entity_sym2->attr.entity.constructors_list, s->name);
                             }
@@ -304,7 +304,7 @@ constructor_decl
                 for(Symbol* s = current_scope->parent->buckets[i]; s; s = s->next){
                     if(s->kind == KIND_CONSTRUCTOR &&
                        strncmp(s->name, $1, strlen($1)) == 0 &&
-                       s->name[strlen($1)] == '$'){
+                       s->name[strlen($1)] == '_'){
                         int pc = 0;
                         for(ParamNode* p = s->attr.ctor.param_list; p; p = p->next) pc++;
                         int cur_pc = 0;
@@ -390,7 +390,7 @@ method_decl
                     for (Symbol* s = current_scope->parent->buckets[i]; s; s = s->next) {
                         if (s->kind == KIND_METHOD &&
                             strncmp(s->name, $4, strlen($4)) == 0 &&
-                            s->name[strlen($4)] == '$') {
+                            s->name[strlen($4)] == '_') {
                             if (!name_in_list(entity_sym2->attr.entity.methods_list, s->name)) {
                                 add_name(&entity_sym2->attr.entity.methods_list, s->name);
                             }
@@ -406,7 +406,7 @@ method_decl
                 for (Symbol* s = current_scope->parent->buckets[i]; s; s = s->next) {
                     if (s->kind == KIND_METHOD &&
                         strncmp(s->name, $4, strlen($4)) == 0 &&
-                        s->name[strlen($4)] == '$') {
+                        s->name[strlen($4)] == '_') {
                         /* match by param count against current method scope */
                         int pc = 0;
                         for (ParamNode* p = s->attr.method.param_list; p; p = p->next) pc++;
@@ -479,7 +479,7 @@ method_decl
                     for (Symbol* s = current_scope->parent->buckets[i]; s; s = s->next) {
                         if (s->kind == KIND_METHOD &&
                             strncmp(s->name, $4, strlen($4)) == 0 &&
-                            s->name[strlen($4)] == '$') {
+                            s->name[strlen($4)] == '_') {
                             if (!name_in_list(entity_sym2->attr.entity.methods_list, s->name)) {
                                 add_name(&entity_sym2->attr.entity.methods_list, s->name);
                             }
@@ -495,7 +495,7 @@ method_decl
                 for (Symbol* s = current_scope->parent->buckets[i]; s; s = s->next) {
                     if (s->kind == KIND_METHOD &&
                         strncmp(s->name, $4, strlen($4)) == 0 &&
-                        s->name[strlen($4)] == '$') {
+                        s->name[strlen($4)] == '_') {
                         int pc = 0;
                         for (ParamNode* p = s->attr.method.param_list; p; p = p->next) pc++;
                         int cur_pc = 0;
@@ -581,7 +581,7 @@ object_decl
             //build mangled constructor name from arg types
             char mangled_ctor[80];
             strcpy(mangled_ctor, $5);
-            strcat(mangled_ctor, "$");
+            strcat(mangled_ctor, "_");
             for(int i = 0; i < call_arg_count; i++){
                 char code[2] = {dt_code(call_arg_types[i]), '\0'};
                 strcat(mangled_ctor, code);
@@ -611,7 +611,7 @@ object_decl
             /* build mangled call name from arg types */
             char mangled_call[80];
             strcpy(mangled_call, $6);
-            strcat(mangled_call, "$");
+            strcat(mangled_call, "_");
             for (int i = 0; i < call_arg_count; i++) {
                 char code[2] = { dt_code(call_arg_types[i]), '\0' };
                 strcat(mangled_call, code);
@@ -966,7 +966,7 @@ function_decl
                 while(s){
                     Symbol* next = s->next;
                     if(strcmp(s->name, $3) == 0 && s->kind == KIND_FUNCTION
-                            && strchr(s->name, '$') == NULL){
+                            && strchr(s->name, '_') == NULL){
                         char newName[80];
                         overloaded_method_name(newName, $3,
                                                s->attr.func.param_list);
@@ -985,7 +985,7 @@ function_decl
                     s; s = s->next){
                     if(s->kind == KIND_FUNCTION &&
                        strncmp(s->name, $3, strlen($3)) == 0 &&
-                       s->name[strlen($3)] == '$'){
+                       s->name[strlen($3)] == '_'){
                         int pc = 0;
                         for(ParamNode* p = s->attr.func.param_list;
                             p; p = p->next) pc++;
@@ -1039,7 +1039,7 @@ function_decl
                 while(s){
                     Symbol* next = s->next;
                     if(strcmp(s->name, $3) == 0 && s->kind == KIND_FUNCTION
-                            && strchr(s->name, '$') == NULL){
+                            && strchr(s->name, '_') == NULL){
                         char newName[80];
                         overloaded_method_name(newName, $3,
                                                s->attr.func.param_list);
@@ -1057,7 +1057,7 @@ function_decl
                     s; s = s->next){
                     if(s->kind == KIND_FUNCTION &&
                        strncmp(s->name, $3, strlen($3)) == 0 &&
-                       s->name[strlen($3)] == '$'){
+                       s->name[strlen($3)] == '_'){
                         int pc = 0;
                         for(ParamNode* p = s->attr.func.param_list;
                             p; p = p->next) pc++;
@@ -1406,7 +1406,7 @@ factor
         // Build mangled name from collected arg types
         char mangled_call[80];
         strcpy(mangled_call, $1);
-        strcat(mangled_call, "$");
+        strcat(mangled_call, "_");
         for(int i = 0; i < call_arg_count; i++){
             char code[2] = {dt_code(call_arg_types[i]), '\0'};
             strcat(mangled_call, code);
@@ -1462,7 +1462,7 @@ factor
         }
 
         // emit with mangled name if overloaded, original otherwise
-        const char* emit_name = (fsym && strchr(fsym->name, '$'))
+        const char* emit_name = (fsym && strchr(fsym->name, '_'))
                                  ? fsym->name : $1;
         emit("call", emit_name, "", t);
         $$ = t;
