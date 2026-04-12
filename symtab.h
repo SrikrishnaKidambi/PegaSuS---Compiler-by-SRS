@@ -168,6 +168,7 @@ typedef struct Symbol {
                               //   int a = 5;  → is_initialized = 1
                               //   int a;      → is_initialized = 0
 
+    char ir_name[64];	// unique name used in IR quads
     char init_value[64];	// store the string form of the initialized value
     // ── CONSTRUCT-SPECIFIC FIELDS — only ONE active at a time ──
     // A union shares the same memory block for all members.
@@ -223,6 +224,9 @@ struct SymTable {
                                         // at end of scope = total bytes needed (frame size)
     struct SymTable* parent;            // pointer to the enclosing scope
                                         // NULL only for the global scope
+
+    struct SymTable* first_child;	// first child's scope for the current scope
+    struct SymTable* next_sibling;	// scope of the next sibling
 };
 
 SymTable* create_scope  (ScopeKind kind, const char* name, SymTable* parent);
@@ -276,6 +280,10 @@ SymTable* find_entity_scope(const char* entity_name);
 // Function for checking if the variable is already declared before referencing the variable
 Symbol* require_declared(SymTable* scope, const char* name, int lineno);
 
+
+Symbol* lookup_deep_by_irname(SymTable* tbl, const char* ir_name);
+
+Symbol* lookup_by_irname(SymTable* tbl, const char* ir_name);
 
 extern SymTable* global_scope;    // points to the top-level (global) scope
                                   // created in main() before parsing starts

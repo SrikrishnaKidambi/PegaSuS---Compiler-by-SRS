@@ -7,15 +7,75 @@
 #include <stdarg.h>
 #include <ctype.h>
 
-// Add near the top of asm_gen.c, after the includes:
-static void genConstructorPrologue(const Quad* q);
-static void genMethodPrologue(const Quad* q);
-static int getVarOffset(const char* var_name);
+#define MAX_TEMPS 256
+
+static struct {
+	char name[16];
+	int frame_offset;
+}temp_slots[MAX_TEMPS];
+
+static int temp_slot_count = 0;
+static int temp_base_raw = 0;
+static int temp_next_raw = 0;
+
+static void resetTempSlots(){
+	temp_slot_count = 0;
+//	next_temp_offset = 0;
+}
+
+void initTempAllocator(SymTable* scope){
+	temp_slot_count = 0;
+	int base = scope ? scope->next_offset : 0;
+	temp_base_raw = base;
+	temp_next_raw = base;
+
+}
+
+static int getDeepNextOffset(SymTable* tbl){
+	if(!tbl){
+		return 0;
+	}
+	int max = tbl->next_offset;
+	for(SymTable* child = tbl->first_child; child; child = child->next_sibling){
+		int child_max = getDeepNextOffset(child);
+		if(child_max > max){
+			max = child_max;
+		}
+	}
+	return max;
+}
 
 // A pointer that points to the current scope of the function
 // Set in the genFunctionPrologue and cleared in the genFunctionEpilogue
 // If the global scope is being parsed then we make it NULL
 static SymTable* current_func_scope = NULL;
+
+static int getTempFrameOffset(const char* tname){
+	for(int i = 0; i < temp_slot_count; i++){
+		if(strcmp(temp_slots[i].name, tname) == 0){
+			return temp_slots[i].frame_offset;
+		}
+
+	}
+
+	int raw = temp_next_raw;
+	temp_next_raw += 4;
+
+	int frame_off = -(raw + 8);
+
+	strncpy(temp_slots[temp_slot_count].name, tname, 19);
+	temp_slots[temp_slot_count].name[19] = '\0';
+	temp_slots[temp_slot_count].frame_offset = frame_off;
+	temp_slot_count++;
+	return frame_off;
+}
+
+// Add near the top of asm_gen.c, after the includes:
+static void genConstructorPrologue(const Quad* q);
+static void genMethodPrologue(const Quad* q);
+static int getVarOffset(const char* var_name);
+
+
 
 // A global variable that decides if we need to use template matching based algorithm for instruction selection phase in assembly code generation
 int use_template_matching = 1;	// By default it is 1 and it is turned off when the stats mode is used while compiling the input code
@@ -38,7 +98,7 @@ typedef enum{
 Symbol* lookupForCodeGen(const char* name){
 	Symbol* sym = NULL;
 
-	// Search at the local scope using the above defined pointer
+	// Search at the local scope using the above defined pointer(handles paremeters and local variables of that scope or function
 	if(current_func_scope){
 		sym = lookup(current_func_scope, name);
 		if(sym){
@@ -49,6 +109,14 @@ Symbol* lookupForCodeGen(const char* name){
 	// Serach at the global scope using the global_scope defined pointer in the symbol table implementation
 	if(global_scope){
 		sym = lookup_local(global_scope, name);
+		if(sym){
+			return sym;
+		}
+	}
+
+	// Deep search through all child scopes of global. This handles variables declared inside for/if/block scopes in the global body
+	if(global_scope){
+		sym = lookup_deep_by_irname(global_scope, name);
 		if(sym){
 			return sym;
 		}
@@ -112,8 +180,9 @@ static const char* registerStringLiteral(const char* operand){
 			return str_lit_table[i].label;
 		}
 	}
-
+				
 	if(str_lit_count >= MAX_STRING_LITERALS){
+		printf("Cannot store any more string literals");	
 		return NULL;
 	}
 
@@ -153,7 +222,7 @@ static void emitGlobalScalar(Symbol* sym){
 	switch(sym->datatype){
 		case DT_INT:
 			emitAlign(4);
-			if(sym->is_initialized){
+			if(sym->is_initialized && sym->init_value[0] != '\0'){
 				asmEmit("%s:    .word  %s", sym->name, sym->init_value);
 			}
 			else{
@@ -162,7 +231,7 @@ static void emitGlobalScalar(Symbol* sym){
 			break;
 		case DT_FLOAT:
 			emitAlign(4);
-			if(sym->is_initialized){
+			if(sym->is_initialized && sym->init_value[0] != '\0'){
                                 asmEmit("%s:    .float %s", sym->name, sym->init_value);
                         }
                         else{
@@ -170,7 +239,7 @@ static void emitGlobalScalar(Symbol* sym){
 			}
 			break;
 		case DT_BOOL:
-			if(sym->is_initialized){
+			if(sym->is_initialized && sym->init_value[0] != '\0'){
 				int val = (strcmp(sym->init_value, "true") == 0 || 						strcmp(sym->init_value, "1") == 0) ? 1: 0;
 				asmEmit("%s:    .byte  %d", sym->name, val);
 			}
@@ -179,7 +248,7 @@ static void emitGlobalScalar(Symbol* sym){
 			}
 			break;
 		case DT_CHAR:
-			if(sym->is_initialized){
+			if(sym->is_initialized && sym->init_value[0] != '\0'){
 				const char* v = sym->init_value;
 				if (v[0] == '\'' && v[2] == '\'') {
 					asmEmit("%s:    .byte  '%c'", sym->name, v[1]);
@@ -198,7 +267,7 @@ static void emitGlobalScalar(Symbol* sym){
 }
 
 
-// emitGlobalString - emits an entry in .data section
+// emitGlobalString - emits an entry section
 static void emitGlobalString(Symbol* sym){
 	if(sym->is_initialized && sym->init_value && sym->init_value[0] != '\0'){
 		char content[MAX_STR_CONTENT];
@@ -210,6 +279,12 @@ static void emitGlobalString(Symbol* sym){
 			content[sizeof(content) - 1] = '\0';
 		}
 		asmEmit("%s:    .asciz \"%s\"", sym->name, content);
+		if(str_lit_count < MAX_STRING_LITERALS){
+			snprintf(str_lit_table[str_lit_count].label, 32, "%s", sym->name);
+			strncpy(str_lit_table[str_lit_count].content, content, MAX_STR_CONTENT-1);
+			str_lit_table[str_lit_count].content[MAX_STR_CONTENT-1] = '\0';
+			str_lit_count++;
+		}
 	}
 	else{
 		int buf_size = (sym->size > 0) ? sym->size : 64;
@@ -330,9 +405,12 @@ static void scanStringLiterals(void)
 			const char* label = registerStringLiteral(field);
 			int is_new = str_lit_count > before;
 			if(label && is_new){
-				asmEmit("%s:    .asciz \"%s\"",
+				if(strncmp(label, "str_", 4) == 0){
+					asmEmit("%s:    .asciz \"%s\"",
 						label,
 						str_lit_table[str_lit_count - 1].content);
+				}
+				// else already emitted by emitGlobalString so skip it
 			}
 		}
 	}
@@ -341,7 +419,7 @@ static void scanStringLiterals(void)
 // genDataSection - Emits the .data section completely emitting the labels for all the global scalar variabls, global arrays, and string literals by scanning IR quads
 void genDataSection(void)
 {
-	asmEmit(".section .data");
+	asmEmit(".data");
 	asmBlank();
 
 	// Collect all global symbols to that first we can emit global scalars
@@ -574,8 +652,14 @@ void genAssign(const Quad* q) {
     }
     // string literal
     if (src[0] == '"') {
+	const char* lbl = getStringLabel(src);
         const char* dst = getReg(dst_name);
-        asmEmit("    la   %s, str_literal", dst);
+		if(lbl){
+				asmEmit("    la   %s, str_literal", dst);
+		}
+		else{
+			asmEmit("    la   %s, str_0", dst);
+		}	
 		count_loads++;
 	markDirty(dst);
         //store(dst_name, dst);
@@ -613,24 +697,25 @@ void genArrayAccess(const Quad* q) {
 
     // r_base = address of the array's first element 
     const char* r_base   = getReg("_arr_base_tmp");
-    const char* addr_str = getVarAddress(q->arg1);
-    asmEmit("    la   %s, %s", r_base, addr_str);   // base address 
-	count_loads++;
 
-    // r_off = byte offset (already computed by the * quad before this) 
+    Symbol* asym = lookupForCodeGen(q->arg1);
+    if(asym && asym->scope_level == 0){
+	    asmEmit("    la   %s, %s", r_base, q->arg1);
+    }
+    else{
+	    asmEmit("    addi %s, s0, %d", r_base, getVarOffset(q->arg1));
+    }
+    count_loads++;
+
     const char* r_off = load(q->arg2);
-
-    // effective address = base + offset 
     const char* r_ea = getReg(q->result);
     asmEmit("    add  %s, %s, %s", r_ea, r_base, r_off);
-
-    // load the 4-byte value from that address into result 
     asmEmit("    lw   %s, 0(%s)", r_ea, r_ea);
-	count_loads++;
+    count_loads++;
 
     freeReg("_arr_base_tmp");
     freeReg(q->arg2);
-    store(q->result, r_ea);
+    markDirty(r_ea);
 }
 
 
@@ -967,9 +1052,11 @@ int isTemp(const char* operand){
 	}
 
 	//check if it is actually temp variable or the user defined variable by doing the lookup in symbol table
-	extern SymTable* current_scope;
-	if(current_scope && lookup(current_scope,operand)) return 0;
-
+	//extern SymTable* current_scope;
+	//if(current_scope && lookup(current_scope,operand)) return 0;
+	if(lookupForCodeGen(operand)){
+		return 0;
+	}
 	return 1;
 }
 
@@ -991,6 +1078,7 @@ void genEntityBlock(const Quad* q){
 
 //getOperandType classifies the operands which we use later for register allocation and to know where to load the register from
 
+/*
 OperandType getOperandType(const char* operand){
 	if(!operand || operand[0] == '\0') return OT_UNKNOWN;
 
@@ -1010,6 +1098,26 @@ OperandType getOperandType(const char* operand){
 
 	//for unknown
 	return OT_UNKNOWN;
+}*/
+
+OperandType getOperandType(const char* operand){
+	if(!operand || operand[0] == '\0'){
+		return OT_UNKNOWN;
+	}
+
+	if(lookupForCodeGen(operand)){
+		return OT_VAR;
+	}
+	if(isTemp(operand)){
+		return OT_TEMP;
+	}
+	if(isLabel(operand)){
+		return OT_LABEL;
+	}
+	if(isConstant(operand)){
+		return OT_CONST;
+	}
+	return OT_UNKNOWN;
 }
 
 //getVarAddress will give the string "-offset(s0)" based on the offset in the symbol table
@@ -1017,27 +1125,18 @@ OperandType getOperandType(const char* operand){
 const char* getVarAddress(const char* name){
 	static char addr_buf[64];
 
-	extern SymTable* current_scope;
-	if(!current_scope){
-		snprintf(addr_buf,sizeof(addr_buf),"0(s0)");
-		return addr_buf;
-	}
 	if(strcmp(name, "this") == 0){
 		snprintf(addr_buf, sizeof(addr_buf), "-4(s0)");
 		return addr_buf;
 	}
 
-	Symbol* sym = lookup(current_scope,name);
+	Symbol* sym = lookupForCodeGen(name);
 	if(!sym){
 		asmComment("ISSUE: symbol not found for addres lookup");
 		snprintf(addr_buf, sizeof(addr_buf),  "0(s0) # unknown: %s",name);
 		return addr_buf;
 	}
-
-	if(sym->offset==0)
-		snprintf(addr_buf,sizeof(addr_buf),"-8(s0)");
-	else
-		snprintf(addr_buf,sizeof(addr_buf),"-%d(s0)",sym->offset+8);
+	snprintf(addr_buf,sizeof(addr_buf),"-%d(s0)",sym->offset+8);
 	return addr_buf;
 }
 
@@ -1239,10 +1338,9 @@ static void spillOne(int i){
 		const char* occupant = reg_contents[i];
 		OperandType ot = getOperandType(occupant);
 
-		if(ot == OT_VAR){
-			const char* addr = getVarAddress(occupant);
-			asmComment("(debug) store ins. to spill");
-			asmEmit("sw %s, %s", reg_name[i], addr);
+		if(ot == OT_VAR || ot == OT_TEMP){
+			int frame_off = getVarOffset(occupant);
+			asmEmit("    sw %s, %d(s0)", reg_name[i], frame_off);
 			count_stores++;
 		}
 	}
@@ -1453,6 +1551,25 @@ const char* load(const char* operand){
 	asmEmit("lw %s, %s",reg,addr);
 	count_loads++;
 
+	// check if the variable is global
+	Symbol* sym = lookupForCodeGen(operand);
+	if(sym && sym->scope_level == 0){
+		// it is a global variable - that is use la + lw
+		asmEmit("la   t0, %s", sym->name);
+		asmEmit("lw   %s, 0(t0)", reg);
+	}
+	else if(sym){
+		const char* addr = getVarAddress(operand);
+		asmEmit("lw %s, %s",reg,addr);
+	}
+	else if(isTemp(operand)){
+		int frame_off = getTempFrameOffset(operand);
+		asmEmit("    lw %s, %d(s0)", reg, frame_off);
+	}
+	else{
+		asmComment("load: unknown operand, loading 0");
+		asmEmit("    li %s, 0", reg);
+	}
 	int new_idx = findRegFor(operand);
 	if(new_idx>=0) reg_dirty[new_idx] = 0;
 
@@ -1537,7 +1654,7 @@ static OperandMode getMode(const char* operand){
 	if(!operand || operand[0] == '\0'){
 		return MODE_NONE;
 	}
-	if(isConstant(operand) >= 0){
+	if(isConstant(operand)){
 		return MODE_IMM;
 	}
 	if(findRegFor(operand) >= 0){
@@ -1642,11 +1759,22 @@ static void emitAssignWithMode(const Quad* q, OperandMode m1){
 		case MODE_REG:
 			// If the variable is in register then generate mv
 		{
-			const char* src_reg = reg_name[findRegFor(q->arg1)];
-			const char* dst = getReg(q->result);
-			asmEmit("    mv   %s, %s", dst, src_reg);
-			// store(q->result, dst);
-			markDirty(dst);
+			int src_idx = findRegFor(q->arg1);
+			const char* src_reg = reg_name[src_idx];
+
+			// check if the result already has a register
+			int dst_idx = findRegFor(q->result);
+			if(dst_idx >= 0){
+				if(dst_idx != src_idx){
+					asmEmit("    mv   %s, %s", reg_name[dst_idx], src_reg);
+					markDirty(reg_name[dst_idx]);
+
+				}
+			}
+			else{
+				strncpy(reg_contents[src_idx], q->result, 63);
+				markDirty(reg_name[src_idx]);
+			}
 		}
 		break;
 		case MODE_MEM:
@@ -1888,15 +2016,23 @@ static int getVarOffset(const char* var_name){
 */
 
 static int getVarOffset(const char* var_name){
-	extern SymTable* current_scope;
-	if(!current_scope){
+
+	if(!var_name || var_name[0] == '\0'){
 		return 0;
 	}
-	Symbol* sym = lookup(current_scope, var_name);
-	if(!sym){
-		return 0;
+	if(strcmp(var_name, "this") == 0){
+		return -4;
 	}
-	return -(sym->offset + sym->size);
+	Symbol* sym = lookupForCodeGen(var_name);
+	if(sym){
+		return -(sym->offset + 8);	// Since the first 4 bytes are for ra to return at the caller and the second 4 bytes are for storing the top pointer of the stack frame of the caller so that we restore the state of the caller before the callee is returned to caller
+	}
+
+	if(isTemp(var_name)){
+		return getTempFrameOffset(var_name);
+	}
+	asmComment("WARNING: getVarOffset - unknown operand, returning 0");
+	return 0;
 }
 
 // genIfGoto - A function for handling the opcodes: label, goto and ifFalse in IR
@@ -1912,6 +2048,7 @@ void genIfGoto(const Quad* q){
 	}
 	// If the quad is just a goto quad then in assembly generate an unconditional jump statement
 	else if(strcmp(q->op, "goto") == 0){
+		spillAllRegs();
 		asmEmit("    j      %s", q->result);
 	}
 	// If the quad contains ifFalse in the operator position then we need to generate the jump statement checking the condition 
@@ -1989,6 +2126,12 @@ void genFunctionCall(const Quad* q){
 // Current top of the stack frame pointer is required because we are required because it is required for correct loading of the values from the stored ones in the stack frame
 void genFunctionPrologue(const Quad* q){
 	pending_arg_count = 0;
+	//resetTempSlots();	
+	//temp_slot_count = 0;
+	//next_temp_offset = 0;
+	int temp_spill_area = (IR_idx * 4 < 2048) ? (IR_idx * 4 + 64) : 2048;
+	temp_spill_area = (temp_spill_area + 15) & ~15;
+	
 	const char* fname = q->arg1;
 	
 	asmBlank();
@@ -1997,17 +2140,22 @@ void genFunctionPrologue(const Quad* q){
 
 	// Perform a lookup in the symbol table for getting the parameter count
 	Symbol* fsym = lookup(global_scope, fname);
-
-	if(fsym && fsym->attr.func.scope){
-		setCurrentFuncScope(fsym->attr.func.scope);
+	SymTable* func_scope = fsym ? fsym->attr.func.scope : NULL;
+	if(func_scope){
+		setCurrentFuncScope(func_scope);
 	}
+	//initTempAllocator(func_scope);
+	int deep_off = getDeepNextOffset(func_scope);
+	temp_base_raw = deep_off;
+	temp_next_raw = deep_off;
+	temp_slot_count = 0;
 	int frame_size = 64;
 
 	if (fsym && (fsym->kind == KIND_FUNCTION || fsym->kind == KIND_METHOD)){
 			int param_count = (fsym->kind == KIND_FUNCTION) ? fsym->attr.func.param_count : fsym->attr.method.param_count;
-			// align to 16-byte boundary
-			frame_size = param_count * 4 + 64;
-			frame_size = (frame_size + 15) & ~15;
+		// align to 16-byte boundary	
+		frame_size = param_count * 4 + 64 + temp_spill_area;
+		frame_size = (frame_size + 15) & ~15;
 	}
 	
 	// Allocate the space for the new frame
@@ -2047,6 +2195,10 @@ void genFunctionPrologue(const Quad* q){
 }
 
 static void genConstructorPrologue(const Quad* q){
+	pending_arg_count = 0;
+	//resetTempSlots();
+	int temp_spill_area = (IR_idx * 4 < 2048) ? (IR_idx * 4 + 64) : 2048;              temp_spill_area = (temp_spill_area + 15) & ~15;
+
 	const char* cname = q->arg1;
 
 	asmBlank();
@@ -2068,9 +2220,9 @@ static void genConstructorPrologue(const Quad* q){
 			}
 		}
 	}
-
+	
 	int param_count = csym ? csym->attr.ctor.param_count:0;
-	int frame_size = 4 + param_count * 4 + 64;
+	int frame_size = 4 + param_count * 4 + 64 + temp_spill_area;
 	frame_size = (frame_size + 15) & ~15;
 
 	asmEmit("    addi sp, sp, -%d", frame_size);
@@ -2084,6 +2236,16 @@ static void genConstructorPrologue(const Quad* q){
 	asmEmit("    sw   a0, -4(s0)");
 	count_stores++;
 
+	if(csym && csym->attr.ctor.scope){
+		setCurrentFuncScope(csym->attr.ctor.scope);
+	}
+	//initTempAllocator(csym ? csym->attr.ctor.scope : NULL);
+
+	int deep_off = getDeepNextOffset(csym ? csym->attr.ctor.scope : NULL);
+	temp_base_raw = deep_off;
+	temp_next_raw = deep_off;
+	temp_slot_count = 0;
+
 	if(csym && csym->attr.ctor.param_list){
 		ParamNode* p = csym->attr.ctor.param_list;
 		int i = 1;
@@ -2095,9 +2257,9 @@ static void genConstructorPrologue(const Quad* q){
 		}
 	}
 
-	if(csym && csym->attr.ctor.scope){
+	/*if(csym && csym->attr.ctor.scope){
 		setCurrentFuncScope(csym->attr.ctor.scope);
-	}
+	}*/
 
 	asmComment("-- constructor prologue end --");
 	asmBlank();
@@ -2106,6 +2268,10 @@ static void genConstructorPrologue(const Quad* q){
 }
 
 static void genMethodPrologue(const Quad* q){
+	pending_arg_count = 0;
+	resetTempSlots();
+	int temp_spill_area = (IR_idx * 4 < 2048) ? (IR_idx * 4 + 64) : 2048;
+	temp_spill_area = (temp_spill_area + 15) & ~15;
 	const char* mname = q->arg1;
 
 	asmBlank();
@@ -2126,7 +2292,7 @@ static void genMethodPrologue(const Quad* q){
 		}
 	}
 	int param_count = msym ? msym->attr.method.param_count: 0;
-	int frame_size = 4 + param_count * 4 + 64;
+	int frame_size = 4 + param_count * 4 + 64 + temp_spill_area;
 	frame_size = (frame_size + 15) & ~15;
 
 	asmEmit("    addi sp, sp, -%d", frame_size);
@@ -2140,6 +2306,15 @@ static void genMethodPrologue(const Quad* q){
 	asmEmit("    sw   a0, -4(s0)");
 	count_stores++;
 
+	if(msym && msym->attr.method.scope){
+		setCurrentFuncScope(msym->attr.method.scope);
+	}
+	int deep_off = getDeepNextOffset(msym ? msym->attr.method.scope : NULL);
+	temp_base_raw = deep_off;
+	temp_next_raw = deep_off;
+	temp_slot_count = 0;
+	//initTempAllocator(msym ? msym->attr.method.scope : NULL);
+	
 	if(msym && msym->attr.method.param_list){
 		ParamNode* p = msym->attr.method.param_list;
 		int i = 1;
@@ -2151,8 +2326,6 @@ static void genMethodPrologue(const Quad* q){
 		}
 	}
 
-	if(msym && msym->attr.method.scope)
-		setCurrentFuncScope(msym->attr.method.scope);
 
 	asmComment("-- method prologue end --");
 	asmBlank();
@@ -2170,27 +2343,55 @@ void genFunctionEpilogue(const Quad* q){
 	if(strcmp(q->op, "return") == 0){
 		// Load the return value to a0
 		if(q->arg1[0] != '\0'){
-			OperandType ot = getOperandType(q->arg1);
-			if(ot == OT_CONST){
-				asmEmit("    li     a0, %s", q->arg1);
-				count_loads++;
+			if(isStringLiteral(q->arg1)){
+				const char* lbl = getStringLabel(q->arg1);
+				if(lbl){
+					asmEmit("    la a0, %s", lbl);
+					count_loads++;
+				}
 			}
 			else{
-				asmEmit("    lw     a0, %d(s0)", getVarOffset(q->arg1));
-				count_loads++;
+				OperandType ot = getOperandType(q->arg1);
+				if(ot == OT_CONST){
+					asmEmit("    li     a0, %s", q->arg1);
+					count_loads++;
+				}
+				else{
+					Symbol* sym = lookupForCodeGen(q->arg1);
+					if(sym && sym->datatype == DT_STRING){
+						int reg_idx = findRegFor(q->arg1);
+						if(reg_idx >= 0){
+							asmEmit("    mv a0, %s", reg_name[reg_idx]);
+						}
+						else{
+							asmEmit("    lw     a0, %d(s0)", getVarOffset(q->arg1));
+							count_loads++;
+						}
+					}
+					else{
+						int reg_idx = findRegFor(q->arg1);
+						if(reg_idx >= 0){
+							asmEmit("    mv     a0, %s", reg_name[reg_idx]);
+						}
+						else{
+							asmEmit("    lw     a0, %d(s0)", getVarOffset(q->arg1));
+							count_loads++;
+						}
+					}
+				}
 			}
 		}
 		
 		// Generate a jump instruction to the epilogue to perform the clean-up
 		if(current_func_name[0] != '\0'){
-			asmEmit("    j      .Lepi_%s", current_func_name);
+			asmEmit("    j      Lepi_%s", current_func_name);
 		}
 		return;
 	}
 	if(strcmp(q->op, "endfunc") == 0 || strcmp(q->op, "end_constr") == 0 || strcmp(q->op, "end_method") == 0){
 		// Emitting the shared epilogue label so that all return quads of the function would jump to this shared label
 		if(current_func_name[0] != '\0'){
-			asmEmit(".Lepi_%s:", current_func_name);
+			asmEmit("Lepi_%s:", current_func_name);
 		}
 		asmComment("-- epilogue --");
 
@@ -2277,9 +2478,16 @@ void genIO(const Quad* q){
 				count_loads++;
 			}
 			else{
+				Symbol* sym = lookupForCodeGen(q->arg1);
+				/*if(sym && sym->scope_level == 0){
+					// Global variable
+					asmEmit("    la     t0, %s", sym->name);
+					asmEmit("    lw     a0, 0(t0)");
+				}*/
 				asmEmit("    lw     a0, %d(s0)", getVarOffset(q->arg1));
 				count_loads++;
 			}
+			
 		}
 
 		asmEmit("    li     a7, %d", service);
@@ -2342,6 +2550,7 @@ void genIO(const Quad* q){
 void generateASM(void)
 {
 	initRegs();
+	resetTempSlots();
 	if(!asm_out){
 		asm_out = stdout;
 	}
@@ -2378,17 +2587,80 @@ void generateASM(void)
 	genDataSection();
 
 	// Generating .text section
-	asmEmit(".section .text");
+	asmEmit(".text");
 	asmEmit(".globl main");		// Entry point of the asm file
-	
+
+	// emit a prologue for the global scope so that s0 is valid and spills have a real stack frame to land in. Compute the size of the frame from global scope's next_offset
+	#define TEMP_SPILL_AREA 512
+	int global_frame = getDeepNextOffset(global_scope);
+	// Add 8 bytes for ra and s0 save slots then round up to 16-byte boundary
+	global_frame += 8 + 64 + (IR_idx * 4 < 1024 ? IR_idx * 4 + 64 : 1024);		// Additional 64 bytes for temps
+	global_frame = (global_frame + 15) & ~15;
+
+	static int saved_global_frame;
+	saved_global_frame = global_frame;
+
+	asmEmit("main:");
+	asmComment("-- global scope --");
+	asmEmit("    addi sp, sp, -%d", global_frame);
+	asmEmit("    sw ra, %d(sp)", global_frame - 4);
+	asmEmit("    sw s0, %d(sp)", global_frame - 8);
+	asmEmit("    addi s0, sp, %d", global_frame);
+	asmEmit("    j global_body");	// Emit a new jump ins to the label that has the global body code
+	asmComment(" -- global scope end --");
+	asmBlank();
+
+	// Pass 1: Emit all the function/constructor/method bodies by walking through the IR code
+	int in_func = 0;
 	for(int i = 0; i < IR_idx; i++){
-		current_ir_idx = i; //tell getReg which instruction we are at
-		genQuad(&IR[i]);
+		const char* op = IR[i].op;
+		if(strcmp(op, "func") == 0 || strcmp(op, "constr") == 0 || strcmp(op, "method") == 0){
+			in_func = 1;
+		}
+		if(in_func){
+			current_ir_idx = i; //tell getReg which instruction we are at
+			genQuad(&IR[i]);
+		}
+		if(strcmp(op, "endfunc") == 0 || strcmp(op, "end_constr") == 0 || strcmp(op, "end_method") == 0){
+			in_func = 0;
+		}
+	}
+
+	// Global body label 
+	asmBlank();
+	asmEmit("global_body:");
+	asmComment("-- Global body --");	
+	int global_deep_offset = getDeepNextOffset(global_scope);
+	temp_base_raw = global_deep_offset;
+	temp_next_raw = global_deep_offset;
+	temp_slot_count = 0;
+	//initTempAllocator(global_scope);
+
+	// Pass 2: emit only global-scope quads that is outside any function or method(class')
+	in_func = 0;
+	for(int i = 0; i < IR_idx; i++){
+		const char* op = IR[i].op;
+		if(strcmp(op, "func") == 0 || strcmp(op, "constr") == 0 || strcmp(op, "method") == 0) {
+			in_func = 1;
+		}
+		if(!in_func){
+			current_ir_idx = i; //tell getReg which instruction we are at
+			genQuad(&IR[i]);
+		}
+		if(strcmp(op, "endfunc") == 0 || strcmp(op, "end_constr") == 0 || strcmp(op, "end_method") == 0){
+			in_func = 0;
+		}
 	}
 
 	// Emit a program exit at the end of the .text section so that simulator does not fall off the end of main and crash. The service for the exit program ecall is 10.
 	asmBlank();
-	asmEmit("    li     a7, 10");
+
+	asmComment("-- global scope epilogue --");
+	asmEmit("    lw ra, %d(sp)", global_frame - 4);
+	asmEmit("    lw s0, %d(sp)", global_frame - 8);
+	asmEmit("    addi sp, sp, %d", global_frame);
+
+	asmEmit("    li a7, 10");
 	count_loads++;
 	asmEmit("    ecall");
 

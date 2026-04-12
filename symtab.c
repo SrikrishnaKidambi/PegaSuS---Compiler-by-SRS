@@ -31,6 +31,8 @@ static unsigned int hash_fn(const char* s) {
     return h % HASH_SIZE;
 }
 
+static int ir_name_counter = 0;
+
 // ────────────────────────────────────────────────────────────
 //  int    → 4 bytes  (standard 32-bit integer)
 //  float  → 4 bytes  (standard 32-bit float)
@@ -60,8 +62,65 @@ SymTable* create_scope(ScopeKind kind, const char* name, SymTable* parent) {
     t->level       = parent ? parent->level + 1 : 0;
     t->parent      = parent;
     t->next_offset = 0;     // Important field: fresh offset counter for this scope
+    t->first_child = NULL;
+    t->next_sibling = NULL;
     strncpy(t->name, name, 63);
+    if(parent){
+	    if(!parent->first_child){
+		    parent->first_child = t;
+	    }
+	    else{
+		    SymTable* sib = parent->first_child;
+		    while(sib->next_sibling){
+			    sib = sib->next_sibling;
+		    }
+		    sib->next_sibling = t;
+	    }
+    }
     return t;
+}
+
+// Finds a symbol by its ir_name field (used by codegen after scope pop)
+Symbol* lookup_by_irname(SymTable* tbl, const char* ir_name){
+	if(!tbl) return NULL;
+
+	// Search upward through parent chain
+	for(SymTable* t = tbl; t; t = t->parent){
+		for(int b = 0; b < HASH_SIZE; b++){
+			for(Symbol* s = t->buckets[b]; s; s = s->next){
+				if(strcmp(s->ir_name, ir_name) == 0){
+					return s;
+				}
+			}
+		}
+	}
+	return NULL;
+}
+
+
+// Checks the current scope and also the descendant scopes recursively that is search downward
+Symbol* lookup_deep_by_irname(SymTable* tbl, const char* ir_name){
+	if(!tbl){
+		return NULL;
+	}
+
+	// Check all buckets in this scope
+	for(int b = 0; b < HASH_SIZE; b++){
+		for(Symbol* s = tbl->buckets[b]; s; s = s->next){
+			if(strcmp(s->ir_name, ir_name) == 0){
+				return s;
+			}
+		}
+	}
+	
+	// Recursively check the scope of children
+	for(SymTable* child = tbl->first_child; child; child = child->next_sibling){
+		Symbol* s = lookup_deep_by_irname(child, ir_name);
+		if(s){
+			return s;
+		}
+	}
+	return NULL;
 }
 
 
@@ -342,7 +401,14 @@ Symbol* insert_symbol(SymTable* tbl, const char* name,
     sym->next       = tbl->buckets[h];  // new node points to old head
     tbl->buckets[h] = sym;              // new node becomes new head
     tbl->symbol_count++;
-
+    // Assign a unique IR name for variables in subscopes so that two loops with same variable name don't collide with each other
+    if(kind == KIND_VAR && (tbl->kind == SCOPE_FOR || tbl->kind == SCOPE_BLOCK ||
+			    tbl->kind == SCOPE_IF || tbl->kind == SCOPE_ELIF || tbl->kind == SCOPE_ELSE)){
+	    snprintf(sym->ir_name, 64, "%s$%d", name, ir_name_counter++);
+    }
+    else{
+	    strncpy(sym->ir_name, name, 63);
+    }
     return sym;
 }
 
