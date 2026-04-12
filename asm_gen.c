@@ -80,6 +80,10 @@ static int getVarOffset(const char* var_name);
 // A global variable that decides if we need to use template matching based algorithm for instruction selection phase in assembly code generation
 int use_template_matching = 1;	// By default it is 1 and it is turned off when the stats mode is used while compiling the input code
 
+//counts of loads and stores
+static int count_loads = 0;
+static int count_stores = 0;
+
 typedef enum{
 	MODE_REG,	// Value currently in register, so use it directly (no load instruction to be generated
 	MODE_IMM,	// Compile time constant - so use the instructions like li or immediate instruction
@@ -631,6 +635,7 @@ void genAssign(const Quad* q) {
     if (src[0] == '\'' && src[2] == '\'') {
         const char* dst = getReg(dst_name);
         asmEmit("    li   %s, %d", dst, (int)src[1]);
+		count_loads++;
 	markDirty(dst);
        // store(dst_name, dst);
         return;
@@ -640,6 +645,7 @@ void genAssign(const Quad* q) {
     if (isConstant(src)) {
         const char* dst = getReg(dst_name);
         asmEmit("    li   %s, %s", dst, src);
+		count_loads++;
 	markDirty(dst);
        // store(dst_name, dst);
         return;
@@ -648,12 +654,13 @@ void genAssign(const Quad* q) {
     if (src[0] == '"') {
 	const char* lbl = getStringLabel(src);
         const char* dst = getReg(dst_name);
-	if(lbl){
-        	asmEmit("    la   %s, str_literal", dst);
-	}
-	else{
-		asmEmit("    la   %s, str_0", dst);
-	}	
+		if(lbl){
+				asmEmit("    la   %s, str_literal", dst);
+		}
+		else{
+			asmEmit("    la   %s, str_0", dst);
+		}	
+		count_loads++;
 	markDirty(dst);
         //store(dst_name, dst);
         return;
@@ -690,22 +697,25 @@ void genArrayAccess(const Quad* q) {
 
     // r_base = address of the array's first element 
     const char* r_base   = getReg("_arr_base_tmp");
-    const char* addr_str = getVarAddress(q->arg1);
-    asmEmit("    la   %s, %s", r_base, addr_str);   // base address 
 
-    // r_off = byte offset (already computed by the * quad before this) 
+    Symbol* asym = lookupForCodeGen(q->arg1);
+    if(asym && asym->scope_level == 0){
+	    asmEmit("    la   %s, %s", r_base, q->arg1);
+    }
+    else{
+	    asmEmit("    addi %s, s0, %d", r_base, getVarOffset(q->arg1));
+    }
+    count_loads++;
+
     const char* r_off = load(q->arg2);
-
-    // effective address = base + offset 
     const char* r_ea = getReg(q->result);
     asmEmit("    add  %s, %s, %s", r_ea, r_base, r_off);
-
-    // load the 4-byte value from that address into result 
     asmEmit("    lw   %s, 0(%s)", r_ea, r_ea);
+    count_loads++;
 
     freeReg("_arr_base_tmp");
     freeReg(q->arg2);
-    store(q->result, r_ea);
+    markDirty(r_ea);
 }
 
 
@@ -747,9 +757,11 @@ void genObjectOps(const Quad* q) {
 	int class_size = cls && cls->kind == KIND_ENTITY ? cls->attr.entity.class_size:4;
 	spillAllRegs();
 	asmEmit("    li   a0, %d", class_size);
+	count_loads++;
 	asmEmit("    call malloc");
 	// Store the pointer directly instead of going through register allocator
 	asmEmit("    sw   a0, %d(s0)", getVarOffset(q->result));
+	count_stores++;
 	return;
     }
 
@@ -761,6 +773,7 @@ void genObjectOps(const Quad* q) {
     if(strcmp(q->op, "push_ptr") == 0){
 	    asmComment("push_ptr: load obj pointer into a0");
 	    asmEmit("    lw   a0, %d(s0)", getVarOffset(q->arg1));
+		count_loads++;
 	    return;
     }
 
@@ -774,19 +787,23 @@ void genObjectOps(const Quad* q) {
 	    // save "this" pointer below sp before spilling a0
 	    asmEmit("    addi sp, sp, -4");
 	    asmEmit("    sw   a0, 0(sp)");
+		count_stores++;
 	    spillAllRegs();
 	    // load arguments in constructor arguments into a1...a7
 	    for(int i = 0; i < pending_arg_count; i++){
 		    OperandType ot = getOperandType(pending_args[i]);
 		    if(ot == OT_CONST){
 			    asmEmit("    li   %s, %s", arg_regs[i+1], pending_args[i]);
+				count_loads++;
 		    }
 		    else{
 			    asmEmit("    lw   %s, %d(s0)", arg_regs[i+1], getVarOffset(pending_args[i]));
+				count_loads++;
 		    }
 	    }
 	    pending_arg_count = 0;
 	    asmEmit("    lw   a0, 0(sp)");
+		count_loads++;
 	    asmEmit("    addi sp, sp, 4");
 	    asmEmit("    call %s", q->arg1);
 	    return;
@@ -802,22 +819,27 @@ void genObjectOps(const Quad* q) {
         asmComment("call method");
 	asmEmit("    addi sp, sp, -4");
 	asmEmit("    sw   a0, 0(sp)");
+	count_stores++;
         spillAllRegs();
         for(int i = 0; i < pending_arg_count; i++){
 		OperandType ot = getOperandType(pending_args[i]);
 		if(ot == OT_CONST){
 			asmEmit("    li   %s, %s", arg_regs[i+1], pending_args[i]);
+			count_loads++;
 		}
 		else{
 			asmEmit("    lw   %s, %d(s0)", arg_regs[i+1], getVarOffset(pending_args[i]));
+			count_loads++;
 		}
 	}
 	pending_arg_count = 0;
 	asmEmit("    lw a0, 0(sp)");
+	count_loads++;
 	asmEmit("    addi sp, sp, 4");
 	asmEmit("    call %s", q->arg1);
 	if(q->result[0] != '\0'){
 		asmEmit("    sw  a0, %d(s0)", getVarOffset(q->result));
+		count_stores++;
 	}
         return;
     }
@@ -858,12 +880,15 @@ void genObjectOps(const Quad* q) {
 	    const char* r_obj = getReg("_obj_ptr_tmp");
 	    if(strcmp(q->arg1, "this") == 0){
 		    asmEmit("    lw  %s, -4(s0)", r_obj);
+			count_loads++;
 	    }
 	    else{
 		    asmEmit("    lw  %s, %d(s0)", r_obj, getVarOffset(q->arg1));
+			count_loads++;
 	    }
 	    const char* dst = getReg(q->result);
 	    asmEmit("    lw  %s, %d(%s)", dst, field_off, r_obj);
+		count_loads++;
 	    freeReg("_obj_ptr_tmp");
 	    store(q->result, dst);
 	    return;
@@ -903,19 +928,24 @@ void genObjectOps(const Quad* q) {
 	const char* r_obj = getReg("_obj_ptr_tmp");
 	if(strcmp(q->arg1, "this") == 0){
 		asmEmit("    lw  %s, -4(s0)", r_obj);
+		count_loads++;
 	}
 	else{
 		asmEmit("    lw  %s, %d(s0)", r_obj, getVarOffset(q->arg1));
+		count_loads++;
 	}
 	const char* r_val = getReg("_field_val_tmp");
 	OperandType vt = getOperandType(q->result);
 	if(vt == OT_CONST){
 		asmEmit("    li  %s, %s", r_val, q->result);
+		count_loads++;
 	}
 	else{
 		asmEmit("    lw  %s, %d(s0)", r_val, getVarOffset(q->result));
+		count_loads++;
 	}
 	asmEmit("    sw  %s, %d(%s)", r_val, field_off, r_obj);
+	count_stores++;
 	freeReg("_obj_ptr_tmp");
 	freeReg("_field_val_tmp");
 	return;
@@ -1125,21 +1155,162 @@ const char* getVarAddress(const char* name){
 // so we first go from t1 to t6 and in imp case we use t1
 
 static const char* reg_name[NUM_REGS] = {
-	"t1", "t2", "t3", "t4", "t5", "t6", "t0", "s1"
-	//s1 callee saved (used in functions and control) and we use it if needed
+    "t1", "t2", "t3", "t4", "t5", "t6", "t0",   // 7 caller-saved
+    "s1", "s2", "s3", "s4", "s5",                 // 5 callee-saved
+    "s6", "s7", "s8", "s9", "s10", "s11"          // 6 more callee-saved
 };
-
 static char reg_contents[NUM_REGS][64]; // operand name int this register
 static int reg_dirty[NUM_REGS]; //1 if the value is modifed and need to be stored.
-				
+
+//0 = basic spill, 1 = optimized next use spill coming from parser.y
+int use_optimized_regalloc = 0;
+
+/*--------Next Use Information-------------
+For each instruction i and each variable v we store:
+next_use => index of the next instruction that uses v and -1 means v is dead(never comes again)
+is_live => 1 if v is live at instruction i, 0 if dead
+
+Motive: The candidate variable that we select to evict when a new variable need to be allocated a register
+we look to evict a variable that is used much futher or if it no more used that is dead.
+All these are done to reduce the loads and stores
+*/
+
+typedef struct {
+	int next_use; //instruction index of next use, -1 = dead
+	int is_live; //1 = live at this point, 0 = dead
+} NextUse;
+
+//next_use_table[i][v] gives the next use info for the variable v at the instruction i
+static NextUse next_use_table[IR_SIZE][MAX_VARS];
+
+//flat array of variable names - gives each variable an index v
+static int next_use_var_count = 0;
+static char next_use_vars[MAX_VARS][64];
+
+//which IR instruction we are currently looking into
+//get Reg uses the above IR instruction we are currently on look at the next_use_table to get the info
+static int current_ir_idx = 0;
+
+
+
 //initRegs is used to initialize registers at the start
 static void initRegs(void){
 	for(int i=0;i<NUM_REGS; i++){
 		reg_contents[i][0] = '\0';
 		reg_dirty[i] = 0;
 	}
+
+	//reset next-use table state so previous function's info don't effect next one
+	//next_use_var_count = 0;
+	current_ir_idx = 0;
 }
 
+/*----isBlockEnd----
+Returns 1 if quad q is the last instruction of a basic block
+
+We use the next use information per basic block so this function identifies where bb ends so the next line is start of the next basic block
+A basic block ends at any instruction that transfers control
+(branch, jump, return , function end)
+
+At the end of the basic block all user defined variables are assumed to be live
+as they might be used in the next basic blocks.
+
+All compiler temporaries are assumed to be dead at the end of basic block as they are locally used and created by compiler
+*/
+
+static int isBlockEnd(const Quad* q){
+	return (strcmp(q->op, "ifFalse")==0 || //branch statement
+			strcmp(q->op, "goto")  == 0 || //jump statement 
+			strcmp(q->op, "return") == 0|| //jump from function
+			strcmp(q->op, "endfunc") ==0); //ending of the function
+}
+
+//-----isBlockStart----
+static int isBlockStart(const Quad* q){
+	return (strcmp(q->op,"label")==0 ||
+			strcmp(q->op,"func")==0);
+}
+
+/*--------getVarIdx-------
+Maps a variable/temp name to a column index in next_use_table
+If the name is new it is added to the next_use_vars array
+
+We need a integer index aliasing the variable to use as index in next_use_table
+*/
+static int getVarIdx(const char* name){
+	//search existing entries
+	for(int i=0;i<next_use_var_count;i++){
+		if(strcmp(next_use_vars[i],name)==0)return i;
+	}
+
+	if(next_use_var_count<MAX_VARS){
+		strncpy(next_use_vars[next_use_var_count],name,63);
+		return next_use_var_count++;
+	}
+	return -1; //table full
+}
+
+/*------computeNextUse---------
+Scans instructions in reverse order that is from the 'end' to 'begin'.
+Fills next_use_table[i][v] for every instruction i in [start,end] (basic block).
+
+=> Initialize at the end of block:
+	user variables -> live, next_use = -1
+	temporaries -> dead, next_use=-1
+
+For every instruction:
+-> result = arg1 op arg2
+1) copy liveness from instructions i+1
+2) make result dead (not live) , next_use = -1
+3) arg1 and arg2 set it live and next_use = i
+*/
+
+static void computeNextUse(int start, int end){
+	extern Quad IR[]; // we need to pass the Quad to get the next use information 
+
+	//initialize the bottom of the block as in above comments
+	for(int v=0;v<next_use_var_count;v++){
+		next_use_table[end][v].next_use = -1;
+		next_use_table[end][v].is_live = !isTemp(next_use_vars[v]);
+	}
+
+	//scan backwards from end-1 down to start
+	for(int i=end-1;i>=start;i--){
+		//copy state from instructions just below
+		for(int v = 0;v<next_use_var_count;v++){
+			next_use_table[i][v] = next_use_table[i+1][v];
+		}
+
+		Quad* q = &IR[i];//current quad
+
+		//kill the result - make it dead
+		if(q->result[0] != '\0'){
+			int v = getVarIdx(q->result);
+			if(v>=0){
+				next_use_table[i][v].next_use = -1;
+				next_use_table[i][v].is_live = 0;
+			}
+		}
+
+		//arg1 is used in this instruction - it is live and next use = i
+		if(q->arg1[0] != '\0' && !isConstant(q->arg1)){
+			int v = getVarIdx(q->arg1);
+			if(v>=0){
+				next_use_table[i][v].next_use = i;
+				next_use_table[i][v].is_live = 1;
+			}
+		}
+
+		//arg2 is used in this instruction - it is live and next use = i
+		if(q->arg2[0] != '\0' && !isConstant(q->arg2)){
+			int v = getVarIdx(q->arg2);
+			if(v>=0){
+				next_use_table[i][v].next_use = i;
+				next_use_table[i][v].is_live = 1;
+			}
+		}
+	}
+}
 //findRegFor is used to return the index of the register already holding operand or -1 if not found.
 
 static int findRegFor(const char* operand){
@@ -1170,6 +1341,7 @@ static void spillOne(int i){
 		if(ot == OT_VAR || ot == OT_TEMP){
 			int frame_off = getVarOffset(occupant);
 			asmEmit("    sw %s, %d(s0)", reg_name[i], frame_off);
+			count_stores++;
 		}
 	}
 	reg_contents[i][0] = '\0';
@@ -1182,30 +1354,114 @@ static void spillOne(int i){
 //2) If free register available then use it
 //3) Spill a candidate register and use it(need to be optimized in next implementation)
 
-const char* getReg(const char* operand){
-	//if already in register continue in it
+//the advanced logic uses next use information backward pass algorithm + reg desc table
+const char* getRegOpt(const char* operand){
+	//Already in a register return it immediately, no loading
 	int idx = findRegFor(operand);
-	if(idx >= 0) return reg_name[idx];
+	if(idx>=0) return reg_name[idx];
 
-//if there is free slot
-idx = findFreeReg();
-if(idx<0){
-		//no reg free now need to spill
-		//can be optimized later********
-		//currently trying to pick a variable that is recently modified so we can change it in memory and load correct value from next time
-		int victim = 0;
-		for(int i=0;i<NUM_REGS;i++){
-			if(reg_dirty[i] && getOperandType(reg_contents[i]) == OT_VAR){
-				victim = i;
-				break;
+	//free register available then claim it
+	idx = findFreeReg();
+	if(idx>=0) {
+		strncpy(reg_contents[idx],operand,63);
+		reg_dirty[idx]=0;
+		return reg_name[idx];
+	}
+
+	//no empty registers -spill one using next use info
+	/*Spill strategy as per the book
+
+	Priority1 - dead temporary (no load and store)
+		A compiler generated temporary variable which is dead is best choice to remove and occupy the position
+	Priority2 - clean register (value already in memory) ( no store)
+		As value is in register no need a sw
+	Priority3 - variable with Farthest next use (no load for long time)
+		If we must emit a store, pick the variable that is next used till long time
+
+	We need to pick the candidate variable v whose next use is farthest/dead.
+	*/
+
+	//go through after covering all the register we get to get the best possible candidate
+
+	int victim = 0; //default fallback slot 0
+	int farthest = -2; //initialization
+
+	for (int i=0;i<NUM_REGS;i++){
+		if(reg_contents[i][0] == '\0') continue;  //already free no need to find just safe check
+		
+		const char* occupant = reg_contents[i];
+		//Priority 1: dead temporary - best possible victim
+		//isTemp confirms it is compiler generated
+		//next_use = -1 means no instruction in this block uses it again.
+		//No store needed as it is a temp variable
+		if(isTemp(occupant)){
+			int v = getVarIdx(occupant);
+			int nu = (v>=0) ? next_use_table[current_ir_idx][v].next_use:-1;
+			if(nu==-1){
+				//dead temp so we can evict
+				reg_contents[i][0] = '\0';
+				reg_dirty[i] = 0;
+				strncpy(reg_contents[i],operand,63);
+				reg_dirty[i] = 0;
+				return reg_name[i];
 			}
 		}
-		spillOne(victim);
-		idx = victim;
+
+		//Priority 2: clean register already the data is in the memory
+		// reg_dirty = 0 means this above case
+		//we can use this register without emitting a store
+		if(!reg_dirty[i] && farthest == -2){
+			victim = i;
+			farthest = -1; //mark as fount as clean candidate
+			continue;
+		}
+
+		//Priority 3: farthest next use
+		//Look up when this occupant will next be needed
+		//next_use == -1 means dead -> used much much further
+		int v = getVarIdx(occupant);
+		int nu = (v>=0)? next_use_table[current_ir_idx][v].next_use:-1;
+		int effective = (nu == -1)? INT_MAX: nu;
+		if(effective > farthest){
+			farthest = effective;
+			victim = i;
+		}
 	}
-	strncpy(reg_contents[idx],operand,63); //occupy the register
-	reg_dirty[idx]=0;
-	return reg_name[idx];
+
+	spillOne(victim);
+	strncpy(reg_contents[victim],operand,63);
+	reg_dirty[victim]=0;
+	return reg_name[victim];
+}
+const char* getReg(const char* operand){
+	//always check if already in register first - same for both strategies
+	int idx = findRegFor(operand);
+	if (idx >= 0) return reg_name[idx];
+
+	//free slot available - same for both strategies
+	idx = findFreeReg();
+	if(idx>=0){
+		strncpy(reg_contents[idx],operand,63);
+		reg_dirty[idx]=0;
+		return reg_name[idx];
+	}
+
+	//no free slot choose spill strategy based on flag from parser.y
+	if(use_optimized_regalloc)
+		return getRegOpt(operand); //use opt. strategy of next use information
+
+	//basic starategy - spill the first dirty register
+	int victim =  0;
+	for(int i=0;i<NUM_REGS;i++){
+		if(reg_dirty[i] && getOperandType(reg_contents[i]) == OT_VAR){
+			victim = i;
+			break;
+		}
+	}
+	spillOne(victim);
+	strncpy(reg_contents[victim],operand,63);
+	reg_dirty[victim]=0;
+	return reg_name[victim];
 }
 
 
@@ -1224,6 +1480,16 @@ void freeReg(const char* operand){
 void spillAllRegs(void){
 	asmComment("spill all registers");
 	for(int i=0;i<NUM_REGS;i++){
+		if(reg_contents[i][0] == '\0') continue;
+
+		//dead temporary - just discard, no store needed
+		if(isTemp(reg_contents[i])){
+			reg_contents[i][0] = '\0';
+			reg_dirty[i] = 0;
+			continue;
+		}
+
+		//live variables spillOne handles the dirty
 		spillOne(i);
 	}
 }
@@ -1251,9 +1517,11 @@ const char* load(const char* operand){
 			//char literal - use ascii value to retrieve/extract it.
 			char ch = operand[1];
 			asmEmit("li %s, %d",reg,(int)ch);
+			count_loads++;
 		}
 		else{
 			asmEmit("li %s, %s",reg,operand);
+			count_loads++;
 		}
 		reg_dirty[findRegFor(operand)] = 0;
 		return reg;
@@ -1278,6 +1546,10 @@ const char* load(const char* operand){
 
 	//not in register
 	const char* reg = getReg(operand);
+	const char* addr = getVarAddress(operand);
+
+	asmEmit("lw %s, %s",reg,addr);
+	count_loads++;
 
 	// check if the variable is global
 	Symbol* sym = lookupForCodeGen(operand);
@@ -1311,6 +1583,7 @@ void store(const char* var, const char* reg){
 
 	const char* addr = getVarAddress(var);
 	asmEmit("sw %s, %s",reg,addr);
+	count_stores++;
 
 	for(int i=0;i<NUM_REGS;i++){
 		if(strcmp(reg_name[i],reg)==0){
@@ -1453,6 +1726,7 @@ static void emitAssignWithMode(const Quad* q, OperandMode m1){
 	if(q->arg1[0] == '\'' && q->arg1[2] == '\''){
 		const char* dst = getReg(q->result);
 		asmEmit("    li   %s, %d", dst, (int)q->arg1[1]);
+		count_loads++;
 		markDirty(dst);
 		// store(q->result, dst);
 		return;
@@ -1464,6 +1738,7 @@ static void emitAssignWithMode(const Quad* q, OperandMode m1){
 		const char* dst = getReg(q->result);
 		if(lbl){
 			asmEmit("    la   %s, %s", dst, lbl);
+			count_loads++;
 		}
 		markDirty(dst);
 		// store(q->result, dst);
@@ -1476,6 +1751,7 @@ static void emitAssignWithMode(const Quad* q, OperandMode m1){
 		{
 			const char* dst = getReg(q->result);
 			asmEmit("    li   %s, %s", dst, q->arg1);
+			count_loads++;
 			// store(q->result, dst);
 			markDirty(dst);
 		}
@@ -1821,9 +2097,11 @@ void genFunctionCall(const Quad* q){
 			OperandType ot = getOperandType(pending_args[i]);
 			if(ot == OT_CONST){
 				asmEmit("    li     %s, %s", arg_regs[i], pending_args[i]);
+				count_loads++;
 			}
 			else{
 				asmEmit("    lw     %s, %d(s0)", arg_regs[i], getVarOffset(pending_args[i]));
+				count_loads++;
 			}
 		}
 		pending_arg_count = 0;	// Reset the count of the number of arguments for the next call
@@ -1834,6 +2112,7 @@ void genFunctionCall(const Quad* q){
 
 		if(q->result[0] != '\0'){
 			asmEmit("    sw     a0, %d(s0)", getVarOffset(q->result));
+			count_stores++;
 		}
 		return;
 	}
@@ -1884,7 +2163,9 @@ void genFunctionPrologue(const Quad* q){
 	
 	// Save the return address and the caller's frame pointer
 	asmEmit("    sw     ra, %d(sp)", frame_size - 4);
+	count_stores++;
 	asmEmit("    sw     s0, %d(sp)", frame_size - 8);
+	count_stores++;
 	
 	// Load current frame's pointer
 	asmEmit("    addi   s0, sp, %d", frame_size);
@@ -1897,6 +2178,7 @@ void genFunctionPrologue(const Quad* q){
 		int i = 0;
 		while(p && i < MAX_ARG_REGS){
 			asmEmit("    sw     %s, %d(s0)", arg_regs[i], getVarOffset(p->name));
+			count_stores++;
 			p = p->next;
 			i++;
 		}
@@ -1945,11 +2227,14 @@ static void genConstructorPrologue(const Quad* q){
 
 	asmEmit("    addi sp, sp, -%d", frame_size);
 	asmEmit("    sw   ra, %d(sp)", frame_size - 4);
+	count_stores++;
 	asmEmit("    sw   s0, %d(sp)", frame_size - 8);
+	count_stores++;
 	asmEmit("    addi s0, sp, %d", frame_size);
 
 	asmComment("save 'this' pointer");
 	asmEmit("    sw   a0, -4(s0)");
+	count_stores++;
 
 	if(csym && csym->attr.ctor.scope){
 		setCurrentFuncScope(csym->attr.ctor.scope);
@@ -1966,6 +2251,7 @@ static void genConstructorPrologue(const Quad* q){
 		int i = 1;
 		while(p && i < MAX_ARG_REGS){
 			asmEmit("    sw   %s, %d(s0)", arg_regs[i], getVarOffset(p->name));
+			count_stores++;
 			p = p->next;
 			i++;
 		}
@@ -2011,11 +2297,14 @@ static void genMethodPrologue(const Quad* q){
 
 	asmEmit("    addi sp, sp, -%d", frame_size);
 	asmEmit("    sw   ra, %d(sp)", frame_size - 4);
+	count_stores++;
 	asmEmit("    sw   s0, %d(sp)", frame_size - 8);
+	count_stores++;
 	asmEmit("    addi s0, sp, %d", frame_size);
 	
 	//save 'this' pointer
 	asmEmit("    sw   a0, -4(s0)");
+	count_stores++;
 
 	if(msym && msym->attr.method.scope){
 		setCurrentFuncScope(msym->attr.method.scope);
@@ -2031,6 +2320,7 @@ static void genMethodPrologue(const Quad* q){
 		int i = 1;
 		while(p && i < MAX_ARG_REGS) {
 			asmEmit("    sw   %s, %d(s0)", arg_regs[i], getVarOffset(p->name));
+			count_stores++;
 			p = p->next;
 			i++;
 		}
@@ -2057,12 +2347,14 @@ void genFunctionEpilogue(const Quad* q){
 				const char* lbl = getStringLabel(q->arg1);
 				if(lbl){
 					asmEmit("    la a0, %s", lbl);
+					count_loads++;
 				}
 			}
 			else{
 				OperandType ot = getOperandType(q->arg1);
 				if(ot == OT_CONST){
 					asmEmit("    li     a0, %s", q->arg1);
+					count_loads++;
 				}
 				else{
 					Symbol* sym = lookupForCodeGen(q->arg1);
@@ -2073,6 +2365,7 @@ void genFunctionEpilogue(const Quad* q){
 						}
 						else{
 							asmEmit("    lw     a0, %d(s0)", getVarOffset(q->arg1));
+							count_loads++;
 						}
 					}
 					else{
@@ -2082,6 +2375,7 @@ void genFunctionEpilogue(const Quad* q){
 						}
 						else{
 							asmEmit("    lw     a0, %d(s0)", getVarOffset(q->arg1));
+							count_loads++;
 						}
 					}
 				}
@@ -2105,7 +2399,9 @@ void genFunctionEpilogue(const Quad* q){
 
 		// Restore ra and s0 from the first and second 4 bytes of the stack frame (as saved in the prologue)
 		asmEmit("    lw     ra, %d(sp)", frame_size - 4);
+		count_loads++;
 		asmEmit("    lw     s0, %d(sp)", frame_size - 8);
+		count_loads++;
 
 
 		// Now shrink the stack frame by adding frame_size to the current stack pointer (sp)
@@ -2159,6 +2455,7 @@ void genIO(const Quad* q){
 			const char* lbl = getStringLabel(q->arg1);
 			if(lbl){
 				asmEmit("    la     a0, %s", lbl);
+				count_loads++;
 			}
 			else{
 				asmComment("String literal not found");
@@ -2167,6 +2464,7 @@ void genIO(const Quad* q){
 		else if(sym && sym->datatype == DT_STRING){
 			if(sym->kind == KIND_ARRAY || sym->scope_level == 0){
 				asmEmit("    la     a0, %s", sym->name);
+				count_loads++;
 			}
 			else{
 				int slot = -(sym->offset + sym->size);
@@ -2177,6 +2475,7 @@ void genIO(const Quad* q){
 			OperandType ot = getOperandType(q->arg1);
 			if(ot == OT_CONST){
 				asmEmit("    li     a0, %s", q->arg1);
+				count_loads++;
 			}
 			else{
 				Symbol* sym = lookupForCodeGen(q->arg1);
@@ -2186,11 +2485,13 @@ void genIO(const Quad* q){
 					asmEmit("    lw     a0, 0(t0)");
 				}*/
 				asmEmit("    lw     a0, %d(s0)", getVarOffset(q->arg1));
+				count_loads++;
 			}
 			
 		}
 
 		asmEmit("    li     a7, %d", service);
+		count_loads++;
 		asmEmit("    ecall");
 
 	}
@@ -2213,15 +2514,18 @@ void genIO(const Quad* q){
 		if(sym && sym->datatype == DT_STRING){
 			if(sym->scope_level == 0 || sym->kind == KIND_ARRAY){
 				asmEmit("    la     a0, %s", sym->name);
+				count_loads++;
 			}
 			else{
 				int slot = -(sym->offset + sym->size);
 				asmEmit("    addi   a0, s0, %d", slot);
 			}
 			asmEmit("    li     a1, %d", (sym->size > 0) ? sym->size : 64);
+			count_loads++;
 		}
 
 		asmEmit("    li     a7, %d", service);
+		count_loads++;
 		asmEmit("    ecall");
 		
 		// Now we need to store the input taken from the user in the required register 
@@ -2232,6 +2536,7 @@ void genIO(const Quad* q){
 			}
 			else{
 				asmEmit("    sw     a0, %d(s0)", getVarOffset(q->result));
+				count_stores++;
 			}
 		}
 	}
@@ -2249,6 +2554,33 @@ void generateASM(void)
 	if(!asm_out){
 		asm_out = stdout;
 	}
+
+	//pre pass register all names so getVarIdx works
+	for(int i=0;i<IR_idx;i++){
+		if(IR[i].arg1[0] && !isConstant(IR[i].arg1)) getVarIdx(IR[i].arg1);
+		if(IR[i].arg2[0] && !isConstant(IR[i].arg2)) getVarIdx(IR[i].arg2);
+		if(IR[i].result[0] && !isConstant(IR[i].result)) getVarIdx(IR[i].result);
+	}
+
+	//compute the next use block by block
+	int block_start = 0;
+	for(int i=0;i<IR_idx;i++){
+		if(isBlockEnd(&IR[i])){
+			computeNextUse(block_start,i);
+			block_start=i+1;
+		}else if(isBlockStart(&IR[i]) && i>0) {
+			computeNextUse(block_start,i-1);
+			block_start=i;
+		}
+	}
+	if(block_start<IR_idx){
+		computeNextUse(block_start,IR_idx-1);
+	}
+	//reset counters before generating
+	count_loads=0;
+	count_stores = 0;
+	initRegs();
+
 
 	// generating .data section with format of strings specified for outputting the strings or taking input
 	// String literals are defined here using the format specifiers using the .asciz directive for internally generating a NULL-terminated string.
@@ -2286,6 +2618,7 @@ void generateASM(void)
 			in_func = 1;
 		}
 		if(in_func){
+			current_ir_idx = i; //tell getReg which instruction we are at
 			genQuad(&IR[i]);
 		}
 		if(strcmp(op, "endfunc") == 0 || strcmp(op, "end_constr") == 0 || strcmp(op, "end_method") == 0){
@@ -2311,6 +2644,7 @@ void generateASM(void)
 			in_func = 1;
 		}
 		if(!in_func){
+			current_ir_idx = i; //tell getReg which instruction we are at
 			genQuad(&IR[i]);
 		}
 		if(strcmp(op, "endfunc") == 0 || strcmp(op, "end_constr") == 0 || strcmp(op, "end_method") == 0){
@@ -2327,5 +2661,15 @@ void generateASM(void)
 	asmEmit("    addi sp, sp, %d", global_frame);
 
 	asmEmit("    li a7, 10");
+	count_loads++;
 	asmEmit("    ecall");
+
+	//print stats of register allocation
+	fprintf(out(), "\n");
+	fprintf(out(), "#--- Register Allocation Statistics -----\n");
+	fprintf(out(), "# Strategy: %s\n", use_optimized_regalloc?"OPTIMIZED (next use aware)" : "BASIC (first dirty VAR)");
+	fprintf(out(), "# Loads (lw/li): %d\n", count_loads);
+	fprintf(out(), "# Stores (sw) : %d\n", count_stores);
+	fprintf(out(), "# Total : %d\n", count_loads+count_stores);
+	fprintf(out(), "# --------------------------------------\n");
 }

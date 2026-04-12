@@ -2,6 +2,7 @@
 #include "symtab.h"
 #include "optimizer.h"
 #include "asm_gen.h"
+#include "transpiler.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -50,6 +51,11 @@ static int arr2d_rows = 0;
 static int arr2d_cols = 0;
 static char arr_init_vals[256][32];
 static int  arr_init_count = 0;
+
+//store the idx for functions/methods and contructors (fix to issue pointed by Raghavendra)
+static int pending_constr_ir_idx = -1;
+static int pending_method_ir_idx = -1;
+static int pending_func_ir_idx = -1;
 
 DataType last_expr_type = DT_UNKNOWN;
 DataType current_array_elem_type = DT_UNKNOWN;
@@ -236,7 +242,7 @@ constructor_decl
         {
             Symbol* sym = insert_symbol(current_scope, $1,
                                         KIND_CONSTRUCTOR, DT_VOID, yylineno);
-            if (sym) {
+            if(sym){
                 strncpy(sym->attr.ctor.belongs_to, current_scope->name, 63);
                 sym->attr.ctor.param_count = 0;
                 sym->attr.ctor.param_list  = NULL;
@@ -244,19 +250,82 @@ constructor_decl
             }
             Symbol* entity_sym = lookup(current_scope->parent,
                                         current_scope->name);
-            if (entity_sym && entity_sym->kind == KIND_ENTITY)
+            if(entity_sym && entity_sym->kind == KIND_ENTITY)
                 add_name(&entity_sym->attr.entity.constructors_list, $1);
 
-            emit("constr", $1, "", "");
+
             SymTable* cs = create_scope(SCOPE_CONSTRUCTOR, $1, current_scope);
- 	    if(sym) sym->attr.ctor.scope = cs;
+            if(sym) sym->attr.ctor.scope = cs;
             current_scope = cs;
+            emit("constr", $1, "", "");           // emit with original name as placeholder
+            pending_constr_ir_idx = IR_idx - 1;  // record which quad to patch later
         }
       LPAREN param_list_opt RPAREN block
         {
+            
+
+            //Step 1: mangle the constructor symbol name in entity scope
+            for(int i = 0; i < HASH_SIZE; i++){
+                Symbol* s = current_scope->parent->buckets[i];
+                while(s){
+                    Symbol* next = s->next;
+                    if(strcmp(s->name, $1) == 0 && s->kind == KIND_CONSTRUCTOR
+                            && strchr(s->name, '$') == NULL){
+                        char newName[80];
+                        overloaded_ctor_name(newName, $1, s->attr.ctor.param_list);
+                        strncpy(s->name, newName, 63);
+                        rehash_symbol(current_scope->parent, s, $1);
+                    }
+                    s = next;
+                }
+            }
+
+            //step2: add mangled name to entity constructors list
+            Symbol* entity_sym2 = lookup(current_scope->parent->parent,
+                                         current_scope->parent->name);
+            if(entity_sym2 && entity_sym2->kind == KIND_ENTITY){
+                for(int i = 0; i < HASH_SIZE; i++){
+                    for(Symbol* s = current_scope->parent->buckets[i]; s; s = s->next){
+                        if(s->kind == KIND_CONSTRUCTOR &&
+                           strncmp(s->name, $1, strlen($1)) == 0 &&
+                           s->name[strlen($1)] == '$'){
+                            if(!name_in_list(entity_sym2->attr.entity.constructors_list, s->name)){
+                                add_name(&entity_sym2->attr.entity.constructors_list, s->name);
+                            }
+                        }
+                    }
+                }
+            }
+
+            //step 3: find the mangled name for this specific constructor by matching param count against current constructor scope
+            char mangled_ir[80];
+            strcpy(mangled_ir, $1);   /* fallback */
+            for(int i = 0; i < HASH_SIZE; i++){
+                for(Symbol* s = current_scope->parent->buckets[i]; s; s = s->next){
+                    if(s->kind == KIND_CONSTRUCTOR &&
+                       strncmp(s->name, $1, strlen($1)) == 0 &&
+                       s->name[strlen($1)] == '$'){
+                        int pc = 0;
+                        for(ParamNode* p = s->attr.ctor.param_list; p; p = p->next) pc++;
+                        int cur_pc = 0;
+                        for(int b = 0; b < HASH_SIZE; b++)
+                            for(Symbol* ps = current_scope->buckets[b]; ps; ps = ps->next)
+                                if(ps->kind == KIND_PARAM) cur_pc++;
+                        if(pc == cur_pc)
+                            strncpy(mangled_ir, s->name, 79);
+                    }
+                }
+            }
+
+            //emit the mangled name
+            if(pending_constr_ir_idx >= 0){
+                strncpy(IR[pending_constr_ir_idx].arg1, mangled_ir, 19);
+                pending_constr_ir_idx = -1;
+            }
+
             print_table(current_scope);
             current_scope = current_scope->parent;
-            emit("end_constr", $1, "", "");
+            emit("end_constr", mangled_ir, "", "");
         }
     | IDENTIFIER
         { emit("constr", $1, "", ""); }
@@ -287,22 +356,29 @@ method_decl
             Symbol* entity_sym = lookup(current_scope->parent,
                                         current_scope->name);
             //emit("method",...) moved to closing action
-            
+
             SymTable* ms = create_scope(SCOPE_METHOD, $4, current_scope);
 	    if(sym) sym->attr.method.scope = ms;
             current_scope = ms;
+
+            emit("method", $4, "",""); //placeholder
+            pending_method_ir_idx = IR_idx - 1;  // record index
         }
       LPAREN param_list_opt RPAREN block
         {
             
             for (int i = 0; i < HASH_SIZE; i++) {
-                for (Symbol* s = current_scope->parent->buckets[i]; s; s = s->next) {
+                Symbol* s = current_scope->parent->buckets[i];
+                while (s) {
+                    Symbol* next = s->next;  /* save before rehash modifies list */
                     if (strcmp(s->name, $4) == 0 && s->kind == KIND_METHOD
                             && strchr(s->name, '$') == NULL) {
                         char newName[80];
                         overloaded_method_name(newName, $4, s->attr.method.param_list);
                         strncpy(s->name, newName, 63);
+                        rehash_symbol(current_scope->parent, s, $4);  /* fix: move to correct bucket */
                     }
+                    s = next;
                 }
             }
 
@@ -344,8 +420,11 @@ method_decl
                 }
             }
 
+            if(pending_method_ir_idx >= 0){
+                strncpy(IR[pending_method_ir_idx].arg1, mangled_ir, 19);
+                pending_method_ir_idx = -1;
+            }
             
-            emit("method", mangled_ir, "", "");
             print_table(current_scope);
             current_scope = current_scope->parent;
 	    current_function = NULL;
@@ -378,13 +457,17 @@ method_decl
         {
             
             for (int i = 0; i < HASH_SIZE; i++) {
-                for (Symbol* s = current_scope->parent->buckets[i]; s; s = s->next) {
+                Symbol* s = current_scope->parent->buckets[i];
+                while (s) {
+                    Symbol* next = s->next;  /* save before rehash modifies list */
                     if (strcmp(s->name, $4) == 0 && s->kind == KIND_METHOD
                             && strchr(s->name, '$') == NULL) {
                         char newName[80];
                         overloaded_method_name(newName, $4, s->attr.method.param_list);
                         strncpy(s->name, newName, 63);
+                        rehash_symbol(current_scope->parent, s, $4);  /* fix: move to correct bucket */
                     }
+                    s = next;
                 }
             }
 
@@ -482,18 +565,46 @@ object_decl
             Symbol* class_sym = lookup(current_scope, $5);
             if(!class_sym || class_sym->kind != KIND_ENTITY){
                 char buf[256];
-                snprintf(buf, sizeof(buf), "line %d: Entity '%s' not found to instantiate", yylineno, $1);
+                snprintf(buf, sizeof(buf),
+                    "line %d: Entity '%s' not found to instantiate", yylineno, $5);
                 semantic_error(buf);
             }
-            Symbol* obj = insert_symbol(current_scope, $2, KIND_OBJECT, DT_OBJECT, yylineno);
+            Symbol* obj = insert_symbol(current_scope, $2,
+                                        KIND_OBJECT, DT_OBJECT, yylineno);
             if(obj){
-                strncpy(obj->attr.object.entity_name, class_sym->attr.entity.class_name, 63);
+                strncpy(obj->attr.object.entity_name,
+                        class_sym->attr.entity.class_name, 63);
                 obj->size = class_sym->attr.entity.class_size;
                 current_scope->next_offset += obj->size;
             }
+
+            //build mangled constructor name from arg types
+            char mangled_ctor[80];
+            strcpy(mangled_ctor, $5);
+            strcat(mangled_ctor, "$");
+            for(int i = 0; i < call_arg_count; i++){
+                char code[2] = {dt_code(call_arg_types[i]), '\0'};
+                strcat(mangled_ctor, code);
+            }
+            //verify if the constructor exists
+
+            if(class_sym && class_sym->kind == KIND_ENTITY){
+                SymTable* esc = find_entity_scope(class_sym->attr.entity.class_name);
+                if(esc){
+                    Symbol* ctor_sym = lookup_local(esc, mangled_ctor);
+                    if(!ctor_sym || ctor_sym->kind != KIND_CONSTRUCTOR){
+                        fprintf(stderr,
+                            "ERROR line %d: No constructor '%s' matches"
+                            " the given argument types.\n",
+                            yylineno, mangled_ctor);
+                    }
+                }
+            }
+
             emit("new", $5, "", $2);
-            emit("call_constr", $5, "", $2);
-	    call_arg_count = 0;
+            emit("push_ptr", $2, "", "");
+            emit("call_constr", mangled_ctor, "", "");
+            call_arg_count = 0;
         }
     | type IDENTIFIER ASSIGN IDENTIFIER DOT IDENTIFIER LPAREN arg_list_opt RPAREN SEMICOLON
         {
@@ -827,66 +938,151 @@ expr_list
     ;
 
 function_decl
-    /* int func add(...)  /  void func main(...) */
     : func_type FUNC IDENTIFIER
         {
             Symbol* sym = insert_symbol(current_scope, $3,
                                         KIND_FUNCTION, $1, yylineno);
-            if (sym) {
+            if(sym){
                 sym->attr.func.return_type = $1;
                 sym->attr.func.param_count = 0;
                 sym->attr.func.param_list  = NULL;
                 snprintf(sym->attr.func.entry_label, 32, "func_%s", $3);
-                /* size stays 0 — functions occupy no slot in parent scope */
             }
-	    current_function = sym;	// Storing the current function we are in when we are entering the function declaration
+            current_function = sym;
+
+            // emit func with original name as placeholder, record index
             emit("func", $3, "", "");
+            pending_func_ir_idx = IR_idx - 1;
+
             SymTable* fs = create_scope(SCOPE_FUNCTION, $3, current_scope);
-	    if(sym){
-		sym->attr.func.scope = fs;
-            }
+            if(sym) sym->attr.func.scope = fs;
             current_scope = fs;
         }
       LPAREN param_list_opt RPAREN block
         {
-            /* Do NOT write next_offset into sym->size.
-               Function size in global scope = 0 always.
-               The frame size is visible in the function's own scope table. */
+            // Step 1: mangle the symbol in global scope
+            for(int i = 0; i < HASH_SIZE; i++){
+                Symbol* s = current_scope->parent->buckets[i];
+                while(s){
+                    Symbol* next = s->next;
+                    if(strcmp(s->name, $3) == 0 && s->kind == KIND_FUNCTION
+                            && strchr(s->name, '$') == NULL){
+                        char newName[80];
+                        overloaded_method_name(newName, $3,
+                                               s->attr.func.param_list);
+                        strncpy(s->name, newName, 63);
+                        rehash_symbol(current_scope->parent, s, $3);
+                    }
+                    s = next;
+                }
+            }
+
+            // Step 2: find mangled name matching current param count
+            char mangled_ir[80];
+            strcpy(mangled_ir, $3);
+            for(int i = 0; i < HASH_SIZE; i++){
+                for(Symbol* s = current_scope->parent->buckets[i];
+                    s; s = s->next){
+                    if(s->kind == KIND_FUNCTION &&
+                       strncmp(s->name, $3, strlen($3)) == 0 &&
+                       s->name[strlen($3)] == '$'){
+                        int pc = 0;
+                        for(ParamNode* p = s->attr.func.param_list;
+                            p; p = p->next) pc++;
+                        int cur_pc = 0;
+                        for(int b = 0; b < HASH_SIZE; b++)
+                            for(Symbol* ps = current_scope->buckets[b];
+                                ps; ps = ps->next)
+                                if(ps->kind == KIND_PARAM) cur_pc++;
+                        if(pc == cur_pc)
+                            strncpy(mangled_ir, s->name, 79);
+                    }
+                }
+            }
+
+            // Step 3: patch the placeholder func quad
+            if(pending_func_ir_idx >= 0){
+                strncpy(IR[pending_func_ir_idx].arg1, mangled_ir, 19);
+                pending_func_ir_idx = -1;
+            }
+
             print_table(current_scope);
             current_scope = current_scope->parent;
-	    current_function = NULL; 	// Clearing the variable when we are at the end of the current function declaration 
+            current_function = NULL;
             emit("endfunc", "", "", "");
         }
 
-    /* Dog func create(...) — entity return type */
     | IDENTIFIER FUNC IDENTIFIER
         {
             Symbol* sym = insert_symbol(current_scope, $3,
                                         KIND_FUNCTION, DT_ENTITY, yylineno);
-            if (sym) {
+            if(sym){
                 sym->attr.func.return_type = DT_ENTITY;
                 sym->attr.func.param_count = 0;
                 sym->attr.func.param_list  = NULL;
                 snprintf(sym->attr.func.entry_label, 32, "func_%s", $3);
-                /* size stays 0 */
             }
-	    current_function = sym; 	// Storing the current function symbol being parsed to handle correct type of value(or variable) being returned
+            current_function = sym;
+
             emit("func", $3, "", "");
+            pending_func_ir_idx = IR_idx - 1;
+
             SymTable* fs = create_scope(SCOPE_FUNCTION, $3, current_scope);
-            if(sym){
-                sym->attr.func.scope = fs;
-            }
+            if(sym) sym->attr.func.scope = fs;
             current_scope = fs;
         }
       LPAREN param_list_opt RPAREN block
         {
+            // same mangling steps
+            for(int i = 0; i < HASH_SIZE; i++){
+                Symbol* s = current_scope->parent->buckets[i];
+                while(s){
+                    Symbol* next = s->next;
+                    if(strcmp(s->name, $3) == 0 && s->kind == KIND_FUNCTION
+                            && strchr(s->name, '$') == NULL){
+                        char newName[80];
+                        overloaded_method_name(newName, $3,
+                                               s->attr.func.param_list);
+                        strncpy(s->name, newName, 63);
+                        rehash_symbol(current_scope->parent, s, $3);
+                    }
+                    s = next;
+                }
+            }
+
+            char mangled_ir[80];
+            strcpy(mangled_ir, $3);
+            for(int i = 0; i < HASH_SIZE; i++){
+                for(Symbol* s = current_scope->parent->buckets[i];
+                    s; s = s->next){
+                    if(s->kind == KIND_FUNCTION &&
+                       strncmp(s->name, $3, strlen($3)) == 0 &&
+                       s->name[strlen($3)] == '$'){
+                        int pc = 0;
+                        for(ParamNode* p = s->attr.func.param_list;
+                            p; p = p->next) pc++;
+                        int cur_pc = 0;
+                        for(int b = 0; b < HASH_SIZE; b++)
+                            for(Symbol* ps = current_scope->buckets[b];
+                                ps; ps = ps->next)
+                                if(ps->kind == KIND_PARAM) cur_pc++;
+                        if(pc == cur_pc)
+                            strncpy(mangled_ir, s->name, 79);
+                    }
+                }
+            }
+
+            if(pending_func_ir_idx >= 0){
+                strncpy(IR[pending_func_ir_idx].arg1, mangled_ir, 19);
+                pending_func_ir_idx = -1;
+            }
+
             print_table(current_scope);
             current_scope = current_scope->parent;
-	    current_function = NULL;
+            current_function = NULL;
             emit("endfunc", "", "", "");
         }
 
-    /* error recovery */
     | func_type FUNC IDENTIFIER
         { emit("func", $3, "", ""); }
       LPAREN error RPAREN block
@@ -1204,36 +1400,73 @@ term
 
 factor
     : IDENTIFIER LPAREN arg_list_opt RPAREN
-        { 
-		char* t = genVar(); 
-		Symbol* fsym = require_declared(current_scope, $1, yylineno);
-		if(!fsym) {
-			//fprintf(stderr, 
-				//"ERROR line %d: call to undeclared function '%s'.\n",yylineno, $1);
-			last_expr_type = DT_UNKNOWN;
-		}
-		else if(fsym->kind != KIND_FUNCTION && fsym->kind != KIND_METHOD){
-			fprintf(stderr, "ERROR line %d: '%s' is not a function.\n", yylineno, $1);
-			last_expr_type = DT_UNKNOWN;
-		}
-		else{
-			ParamNode* ep = (fsym->kind == KIND_FUNCTION) ? fsym->attr.func.param_list : fsym->attr.method.param_list;
-			int expected_count = (fsym->kind == KIND_FUNCTION) ? fsym->attr.func.param_count : fsym->attr.method.param_count;
-			if(call_arg_count != expected_count) {
-				fprintf(stderr, "ERROR line %d:, function '%s' expects %d arg(s), got %d.\n", yylineno, $1, expected_count, call_arg_count);
-			}
-			else{
-				for(int i = 0; i < call_arg_count && ep; i++, ep=ep->next) {
-					if(call_arg_types[i] != DT_UNKNOWN && call_arg_types[i] != ep->datatype) {
-						fprintf(stderr, "ERROR line %d: function '%s' argument %d - expected %s, but got %s.\n", yylineno, $1, i+1, dt_names[ep->datatype], dt_names[call_arg_types[i]]);
-					}
-				}
-			}
-			last_expr_type = (fsym->kind == KIND_FUNCTION) ? fsym->attr.func.return_type : fsym->attr.method.return_type;
-		}
-		emit("call", $1, "", t);
-		$$ = t; 
-	}
+    {
+        char* t = genVar();
+
+        // Build mangled name from collected arg types
+        char mangled_call[80];
+        strcpy(mangled_call, $1);
+        strcat(mangled_call, "$");
+        for(int i = 0; i < call_arg_count; i++){
+            char code[2] = {dt_code(call_arg_types[i]), '\0'};
+            strcat(mangled_call, code);
+        }
+
+        // Try mangled name first, fall back to original name
+        Symbol* fsym = lookup(current_scope, mangled_call);
+        if(!fsym){
+            fsym = lookup(current_scope, $1);
+        }
+
+        if(!fsym){
+            fprintf(stderr,
+                "ERROR line %d: call to undeclared function '%s'.\n",
+                yylineno, $1);
+            last_expr_type = DT_UNKNOWN;
+        }
+        else if(fsym->kind != KIND_FUNCTION && fsym->kind != KIND_METHOD){
+            fprintf(stderr,
+                "ERROR line %d: '%s' is not a function.\n", yylineno, $1);
+            last_expr_type = DT_UNKNOWN;
+        }
+        else{
+            ParamNode* ep = (fsym->kind == KIND_FUNCTION)
+                            ? fsym->attr.func.param_list
+                            : fsym->attr.method.param_list;
+            int expected_count = (fsym->kind == KIND_FUNCTION)
+                                  ? fsym->attr.func.param_count
+                                  : fsym->attr.method.param_count;
+            if(call_arg_count != expected_count){
+                fprintf(stderr,
+                    "ERROR line %d: function '%s' expects %d arg(s),"
+                    " got %d.\n",
+                    yylineno, $1, expected_count, call_arg_count);
+            }
+            else{
+                for(int i = 0; i < call_arg_count && ep;
+                    i++, ep = ep->next){
+                    if(call_arg_types[i] != DT_UNKNOWN &&
+                       call_arg_types[i] != ep->datatype){
+                        fprintf(stderr,
+                            "ERROR line %d: function '%s' argument %d"
+                            " - expected %s, but got %s.\n",
+                            yylineno, $1, i+1,
+                            dt_names[ep->datatype],
+                            dt_names[call_arg_types[i]]);
+                    }
+                }
+            }
+            last_expr_type = (fsym->kind == KIND_FUNCTION)
+                              ? fsym->attr.func.return_type
+                              : fsym->attr.method.return_type;
+        }
+
+        // emit with mangled name if overloaded, original otherwise
+        const char* emit_name = (fsym && strchr(fsym->name, '$'))
+                                 ? fsym->name : $1;
+        emit("call", emit_name, "", t);
+        $$ = t;
+    }
     | IDENTIFIER DOT IDENTIFIER
     {
         char* t = genVar();
@@ -1542,37 +1775,68 @@ void yyerror(const char *s) {
 }
 
 int main(int argc, char* argv[]) {
-	// Parse the -S flag (stats mode)
-	int compare_mode = 0;
-	for(int i = 1; i < argc; i++){
-		if(strcmp(argv[i], "-S") == 0){
-			compare_mode = 1;
-			printf("Mode: Comparision (standard + optimal both generated)\n");
-		}
-	}	
-
     	global_scope  = create_scope(SCOPE_GLOBAL, "global", NULL);
     	current_scope = global_scope;
+
+
+        //check --oalloc flag
+	    // Parse the -S flag (stats mode)
+	    int compare_mode = 0;
+	    for(int i = 1; i < argc; i++){
+	    	if(strcmp(argv[i], "-S") == 0){
+	    		compare_mode = 1;
+	    		printf("Mode: Comparision (standard + optimal both generated)\n");
+	    	}
+            else if(strcmp(argv[i],"--oalloc")==0){
+                use_optimized_regalloc=1;
+                printf("Register allocation: OPTIMIZED\n");
+            }
+	    }	
+
+    	//global_scope  = create_scope(SCOPE_GLOBAL, "global", NULL);
+    	//current_scope = global_scope;
     	yyin = stdin;
     	yyparse();
 
     	printf("\n========== GLOBAL SCOPE ==========\n");
     	print_table(global_scope);
+         
+int opt_level = 3;   //default=O3
+int do_python=0;
+for (int i = 1; i < argc; i++) {
+    if      (strcmp(argv[i], "-O0") == 0) opt_level = 0;
+    else if (strcmp(argv[i], "-O1") == 0) opt_level = 1;
+    else if (strcmp(argv[i], "-O2") == 0) opt_level = 2;
+    else if (strcmp(argv[i], "-O3") == 0) opt_level = 3;
+    else if (strcmp(argv[i], "-py") == 0) do_python = 1;
+}
+printf("Running Optimizations (-%c%d)\n", 'O', opt_level);
 
-	printf("Running Optimizations\n");
-	algebraic_simplification();
-   	strength_reduction();
-    	constant_folding();
-    	constant_propagation();
-    	copy_propagation(); 
-    	common_subexpression_elimination();
-    	constant_folding();               // second pass, cleans up after CSE
-    	constant_propagation();           // second pass, cleans up after CSE
-    	dead_code_elimination();          // remove dead code before LICM
-    	loop_invariant_code_motion();
-    	induction_variable_elimination();
-    	dead_code_elimination();          // final cleanup after IVE
-       	printf("\n========== IR Code Visualization Section ==========\n");
+//O1
+if (opt_level >= 1) {
+    algebraic_simplification();
+    constant_folding();
+    constant_propagation();
+    copy_propagation(opt_level);
+    //second pass to clean up copies exposed by propagation 
+    constant_folding();
+    constant_propagation();
+}
+
+//O2
+if (opt_level >= 2) {
+    common_subexpression_elimination();
+    dead_code_elimination();
+}
+
+//O3
+if (opt_level >= 3) {
+    strength_reduction();
+    loop_invariant_code_motion();
+    induction_variable_elimination();
+    dead_code_elimination();   // final cleanup after loop optimizations
+}
+       printf("\n========== IR Code Visualization Section ==========\n");
 	print_original_IR();
 	print_opt_IR();
 
@@ -1591,8 +1855,20 @@ int main(int argc, char* argv[]) {
     	printf("\nGenerating RISC-V Assembly...\n");
     	generateASM(); 
 
-    	fclose(asm_file);
-    	printf("Assembly code saved to 'output.s'\n");
+    fclose(asm_file);
+    printf("Assembly code saved to 'output.s'\n");
+   
+ if (do_python) {
+    FILE* py_file = fopen("output.py", "w");
+    if (!py_file) {
+        perror("Failed to open output.py");
+    } else {
+        printf("\nTranspiling to Python...\n");
+        transpile_to_python(py_file);
+        fclose(py_file);
+        printf("Python code saved to 'output.py'\n");
+    }
+}
 
 	if(compare_mode){
 		FILE* std_file = fopen("output_standard.s", "w");

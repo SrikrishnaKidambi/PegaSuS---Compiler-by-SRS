@@ -30,7 +30,7 @@ extern int OPT_IR_idx;
 int algebraic_simplification(void);
 int constant_folding(void);
 // Second pass - Copy Propagation that performs operations such as forward substitutes of copy sources and then remove dead copies. This function finally returns the total number of changes combining number of substitutions and removals.
-int copy_propagation(void);
+int copy_propagation(int opt_level);
 int dead_code_elimination(void);
 // Third pass - Induction variable elimination 
 int induction_variable_elimination(void);

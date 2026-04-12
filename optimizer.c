@@ -1151,7 +1151,7 @@ static int is_structural_op(const char* op){
 }
 
 // Major function that is responsible for applying the optimization techinque - Copy Propagation. 
-int copy_propagation(void){
+int copy_propagation(int opt_level){
 	int subs = 0, removed = 0;
 	ct_clear();	// Starts with a clear copy table with copy_count = 0
 	build_blacklist(OPT_IR, OPT_IR_idx);
@@ -1191,10 +1191,12 @@ int copy_propagation(void){
 				ct_add(q->result, q->arg1);
 			}
 		}
+
 	}
 
 	// This part of the code handles the second pass over the IR code and is not used again or it is not a copy quad
 	// Inorder to shrink the copy table after killing some pairs we use two-pointer based approach.
+      if(opt_level>=2){
 	int write = 0;
 	for(int read = 0; read < OPT_IR_idx; read++){
 		Quad* q = &OPT_IR[read];
@@ -1211,6 +1213,7 @@ int copy_propagation(void){
 		write++;
 	}
 	OPT_IR_idx = write;
+      }
 	printf("[CopyProp] %d substitution(s), %d dead copy(ies) removed.  "
            "OPT_IR has %d quad(s).\n", subs, removed, OPT_IR_idx);
 	return subs + removed;

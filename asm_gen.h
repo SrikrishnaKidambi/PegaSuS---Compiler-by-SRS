@@ -1,8 +1,13 @@
+
 #ifndef ASM_GEN_H
 #define ASM_GEN_H
 
 #include "symtab.h"   /* DataType, Symbol, SymTable — already defined */
 #include <stdio.h>
+#include <limits.h>
+#include <string.h>
+#define MAX_VARS 256
+#define IR_SIZE 10000
 
 #ifndef QUAD_DEFINED
 #define QUAD_DEFINED
@@ -31,7 +36,7 @@ typedef enum {
 
 OperandType getOperandType(const char* operand);
 
-#define NUM_REGS 8   /* number of general-purpose registers available */
+#define NUM_REGS 18   /* number of general-purpose registers available */
 
 /* Map a temp/var name to a physical register name (e.g. "rax").
    Returns the register string; never NULL. */
@@ -97,5 +102,7 @@ int isConstant(const char* operand);
 
 /* True if the operand is a compiler-generated temporary (t0…). */
 int isTemp(const char* operand);
+void markDirty(const char* regname);
 
+extern int use_optimized_regalloc;
 #endif /* ASM_GEN_H */

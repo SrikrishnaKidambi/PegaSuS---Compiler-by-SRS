@@ -291,6 +291,32 @@ void overloaded_method_name(char* out, const char* name, ParamNode* param_list) 
 	strncpy(out,buf,79);
 }
 
+void overloaded_ctor_name(char* out,const char* name,ParamNode* param_list){
+    char buf[256];
+    strcpy(buf,name);
+    strcat(buf,"$");
+    for(ParamNode* p = param_list;p; p=p->next){
+        char code[2] = {dt_code(p->datatype), '\0'};
+        strcat(buf,code);
+    }
+    strncpy(out,buf,79);
+}
+void rehash_symbol(SymTable* tbl, Symbol* sym, const char* old_name){
+    //Remove from old bucket
+    unsigned int old_h = hash_fn(old_name);
+    Symbol** pp = &tbl->buckets[old_h];
+    while(*pp && *pp != sym){
+        pp = &(*pp)->next;
+    }
+    if(*pp == sym)
+        *pp = sym->next;
+
+    //Insert into new bucket
+    unsigned int new_h = hash_fn(sym->name);
+    sym->next = tbl->buckets[new_h];
+    tbl->buckets[new_h] = sym;
+}
+
 int name_in_list(NameNode* list,const char* name){
 	for (NameNode* n = list;n;n=n->next){
 		if(strcmp(n->name,name)==0)return 1;
@@ -305,12 +331,18 @@ Symbol* insert_symbol(SymTable* tbl, const char* name,
     // It's valid to have  int x;  at global level AND  int x;
     // inside a function — that's shadowing, not redeclaration.
     if (lookup_local(tbl, name)) {
-	if(tbl->kind == SCOPE_ENTITY && kind == KIND_METHOD){
-	}else{
-        fprintf(stderr,
-            "ERROR line %d: '%s' already declared in scope '%s'\n",
-            line, name, tbl->name);
-        return NULL;}
+        if(tbl->kind == SCOPE_ENTITY && kind == KIND_METHOD){
+            //allow for overloading - fall through
+        }
+        else if(tbl->kind == SCOPE_GLOBAL && kind == KIND_FUNCTION){
+            //allow for overloading - fall through
+        }
+        else{
+            fprintf(stderr,
+                "ERROR line %d: '%s' already declared in scope '%s'\n",
+                line, name, tbl->name);
+            return NULL;
+        }
     }
 
     Symbol* sym      = calloc(1, sizeof(Symbol));  // zero everything
