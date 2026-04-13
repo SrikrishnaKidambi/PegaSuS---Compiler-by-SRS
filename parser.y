@@ -136,6 +136,9 @@ void insert_var_list(char* names, DataType dt) {
 %type <sval>   id_list   /* returns comma-separated name string */
 %type <ival>   expr_list array_init row_list 
 %type <ival> array_init2d
+%type <sval>   for_cond_opt     
+%type <sval>   for_inc_opt      
+%type <sval>   for_init_opt
 
 %right ASSIGN ADD_ASSIGN SUB_ASSIGN
 %left  OR
@@ -1399,7 +1402,14 @@ term
     ;
 
 factor
-    : IDENTIFIER LPAREN arg_list_opt RPAREN
+    : MINUS factor
+        {
+            char* t = genVar();
+            emit("-", "0", $2, t);
+            $$ = t;
+            last_expr_type = DT_INT;
+        }
+    | IDENTIFIER LPAREN arg_list_opt RPAREN
     {
         char* t = genVar();
 
@@ -1634,6 +1644,33 @@ else_opt
             print_table(current_scope);
             current_scope = current_scope->parent;
         }
+    | ELSE IF LPAREN           /* ← ADD THIS: treat "else if" same as "elif" */
+        {
+            char* n = getLabel();
+            free(falseStack[topPtr]);
+            falseStack[topPtr] = strdup(n);
+
+            char elif_name[32];
+            snprintf(elif_name, 32, "elif_%d", if_cnt++);
+            Symbol* sym = insert_symbol(current_scope, elif_name,
+                                        KIND_ELIF, DT_VOID, yylineno);
+            if (sym) {
+                strncpy(sym->attr.ifstmt.false_label, n, 31);
+                strncpy(sym->attr.ifstmt.end_label, topEnd(), 31);
+            }
+            SymTable* es = create_scope(SCOPE_ELIF, elif_name, current_scope);
+            current_scope = es;
+        }
+      expression
+        { emit("ifFalse", $5, "", topFalse()); }
+      RPAREN
+        {
+            print_table(current_scope);
+            current_scope = current_scope->parent;
+        }
+      block
+        { emit("goto", "", "", topEnd()); emit("label", "", "", topFalse()); }
+      elif_list else_opt
     | /* empty */
     ;
 
@@ -1670,29 +1707,39 @@ for_stmt
     ;
 
 for_header
-    : for_init SEMICOLON
+    : for_init_opt SEMICOLON
         {
             char* b = getLabel();
             char* e = getLabel();
             pushIfLabels(b, e);
             emit("label", "", "", b);
         }
-      expression SEMICOLON
+      for_cond_opt SEMICOLON
         {
-            emit("ifFalse", $4, "", topEnd());
+            emit("ifFalse", $4 ? $4 : "1", "", topEnd());
             forDepth++;
             forIncIdx[forDepth]      = 0;
             inForIncrement[forDepth] = 1;
         }
-      expression
+      for_inc_opt
         { inForIncrement[forDepth] = 0; }
       RPAREN
     ;
 
-for_init
-    : var_decl_no_semi
-    | expression
-    | /* empty */
+for_init_opt
+    : var_decl_no_semi	{ $$ = NULL; }
+    | expression	{ $$ = $1; }
+    | /* empty */   { $$ = NULL; }
+    ;
+
+for_cond_opt
+    : expression    { $$ = $1; }
+    | /* empty */   { $$ = strdup("1"); }   /* empty condition = always true */
+    ;
+
+for_inc_opt
+    : expression	{ $$ = $1; }
+    | /* empty */	{ $$ = NULL; }
     ;
 
 var_decl_no_semi
