@@ -401,10 +401,11 @@ Symbol* insert_symbol(SymTable* tbl, const char* name,
     sym->next       = tbl->buckets[h];  // new node points to old head
     tbl->buckets[h] = sym;              // new node becomes new head
     tbl->symbol_count++;
-    // Assign a unique IR name for variables in subscopes so that two loops with same variable name don't collide with each other
+    // Assign a unique IR name for variables in subscopes so that two loops with same variable na	me don't collide with each other
     if(kind == KIND_VAR && (tbl->kind == SCOPE_FOR || tbl->kind == SCOPE_BLOCK ||
 			    tbl->kind == SCOPE_IF || tbl->kind == SCOPE_ELIF || tbl->kind == SCOPE_ELSE)){
 	    snprintf(sym->ir_name, 64, "%s_%d", name, ir_name_counter++);
+    		printf("Inserting the symbol with name: %s with scope: %d\n", name, tbl->kind);
     }
     else{
 	    strncpy(sym->ir_name, name, 63);
