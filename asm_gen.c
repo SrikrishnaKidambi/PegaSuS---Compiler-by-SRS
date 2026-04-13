@@ -505,6 +505,48 @@ void genDataSection(void)
 	scanStringLiterals();
 	asmBlank();
 }
+// In genFunctionPrologue, after the param-saving while loop:
+
+// Initialize local arrays declared inside this function's scope tree
+static void emitLocalArrayInits(SymTable* scope) {
+    if (!scope) return;
+    for (int b = 0; b < HASH_SIZE; b++) {
+        for (Symbol* s = scope->buckets[b]; s; s = s->next) {
+
+		if (s->kind!=KIND_ARRAY) continue;
+		if(!s->attr.array.is_initialized) continue;
+		if(s->attr.array.init_count<=0) continue;
+                int elem_size = datatype_size(s->datatype);
+                int base_off  = -(s->offset + 8);   // same formula as getVarOffset
+
+		asmComment ("init local array");
+
+                for (int i = 0; i < s->attr.array.init_count; i++) {
+                    const char* val = s->attr.array.init_values[i];
+                    int byte_off = base_off + i * elem_size;
+		    if (s->datatype == DT_STRING){
+			    const char* lbl=registerStringLiteral(val);
+			    if(!lbl) lbl="str_0";
+			    asmEmit("   la    t0,%s",lbl);
+			    asmEmit("   sw    t0,%d(s0)",byte_off);
+			    count_loads++;
+			    count_stores++;
+		    }
+		    else{
+			    asmEmit("   li    t0,%s",val);
+			    asmEmit("   sw    t0,%d(s0)",byte_off);
+			    count_loads++;
+			    count_stores++;
+
+                }
+            }
+        }
+    }
+    // recurse into child scopes (for/if/block inside the function)
+    for (SymTable* child = scope->first_child; child; child = child->next_sibling)
+        emitLocalArrayInits(child);
+}
+
 
 /*
   genArith function handles + ,- ,*,/ and %
@@ -2178,6 +2220,8 @@ void genFunctionPrologue(const Quad* q){
 			i++;
 		}
 	}
+	asmComment("--initialize local arrays --");
+	emitLocalArrayInits(func_scope);
 
 	asmComment("-- prologue end --");
 	asmBlank();
@@ -2257,6 +2301,9 @@ static void genConstructorPrologue(const Quad* q){
 		setCurrentFuncScope(csym->attr.ctor.scope);
 	}*/
 
+	asmComment("-- initialize local arrays --");
+	emitLocalArrayInits(csym ? csym->attr.ctor.scope: NULL);
+
 	asmComment("-- constructor prologue end --");
 	asmBlank();
 	strncpy(current_func_name, cname, sizeof(current_func_name) - 1);
@@ -2322,6 +2369,9 @@ static void genMethodPrologue(const Quad* q){
 			i++;
 		}
 	}
+
+	asmComment("-- initialize local arrays --");
+	emitLocalArrayInits(msym ? msym->attr.method.scope : NULL);
 
 
 	asmComment("-- method prologue end --");

@@ -2,128 +2,153 @@
 
     # -- Global Scalar Variables --
         .align 2
-    result:    .word  0
+    res:    .word  0
+        .align 2
+    target:    .word  1
 
     # -- global arrays --
 
     # -- string literals --
-    str_0:    .asciz "Hello"
 
     .text
     .globl main
     main:
     # -- global scope --
-        addi sp, sp, -256
-        sw ra, 252(sp)
-        sw s0, 248(sp)
-        addi s0, sp, 256
+        addi sp, sp, -336
+        sw ra, 332(sp)
+        sw s0, 328(sp)
+        addi s0, sp, 336
         j global_body
     #  -- global scope end --
 
 
-    Calculator_s:
-    # -- constructor prologue --
-        addi sp, sp, -240
-        sw   ra, 236(sp)
-        sw   s0, 232(sp)
-        addi s0, sp, 240
-    # save 'this' pointer
-        sw   a0, -4(s0)
-        sw   a1, -8(s0)
-    # -- constructor prologue end --
+    binarySearch_i:
+    # -- prologue --
+        addi   sp, sp, -304
+        sw     ra, 300(sp)
+        sw     s0, 296(sp)
+        addi   s0, sp, 304
+        sw     a0, -8(s0)
+    # --initialize local arrays --
+    # init local array
+       li    t0,1
+       sw    t0,-12(s0)
+       li    t0,2
+       sw    t0,-8(s0)
+       li    t0,3
+       sw    t0,-4(s0)
+       li    t0,4
+       sw    t0,0(s0)
+       li    t0,5
+       sw    t0,4(s0)
+    # -- prologue end --
 
-    # m
-    # set_field
-        lw  t1, -4(s0)
-        lw  t2, -8(s0)
-        sw  t2, 0(t1)
+    # tgt
+        li   t1, 0
+        li   t2, 4
     # spill all registers
-        addi   a0, s0, -8
-        li     a7, 4
-        ecall
-    Lepi_Calculator_s:
-    # -- epilogue --
-        lw     ra, 236(sp)
-        lw     s0, 232(sp)
-        addi   sp, sp, 240
-        ret
-    # -- epilogue end --
 
-
-    add_ii:
-    # -- method prologue -- 
-        addi sp, sp, -240
-        sw   ra, 236(sp)
-        sw   s0, 232(sp)
-        addi s0, sp, 240
-        sw   a0, -4(s0)
-        sw   a1, -8(s0)
-        sw   a2, -12(s0)
-    # -- method prologue end --
-
-    # x
-    # y
-        lw   t1, -8(s0)
-        lw   t2, -12(s0)
+    L0:
+    # <
+        lw   t1, -32(s0)
+        lw   t2, -36(s0)
+        slt  t3, t1, t2
+        beqz   t3, L1
+        sw t3, -108(s0)
         add  t3, t1, t2
-        lw     a0, -16(s0)
-        j      Lepi_add_ii
-    Lepi_add_ii:
+    li t4, 2
+        div  t5, t3, t4
+        lw   t6, -40(s0)
+    li t0, 4
+        mul  s1, t6, t0
+    # array access []
+        addi s2, s0, -12
+        add  s3, s2, s1
+        lw   s3, 0(s3)
+        sw s1, -112(s0)
+    # ==
+        lw   s1, -8(s0)
+        sub  s2, s3, s1
+        seqz s2, s2
+        beqz   s2, L2
+        sw s2, -116(s0)
+        mv     a0, t6
+        j      Lepi_binarySearch_i
+    # spill all registers
+        j      L3
+    # spill all registers
+
+    L2:
+        lw   t1, -40(s0)
+    li t2, 4
+        mul  t3, t1, t2
+    # array access []
+        addi t4, s0, -12
+        add  t5, t4, t3
+        lw   t5, 0(t5)
+        sw t3, -120(s0)
+    # <
+        lw   t3, -8(s0)
+        slt  t4, t5, t3
+        beqz   t4, L4
+        sw t4, -124(s0)
+        addi t4, t1, 1
+    # spill all registers
+        sw t4, -32(s0)
+        j      L3
+    # spill all registers
+
+    L4:
+        lw   t1, -40(s0)
+        addi t2, t1, -1
+    # spill all registers
+        sw t2, -36(s0)
+
+    L3:
+    # spill all registers
+        j      L0
+    # spill all registers
+
+    L1:
+    li t1, 0
+        addi t2, t1, -1
+        mv     a0, t2
+        j      Lepi_binarySearch_i
+    Lepi_binarySearch_i:
     # -- epilogue --
-        lw     ra, 236(sp)
-        lw     s0, 232(sp)
-        addi   sp, sp, 240
+        lw     ra, 300(sp)
+        lw     s0, 296(sp)
+        addi   sp, sp, 304
         ret
     # -- epilogue end --
 
 
     global_body:
     # -- Global body --
-    # new object
+        li   t3, 1
     # spill all registers
-        li   a0, 0
-        call malloc
-        sw   a0, -8(s0)
-    # push_ptr: load obj pointer into a0
-        lw   a0, -8(s0)
-    # call_constr
-        addi sp, sp, -4
-        sw   a0, 0(sp)
-    # spill all registers
-        li   a1, "Hello"
-        lw   a0, 0(sp)
-        addi sp, sp, 4
-        call Calculator_s
-    # push_ptr: load obj pointer into a0
-        lw   a0, -8(s0)
-    # call method
-        addi sp, sp, -4
-        sw   a0, 0(sp)
-    # spill all registers
-        li   a1, 5
-        li   a2, 6
-        lw a0, 0(sp)
-        addi sp, sp, 4
-        call add_ii
-        sw  a0, -84(s0)
-        lw   t1, -84(s0)
+        sw t3, -8(s0)
+        lw     a0, -8(s0)
+        call   binarySearch_i
+        sw     a0, -108(s0)
+        lw   t1, -108(s0)
         mv   t2, t1
         mv     a0, t2
     # spill all registers
-        sw t2, -8(s0)
+        sw t2, -12(s0)
         li     a7, 1
         ecall
 
     # -- global scope epilogue --
-        lw ra, 252(sp)
-        lw s0, 248(sp)
-        addi sp, sp, 256
+        lw ra, 332(sp)
+        lw s0, 328(sp)
+        addi sp, sp, 336
         li a7, 10
         ecall
 
 #--- Register Allocation Statistics -----
 # Strategy: BASIC (first dirty VAR)
-# Loads (lw/li): 21
-# Stores (sw) : 15
-# Total : 36
+# Loads (lw/li): 29
+# Stores (sw) : 18
+# Total : 47
 # --------------------------------------
