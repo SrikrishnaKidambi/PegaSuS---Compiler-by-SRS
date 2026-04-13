@@ -42,8 +42,7 @@ static void safe_name(const char* in, char* out_buf) {
 
 static void resolve_this(const char* name, char* buf) {
     if (strcmp(name, "this") == 0 ||
-        strcmp(name, "self") == 0 ||
-        strcmp(name, "0")    == 0) {
+        strcmp(name, "self") == 0 ){
         strcpy(buf, "self");
     } else {
         safe_name(name, buf);
@@ -488,7 +487,12 @@ static void emit_range(FILE* out, int from, int to) {
         }
 
         if (strcmp(q->op, "push_ptr") == 0) {
-            strncpy(current_obj, a1, 63);
+		if (strcmp(q->arg1, "0") == 0 || strcmp(q->arg1, "this") == 0){
+        strncpy(current_obj, "self", 63);
+		}
+    else{
+        strncpy(current_obj, a1, 63);
+    }
             consumed[i] = 1;
             continue;
         }
