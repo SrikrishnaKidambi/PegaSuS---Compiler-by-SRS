@@ -23,6 +23,24 @@ static void write_indent(FILE* out) {
         fprintf(out, "    ");
 }
 
+/*
+ * Strip trailing _<digits> suffix from a name.
+ * e.g. l_0 -> l, r_1 -> r, foo_23 -> foo
+ * but  add_ii, r_ii, foo_bar -> unchanged (suffix must be all digits)
+ */
+static void strip_numeric_suffix(const char* in, char* out_buf) {
+    strcpy(out_buf, in);
+    char* underscore = strrchr(out_buf, '_');
+    if (!underscore) return;
+    char* after = underscore + 1;
+    if (*after == '\0') return;          /* trailing underscore, no suffix */
+    for (char* p = after; *p; p++) {
+        if (*p < '0' || *p > '9') return; /* non-digit found -> leave alone */
+    }
+    /* all chars after last '_' are digits -> truncate */
+    *underscore = '\0';
+}
+
 static void safe_name(const char* in, char* out_buf) {
     static const char* kw[] = {
         "in", "is", "or", "and", "not", "for", "if",
@@ -31,10 +49,15 @@ static void safe_name(const char* in, char* out_buf) {
         "import", "from", "global", "del", "with", "as",
         "try", "except", "finally", "raise", NULL
     };
-    strcpy(out_buf, in);
+
+    /* first strip numeric suffix */
+    char stripped[64];
+    strip_numeric_suffix(in, stripped);
+
+    strcpy(out_buf, stripped);
     for (int i = 0; kw[i]; i++) {
-        if (strcmp(in, kw[i]) == 0) {
-            sprintf(out_buf, "_%s", in);
+        if (strcmp(stripped, kw[i]) == 0) {
+            sprintf(out_buf, "_%s", stripped);
             return;
         }
     }
@@ -174,8 +197,6 @@ static void build_cond_str(int cq, char* buf) {
 
 /*
  * USE-COUNT PASS
- * Count how many times each result-variable is referenced as arg1 or arg2
- * anywhere in the IR.  A result with use_count == 0 is dead.
  */
 #define MAX_VARS 512
 
@@ -226,11 +247,6 @@ static int get_use_count(const char* name) {
 
 /*
  * SUBSTITUTION TABLE
- * When we see  "X = Y"  (plain copy) and X is never used again
- * OR Y is a dead temp, we record  alias[X] = Y  so that any later
- * reference to X emits Y instead.
- * Also used to propagate: if t0=a+b is dead (use_count==0) but
- * t1=a+b appears next and IS used, we rename t0→t1 in the emission.
  */
 #define MAX_ALIASES 512
 
@@ -257,16 +273,7 @@ static const char* resolve_alias(const char* name) {
 }
 
 /*
- * PRE-PASS: mark dead assignments and build alias/substitution map.
- *
- * Pattern handled:
- *   quad[i]:   result=R  op=BIN  arg1=A  arg2=B    use_count(R)==0  → dead
- *   quad[i+1]: result=R2 op=BIN  arg1=A  arg2=B    (same computation, different name)
- * In that case alias R→R2 and suppress quad[i].
- *
- * Also handles plain copy:
- *   quad[i]:  X = Y   → alias X→Y, suppress quad[i]
- *             (only when this is a redundant rename, not a user-visible assignment)
+ * PRE-PASS
  */
 static int dead[10000];
 
@@ -487,9 +494,9 @@ static void emit_range(FILE* out, int from, int to) {
         }
 
         if (strcmp(q->op, "push_ptr") == 0) {
-		if (strcmp(q->arg1, "0") == 0 || strcmp(q->arg1, "this") == 0){
+                if (strcmp(q->arg1, "0") == 0 || strcmp(q->arg1, "this") == 0){
         strncpy(current_obj, "self", 63);
-		}
+                }
     else{
         strncpy(current_obj, a1, 63);
     }
