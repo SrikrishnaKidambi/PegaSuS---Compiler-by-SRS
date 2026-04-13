@@ -61,7 +61,7 @@ SymTable* create_scope(ScopeKind kind, const char* name, SymTable* parent) {
     t->kind        = kind;
     t->level       = parent ? parent->level + 1 : 0;
     t->parent      = parent;
-    t->next_offset = 0;     // Important field: fresh offset counter for this scope
+    t->next_offset = parent ? parent->next_offset : 0;     // this is field value is set based on the value of next_offset of its parent scope
     t->first_child = NULL;
     t->next_sibling = NULL;
     strncpy(t->name, name, 63);
@@ -404,7 +404,7 @@ Symbol* insert_symbol(SymTable* tbl, const char* name,
     // Assign a unique IR name for variables in subscopes so that two loops with same variable name don't collide with each other
     if(kind == KIND_VAR && (tbl->kind == SCOPE_FOR || tbl->kind == SCOPE_BLOCK ||
 			    tbl->kind == SCOPE_IF || tbl->kind == SCOPE_ELIF || tbl->kind == SCOPE_ELSE)){
-	    snprintf(sym->ir_name, 64, "%s$%d", name, ir_name_counter++);
+	    snprintf(sym->ir_name, 64, "%s_%d", name, ir_name_counter++);
     }
     else{
 	    strncpy(sym->ir_name, name, 63);

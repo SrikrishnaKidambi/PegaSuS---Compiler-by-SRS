@@ -2,128 +2,99 @@
 
     # -- Global Scalar Variables --
         .align 2
-    ans:    .word  0
+    a:    .word  5
+        .align 2
+    res:    .word  0
 
     # -- global arrays --
 
     # -- string literals --
-    str_0:    .asciz "Casio"
 
     .text
     .globl main
     main:
     # -- global scope --
-        addi sp, sp, -256
-        sw ra, 252(sp)
-        sw s0, 248(sp)
-        addi s0, sp, 256
+        addi sp, sp, -224
+        sw ra, 220(sp)
+        sw s0, 216(sp)
+        addi s0, sp, 224
         j global_body
     #  -- global scope end --
 
 
-    Calculator_s:
-    # -- constructor prologue --
-        addi sp, sp, -240
-        sw   ra, 236(sp)
-        sw   s0, 232(sp)
-        addi s0, sp, 240
-    # save 'this' pointer
-        sw   a0, -4(s0)
-        sw   a1, -8(s0)
-    # -- constructor prologue end --
+    fact_i:
+    # -- prologue --
+        addi   sp, sp, -224
+        sw     ra, 220(sp)
+        sw     s0, 216(sp)
+        addi   s0, sp, 224
+        sw     a0, -8(s0)
+    # -- prologue end --
 
-    # m
-    # set_field
-        lw  t1, -4(s0)
-        lw  t2, -8(s0)
-        sw  t2, 0(t1)
-    Lepi_Calculator_s:
+    # n
+    # ==
+        lw   t1, -8(s0)
+    li t2, 0
+        sub  t3, t1, t2
+        seqz t3, t3
+        beqz   t3, L0
+        sw t3, -76(s0)
+        li     a0, 1
+        j      Lepi_fact_i
+    # spill all registers
+        j      L1
+    # spill all registers
+
+    L0:
+    # spill all registers
+
+    L1:
+        lw   t1, -8(s0)
+        addi t2, t1, -1
+    # spill all registers
+        lw     a0, -80(s0)
+        call   fact
+        sw     a0, -84(s0)
+        lw   t1, -8(s0)
+        lw   t2, -84(s0)
+        mul  t3, t1, t2
+        mv     a0, t3
+        j      Lepi_fact_i
+    Lepi_fact_i:
     # -- epilogue --
-        lw     ra, 236(sp)
-        lw     s0, 232(sp)
-        addi   sp, sp, 240
-        ret
-    # -- epilogue end --
-
-
-    add_ii:
-    # -- method prologue -- 
-        addi sp, sp, -240
-        sw   ra, 236(sp)
-        sw   s0, 232(sp)
-        addi s0, sp, 240
-        sw   a0, -4(s0)
-        sw   a1, -8(s0)
-        sw   a2, -12(s0)
-    # -- method prologue end --
-
-    # a
-    # b
-    lw t2, -8(s0)
-    lw t2, -8(s0)
-    lw t3, -12(s0)
-    lw t3, -12(s0)
-        add  t1, t2, t3
-        mv     a0, t1
-        j      Lepi_add_ii
-    Lepi_add_ii:
-    # -- epilogue --
-        lw     ra, 236(sp)
-        lw     s0, 232(sp)
-        addi   sp, sp, 240
+        lw     ra, 220(sp)
+        lw     s0, 216(sp)
+        addi   sp, sp, 224
         ret
     # -- epilogue end --
 
 
     global_body:
     # -- Global body --
-    # new object
+        li   t4, 5
     # spill all registers
-        li   a0, 8
-        call malloc
-        sw   a0, -16(s0)
-    # push_ptr: load obj pointer into a0
-        lw   a0, -16(s0)
-    # call_constr
-        addi sp, sp, -4
-        sw   a0, 0(sp)
-    # spill all registers
-        li   a1, "Casio"
-        lw   a0, 0(sp)
-        addi sp, sp, 4
-        call Calculator_s
-    # push_ptr: load obj pointer into a0
-        lw   a0, -16(s0)
-    # call method
-        addi sp, sp, -4
-        sw   a0, 0(sp)
-    # spill all registers
-        li   a1, 3
-        li   a2, 5
-        lw a0, 0(sp)
-        addi sp, sp, 4
-        call add_ii
-        sw  a0, -28(s0)
-    # ISSUE: symbol not found for addres lookup
-    lw t1, 0(s0) # unknown: t1
-        lw t1, -28(s0)
+        sw t4, -8(s0)
+        lw     a0, -8(s0)
+        call   fact_i
+        sw     a0, -80(s0)
+        lw   t1, -80(s0)
         mv   t2, t1
+        mv     a0, t2
     # spill all registers
-        sw t2, -24(s0)
-        lw     a0, -24(s0)
+        sw t2, -12(s0)
         li     a7, 1
         ecall
 
     # -- global scope epilogue --
-        lw ra, 252(sp)
-        lw s0, 248(sp)
-        addi sp, sp, 256
+        lw ra, 220(sp)
+        lw s0, 216(sp)
+        addi sp, sp, 224
         li a7, 10
         ecall
 
 #--- Register Allocation Statistics -----
 # Strategy: BASIC (first dirty VAR)
-# Loads (lw/li): 20
-# Stores (sw) : 15
-# Total : 35
+# Loads (lw/li): 14
+# Stores (sw) : 8
+# Total : 22
 # --------------------------------------

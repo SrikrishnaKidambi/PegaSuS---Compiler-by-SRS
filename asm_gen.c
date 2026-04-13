@@ -7,6 +7,32 @@
 #include <stdarg.h>
 #include <ctype.h>
 
+//Register allocation
+
+//A register descriptor table is maintained:
+//1) reg_name[i] -> RISC V register name, e.g. "t0"
+//2) reg_contents[i]-> which operand currently lives here, or just empty if free
+//3) reg_dirty[i] -> 1 if the value has been written but not yet stored back to memory.
+
+//When a register is needed but nothing is free then spill happens accordingly.
+
+
+// We use the registers t0-t6.(7 caller-saved registers) remaining are used by OS and functions(stack)
+// t0 may be used for control
+// so we first go from t1 to t6 and in imp case we use t1
+
+static const char* reg_name[NUM_REGS] = {
+    "t1", "t2", "t3", "t4", "t5", "t6", "t0",   // 7 caller-saved
+    "s1", "s2", "s3", "s4", "s5",                 // 5 callee-saved
+    "s6", "s7", "s8", "s9", "s10", "s11"          // 6 more callee-saved
+};
+static char reg_contents[NUM_REGS][64]; // operand name int this register
+static int reg_dirty[NUM_REGS]; //1 if the value is modifed and need to be stored.
+
+//0 = basic spill, 1 = optimized next use spill coming from parser.y
+int use_optimized_regalloc = 0;
+
+
 #define MAX_TEMPS 256
 
 static struct {
@@ -70,10 +96,19 @@ static int getTempFrameOffset(const char* tname){
 	return frame_off;
 }
 
+typedef enum{
+	MODE_REG,	// Value currently in register, so use it directly (no load instruction to be generated
+	MODE_IMM,	// Compile time constant - so use the instructions like li or immediate instruction
+	MODE_MEM,	// the operand lives in memory and hence requries a lw instruction
+	MODE_NONE	// Opearand is absent
+}OperandMode;
+
 // Add near the top of asm_gen.c, after the includes:
 static void genConstructorPrologue(const Quad* q);
 static void genMethodPrologue(const Quad* q);
 static int getVarOffset(const char* var_name);
+static int findRegFor(const char* operand);      
+static OperandMode getMode(const char* operand);  
 
 
 
@@ -83,14 +118,6 @@ int use_template_matching = 1;	// By default it is 1 and it is turned off when t
 //counts of loads and stores
 static int count_loads = 0;
 static int count_stores = 0;
-
-typedef enum{
-	MODE_REG,	// Value currently in register, so use it directly (no load instruction to be generated
-	MODE_IMM,	// Compile time constant - so use the instructions like li or immediate instruction
-	MODE_MEM,	// the operand lives in memory and hence requries a lw instruction
-	MODE_NONE	// Opearand is absent
-}OperandMode;
-
 
 
 // lookupForCodeGen - This function can be used for performing the resolution of correct symbol
@@ -528,56 +555,6 @@ void genArith(const Quad* q) {
 }
 
 
-/*
-  genLogic function handles &&,||,!,& and |
-  !x  →  seqz  dst, src   (set if equal zero)
-  &   →  and   rd, r1, r2
-  |   →  or    rd, r1, r2
-  &&  →  and   rd, r1, r2   (values are already 0 or 1)
-  ||  →  or    rd, r1, r2
- */
-void genLogic(const Quad* q) {
-    asmComment(q->op);
-
-    if (strcmp(q->op, "!") == 0) {
-        // unary NOT:only arg1 required
-        const char* src = load(q->arg1);
-        const char* dst = getReg(q->result);
-        asmEmit("    seqz %s, %s", dst, src);
-	markDirty(dst);
-       // freeReg(q->arg1);
-       // store(q->result, dst);
-        return;
-    }
-
-    const char* r1  = load(q->arg1);
-    const char* r2  = load(q->arg2);
-    const char* dst = getReg(q->result);
-
-    if (strcmp(q->op, "&&") == 0) {
-        asmEmit("    and  %s, %s, %s", dst, r1, r2);
-
-    } else if (strcmp(q->op, "||") == 0) {
-        asmEmit("    or   %s, %s, %s", dst, r1, r2);
-
-    } else if (strcmp(q->op, "&") == 0) {
-        asmEmit("    and  %s, %s, %s", dst, r1, r2);
-
-    } else if (strcmp(q->op, "|") == 0) {
-        asmEmit("    or   %s, %s, %s", dst, r1, r2);
-
-    } else {
-        asmComment("unknown logic op — skipped");
-        freeReg(q->arg1);
-        freeReg(q->arg2);
-        return;
-    }
-    markDirty(dst);
-   // freeReg(q->arg1);
-   // freeReg(q->arg2);
-    //store(q->result, dst);
-}
-
 
 /*
   genRelational function handles >,<,==
@@ -590,32 +567,71 @@ void genLogic(const Quad* q) {
 void genRelational(const Quad* q) {
     asmComment(q->op);
 
-    const char* r1  = load(q->arg1);
-    const char* r2  = load(q->arg2);
-    const char* dst = getReg(q->result);
+    OperandMode m1 = getMode(q->arg1);
+    OperandMode m2 = getMode(q->arg2);
+
+    // slti special case - load source first then get dst
+    if(strcmp(q->op, "<") == 0 && m2 == MODE_IMM){
+        const char* r1 = load(q->arg1);
+        const char* dst = getReg(q->result);   // ← AFTER load
+        asmEmit("    slti %s, %s, %s", dst, r1, q->arg2);
+        markDirty(dst);
+        return;
+    }
+
+    const char* r1 = (m1 == MODE_REG) ? reg_name[findRegFor(q->arg1)] : load(q->arg1);
+    const char* r2 = (m2 == MODE_REG) ? reg_name[findRegFor(q->arg2)] : load(q->arg2);
+    const char* dst = getReg(q->result);       // ← AFTER both loads
 
     if (strcmp(q->op, "<") == 0) {
         asmEmit("    slt  %s, %s, %s", dst, r1, r2);
-
     } else if (strcmp(q->op, ">") == 0) {
-        // swap the operands: slt dst, r2, r1  means  r1 > r2
         asmEmit("    slt  %s, %s, %s", dst, r2, r1);
-
     } else if (strcmp(q->op, "==") == 0) {
-        // subtract and then seqz 
         asmEmit("    sub  %s, %s, %s", dst, r1, r2);
-        asmEmit("    seqz %s, %s",     dst, dst);
-
+        asmEmit("    seqz %s, %s", dst, dst);
     } else {
         asmComment("unknown relational op — skipped");
-        freeReg(q->arg1);
-        freeReg(q->arg2);
         return;
     }
     markDirty(dst);
-    //freeReg(q->arg1);
-    //freeReg(q->arg2);
-    //store(q->result, dst);
+}
+
+/*
+  genLogic function handles &&,||,!,& and |
+  !x  →  seqz  dst, src   (set if equal zero)
+  &   →  and   rd, r1, r2
+  |   →  or    rd, r1, r2
+  &&  →  and   rd, r1, r2   (values are already 0 or 1)
+  ||  →  or    rd, r1, r2
+ */
+void genLogic(const Quad* q) {
+    asmComment(q->op);
+
+    if (strcmp(q->op, "!") == 0) {
+        OperandMode m1 = getMode(q->arg1);
+        const char* src = (m1 == MODE_REG) ? reg_name[findRegFor(q->arg1)] : load(q->arg1);
+        const char* dst = getReg(q->result);
+        asmEmit("    seqz %s, %s", dst, src);
+        markDirty(dst);
+        return;
+    }
+
+    OperandMode m1 = getMode(q->arg1);
+    OperandMode m2 = getMode(q->arg2);
+    const char* r1 = (m1 == MODE_REG) ? reg_name[findRegFor(q->arg1)] : load(q->arg1);
+	const char* r2 = (m2 == MODE_REG) ? reg_name[findRegFor(q->arg2)] : load(q->arg2);
+	const char* dst = getReg(q->result);   
+
+    if (strcmp(q->op, "&&") == 0 || strcmp(q->op, "&") == 0) {
+        asmEmit("    and  %s, %s, %s", dst, r1, r2);
+    } else if (strcmp(q->op, "||") == 0 || strcmp(q->op, "|") == 0) {
+        asmEmit("    or   %s, %s, %s", dst, r1, r2);
+    } else {
+        asmComment("unknown logic op — skipped");
+        return;
+    }
+    markDirty(dst);
 }
 
 
@@ -707,7 +723,8 @@ void genArrayAccess(const Quad* q) {
     }
     count_loads++;
 
-    const char* r_off = load(q->arg2);
+    OperandMode m_off = getMode(q->arg2);
+    const char* r_off = (m_off == MODE_REG) ? reg_name[findRegFor(q->arg2)] : load(q->arg2);
     const char* r_ea = getReg(q->result);
     asmEmit("    add  %s, %s, %s", r_ea, r_base, r_off);
     asmEmit("    lw   %s, 0(%s)", r_ea, r_ea);
@@ -1140,31 +1157,6 @@ const char* getVarAddress(const char* name){
 	return addr_buf;
 }
 
-//Register allocation
-
-//A register descriptor table is maintained:
-//1) reg_name[i] -> RISC V register name, e.g. "t0"
-//2) reg_contents[i]-> which operand currently lives here, or just empty if free
-//3) reg_dirty[i] -> 1 if the value has been written but not yet stored back to memory.
-
-//When a register is needed but nothing is free then spill happens accordingly.
-
-
-// We use the registers t0-t6.(7 caller-saved registers) remaining are used by OS and functions(stack)
-// t0 may be used for control
-// so we first go from t1 to t6 and in imp case we use t1
-
-static const char* reg_name[NUM_REGS] = {
-    "t1", "t2", "t3", "t4", "t5", "t6", "t0",   // 7 caller-saved
-    "s1", "s2", "s3", "s4", "s5",                 // 5 callee-saved
-    "s6", "s7", "s8", "s9", "s10", "s11"          // 6 more callee-saved
-};
-static char reg_contents[NUM_REGS][64]; // operand name int this register
-static int reg_dirty[NUM_REGS]; //1 if the value is modifed and need to be stored.
-
-//0 = basic spill, 1 = optimized next use spill coming from parser.y
-int use_optimized_regalloc = 0;
-
 /*--------Next Use Information-------------
 For each instruction i and each variable v we store:
 next_use => index of the next instruction that uses v and -1 means v is dead(never comes again)
@@ -1546,33 +1538,30 @@ const char* load(const char* operand){
 
 	//not in register
 	const char* reg = getReg(operand);
-	const char* addr = getVarAddress(operand);
 
-	asmEmit("lw %s, %s",reg,addr);
-	count_loads++;
-
-	// check if the variable is global
 	Symbol* sym = lookupForCodeGen(operand);
 	if(sym && sym->scope_level == 0){
-		// it is a global variable - that is use la + lw
-		asmEmit("la   t0, %s", sym->name);
-		asmEmit("lw   %s, 0(t0)", reg);
+		asmEmit("    la   t0, %s", sym->name);
+		asmEmit("    lw   %s, 0(t0)", reg);
+		count_loads++;
 	}
 	else if(sym){
 		const char* addr = getVarAddress(operand);
-		asmEmit("lw %s, %s",reg,addr);
+		asmEmit("    lw   %s, %s", reg, addr);
+		count_loads++;
 	}
 	else if(isTemp(operand)){
 		int frame_off = getTempFrameOffset(operand);
-		asmEmit("    lw %s, %d(s0)", reg, frame_off);
+		asmEmit("    lw   %s, %d(s0)", reg, frame_off);
+		count_loads++;
 	}
 	else{
 		asmComment("load: unknown operand, loading 0");
-		asmEmit("    li %s, 0", reg);
+		asmEmit("    li   %s, 0", reg);
+		count_loads++;
 	}
 	int new_idx = findRegFor(operand);
-	if(new_idx>=0) reg_dirty[new_idx] = 0;
-
+	if(new_idx >= 0) reg_dirty[new_idx] = 0;
 	return reg;
 }
 
@@ -1664,11 +1653,12 @@ static OperandMode getMode(const char* operand){
 }
 
 static void emitArithWithMode(const Quad* q, OperandMode m1, OperandMode m2){
-	const char* dst = getReg(q->result);
+	// const char* dst = getReg(q->result);
 
 	// if addition operation and one of the operands is a constant, hence use addi
 	if(strcmp(q->op, "+") == 0 && m2 == MODE_IMM){
 		const char* r1 = load(q->arg1);
+		const char* dst = getReg(q->result);
 		asmEmit("    addi %s, %s, %s", dst, r1, q->arg2);
 		//freeReg(q->arg1);
 		//store(q->result, dst);
@@ -1679,6 +1669,7 @@ static void emitArithWithMode(const Quad* q, OperandMode m1, OperandMode m2){
 	// Now if the argument 1 has constant value
 	if(strcmp(q->op, "+") == 0 && m1 == MODE_IMM){
 		const char* r2 = load(q->arg2);
+		const char* dst = getReg(q->result);
 		asmEmit("    addi %s, %s, %s", dst, r2, q->arg1);
 		// freeReg(q->arg2);
 		// store(q->result, dst);
@@ -1690,6 +1681,7 @@ static void emitArithWithMode(const Quad* q, OperandMode m1, OperandMode m2){
 	if(strcmp(q->op, "-") == 0 && m2 == MODE_IMM){
 		const char* r1 = load(q->arg1);
 		long imm = strtol(q->arg2, NULL, 10);
+		const char* dst = getReg(q->result);
 		asmEmit("    addi %s, %s, %ld", dst, r1, -imm);
 		// freeReg(q->arg1);
 		// store(q->result, dst);
@@ -1700,6 +1692,7 @@ static void emitArithWithMode(const Quad* q, OperandMode m1, OperandMode m2){
 	// For any general expressions
 	const char* r1 = load(q->arg1);
 	const char* r2 = load(q->arg2);
+	const char* dst = getReg(q->result);
 
 	if(strcmp(q->op, "+") == 0){
 		asmEmit("    add  %s, %s, %s", dst, r1, r2);
@@ -2054,7 +2047,8 @@ void genIfGoto(const Quad* q){
 	// If the quad contains ifFalse in the operator position then we need to generate the jump statement checking the condition 
 	// condition to be checked is stored in the first argumet of the quad, so load it for checking the condition
 	else if(strcmp(q->op, "ifFalse") == 0){
-		const char* cond_reg = load(q->arg1);
+		OperandMode m1 = getMode(q->arg1);
+		const char* cond_reg = (m1 == MODE_REG) ? reg_name[findRegFor(q->arg1)] : load(q->arg1);
 		asmEmit("    beqz   %s, %s", cond_reg, q->result);
 		freeReg(q->arg1);
 	}
@@ -2146,6 +2140,7 @@ void genFunctionPrologue(const Quad* q){
 	}
 	//initTempAllocator(func_scope);
 	int deep_off = getDeepNextOffset(func_scope);
+	deep_off += 64;	
 	temp_base_raw = deep_off;
 	temp_next_raw = deep_off;
 	temp_slot_count = 0;
@@ -2242,6 +2237,7 @@ static void genConstructorPrologue(const Quad* q){
 	//initTempAllocator(csym ? csym->attr.ctor.scope : NULL);
 
 	int deep_off = getDeepNextOffset(csym ? csym->attr.ctor.scope : NULL);
+	deep_off += 64;
 	temp_base_raw = deep_off;
 	temp_next_raw = deep_off;
 	temp_slot_count = 0;
@@ -2310,6 +2306,7 @@ static void genMethodPrologue(const Quad* q){
 		setCurrentFuncScope(msym->attr.method.scope);
 	}
 	int deep_off = getDeepNextOffset(msym ? msym->attr.method.scope : NULL);
+	deep_off += 64;
 	temp_base_raw = deep_off;
 	temp_next_raw = deep_off;
 	temp_slot_count = 0;
@@ -2423,123 +2420,126 @@ void genFunctionEpilogue(const Quad* q){
 
 // genIO - a function that is used for handling the generation of equivalent assembly code for IO operations
 void genIO(const Quad* q){
-	// If the quad is a output quad that is "out"
-	if(strcmp(q->op, "out") == 0){
-		int service = 1;	// assign the default value (printing integer
-		
-		Symbol* sym = NULL;
+    // If the quad is a output quad that is "out"
+    if(strcmp(q->op, "out") == 0){
+        int service = 1;    // assign the default value (printing integer
+        
+        Symbol* sym = NULL;
 
-		if(isStringLiteral(q->arg1)){
-			service = 4;
+        if(isStringLiteral(q->arg1)){
+            service = 4;
+        }
+        else{
+            sym = lookupForCodeGen(q->arg1);
+            if(sym){
+                switch(sym->datatype){
+                    case DT_FLOAT: service = 2; break;
+                    case DT_STRING: service = 4; break;
+                    default: service = 1; break;
+                }
+            }
+        }
+
+        // for safety, all the registers are spilled before performing the ecall which is similar to function call as simulator might clobber registers
+        //spillAllRegs();
+
+        // Step 1: Load the value to be printed into a0 register
+        // For constant use "li" instruction
+        // For variable use "lw" instruction
+        // For string address load the base address of the string using the name of the string label (defined in .data section). "la" is the type of instruction used
+        // If it is a string pointer load it using "lw" with base address from the starting pointer of stack frame and offset computed from the symbol table
+        if(isStringLiteral(q->arg1)){
+            spillAllRegs();
+	    const char* lbl = getStringLabel(q->arg1);
+            if(lbl){
+                asmEmit("    la     a0, %s", lbl);
+                count_loads++;
+            }
+            else{
+                asmComment("String literal not found");
+            }
+        }
+        else if(sym && sym->datatype == DT_STRING){
+	    spillAllRegs();
+            if(sym->kind == KIND_ARRAY || sym->scope_level == 0){
+                asmEmit("    la     a0, %s", sym->name);
+                count_loads++;
+            }
+            else{
+                int slot = -(sym->offset + sym->size);
+                asmEmit("    addi   a0, s0, %d", slot);
+            }
+        }
+    	else{
+		OperandType ot = getOperandType(q->arg1);
+		if(ot == OT_CONST){
+			asmEmit("    li     a0, %s", q->arg1);
+			count_loads++;
 		}
 		else{
-			sym = lookupForCodeGen(q->arg1);
-			if(sym){
-				switch(sym->datatype){
-					case DT_FLOAT: service = 2; break;
-					case DT_STRING: service = 4; break;
-					default: service = 1; break;
-				}
-			}
-		}
-
-		// for safety, all the registers are spilled before performing the ecall which is similar to function call as simulator might clobber registers
-		spillAllRegs();
-
-		// Step 1: Load the value to be printed into a0 register
-		// For constant use "li" instruction
-		// For variable use "lw" instruction
-		// For string address load the base address of the string using the name of the string label (defined in .data section). "la" is the type of instruction used
-		// If it is a string pointer load it using "lw" with base address from the starting pointer of stack frame and offset computed from the symbol table
-		if(isStringLiteral(q->arg1)){
-			const char* lbl = getStringLabel(q->arg1);
-			if(lbl){
-				asmEmit("    la     a0, %s", lbl);
-				count_loads++;
+			int reg_idx = findRegFor(q->arg1);
+			if(reg_idx >= 0){
+				asmEmit("    mv     a0, %s", reg_name[reg_idx]);
+				spillAllRegs();
 			}
 			else{
-				asmComment("String literal not found");
-			}
-		}
-		else if(sym && sym->datatype == DT_STRING){
-			if(sym->kind == KIND_ARRAY || sym->scope_level == 0){
-				asmEmit("    la     a0, %s", sym->name);
-				count_loads++;
-			}
-			else{
-				int slot = -(sym->offset + sym->size);
-				asmEmit("    addi   a0, s0, %d", slot);
-			}
-		}
-		else{
-			OperandType ot = getOperandType(q->arg1);
-			if(ot == OT_CONST){
-				asmEmit("    li     a0, %s", q->arg1);
-				count_loads++;
-			}
-			else{
-				Symbol* sym = lookupForCodeGen(q->arg1);
-				/*if(sym && sym->scope_level == 0){
-					// Global variable
-					asmEmit("    la     t0, %s", sym->name);
-					asmEmit("    lw     a0, 0(t0)");
-				}*/
+				spillAllRegs();
 				asmEmit("    lw     a0, %d(s0)", getVarOffset(q->arg1));
 				count_loads++;
 			}
-			
 		}
+    	}
 
-		asmEmit("    li     a7, %d", service);
-		count_loads++;
-		asmEmit("    ecall");
+        asmEmit("    li     a7, %d", service);
+        count_loads++;
+        asmEmit("    ecall");
 
-	}
-	else if(strcmp(q->op, "in") == 0){
-		// Compute the correct read service number
-		int service = 5; 	// Set the default value to read integer
-		Symbol* sym = lookupForCodeGen(q->result);
-		if(sym){
-			switch(sym->datatype){
-				case DT_FLOAT: service = 6; break;
-				case DT_STRING: service = 8; break;
-				default: service = 5; break;
-			}
-		}
-		spillAllRegs();
-		
-		// In simulators like RARS for reading a 
-		// string - a0 should contain address of the buffer to read into and a1 should contain the maximum number of characters to read
-		// integer or float - no arguments are required and the result is direcrtly kept in a0
-		if(sym && sym->datatype == DT_STRING){
-			if(sym->scope_level == 0 || sym->kind == KIND_ARRAY){
-				asmEmit("    la     a0, %s", sym->name);
-				count_loads++;
-			}
-			else{
-				int slot = -(sym->offset + sym->size);
-				asmEmit("    addi   a0, s0, %d", slot);
-			}
-			asmEmit("    li     a1, %d", (sym->size > 0) ? sym->size : 64);
-			count_loads++;
-		}
+    }
+    else if(strcmp(q->op, "in") == 0){
+        // Compute the correct read service number
+        int service = 5;    // Set the default value to read integer
+        Symbol* sym = lookupForCodeGen(q->result);
+        if(sym){
+            switch(sym->datatype){
+                case DT_FLOAT: service = 6; break;
+                case DT_STRING: service = 8; break;
+                default: service = 5; break;
+            }
+        }
+        spillAllRegs();
+        
+        // In simulators like RARS for reading a 
+        // string - a0 should contain address of the buffer to read into and a1 should contain the maximum number of characters to read
+        // integer or float - no arguments are required and the result is direcrtly kept in a0
+        if(sym && sym->datatype == DT_STRING){
+            if(sym->scope_level == 0 || sym->kind == KIND_ARRAY){
+                asmEmit("    la     a0, %s", sym->name);
+                count_loads++;
+            }
+            else{
+                int slot = -(sym->offset + sym->size);
+                asmEmit("    addi   a0, s0, %d", slot);
+            }
+            asmEmit("    li     a1, %d", (sym->size > 0) ? sym->size : 64);
+            count_loads++;
+        }
 
-		asmEmit("    li     a7, %d", service);
-		count_loads++;
-		asmEmit("    ecall");
-		
-		// Now we need to store the input taken from the user in the required register 
-		// ecall stores int input in a0, float input in fa0 and for string it is already stored in the desired buffer
-		if(sym && sym->datatype != DT_STRING){
-			if(sym->datatype == DT_FLOAT){
-				asmEmit("    fsw    fa0, %d(s0)", getVarOffset(q->result));	// floating point store word is used for storing the floating point taken as input
-			}
-			else{
-				asmEmit("    sw     a0, %d(s0)", getVarOffset(q->result));
-				count_stores++;
-			}
-		}
-	}
+        asmEmit("    li     a7, %d", service);
+        count_loads++;
+        asmEmit("    ecall");
+        
+        // Now we need to store the input taken from the user in the required register 
+        // ecall stores int input in a0, float input in fa0 and for string it is already stored in the desired buffer
+        if(sym && sym->datatype != DT_STRING){
+            if(sym->datatype == DT_FLOAT){
+                asmEmit("    fsw    fa0, %d(s0)", getVarOffset(q->result)); // floating point store word is used for storing the floating point taken as input
+            }
+            else{
+                asmEmit("    sw     a0, %d(s0)", getVarOffset(q->result));
+                count_stores++;
+            }
+        }
+    }
 }
 
 // Single entry point from the main function after the optimizations
@@ -2631,6 +2631,7 @@ void generateASM(void)
 	asmEmit("global_body:");
 	asmComment("-- Global body --");	
 	int global_deep_offset = getDeepNextOffset(global_scope);
+	global_deep_offset += 64;	// Add a safe gap between the named variables and temp variables
 	temp_base_raw = global_deep_offset;
 	temp_next_raw = global_deep_offset;
 	temp_slot_count = 0;
