@@ -84,7 +84,7 @@ global_body:
     # new object
     # spill all registers
         li   a0, 0
-        call malloc
+        jal malloc
         sw   a0, 0(s0)
     # push_ptr: load obj pointer into a0
         lw   a0, 0(s0)
@@ -95,10 +95,10 @@ global_body:
         li   a1, "Hello"
         lw   a0, 0(sp)
         addi sp, sp, 4
-        call Calculator_s
+        jal Calculator_s
     # push_ptr: load obj pointer into a0
         lw   a0, 0(s0)
-    # call method
+    # jal method
         addi sp, sp, -4
         sw   a0, 0(sp)
     # spill all registers
@@ -106,7 +106,7 @@ global_body:
         li   a2, 6
         lw a0, 0(sp)
         addi sp, sp, 4
-        call add_ii
+        jal add_ii
         sw     a0, -84(s0)
         lw   t1, -84(s0)
         mv   t2, t1
