@@ -506,6 +506,47 @@ void genDataSection(void)
 	asmBlank();
 }
 
+
+static void emitLocalArrayInits(SymTable* scope) {
+    if (!scope) return;
+    for (int b = 0; b < HASH_SIZE; b++) {
+        for (Symbol* s = scope->buckets[b]; s; s = s->next) {
+
+                if (s->kind!=KIND_ARRAY) continue;
+                if(!s->attr.array.is_initialized) continue;
+                if(s->attr.array.init_count<=0) continue;
+                int elem_size = datatype_size(s->datatype);
+                int base_off  = -(s->offset + 8);   // same formula as getVarOffset
+
+                asmComment ("init local array");
+
+                for (int i = 0; i < s->attr.array.init_count; i++) {
+                    const char* val = s->attr.array.init_values[i];
+                    int byte_off = base_off + i * elem_size;
+                    if (s->datatype == DT_STRING){
+                            const char* lbl=registerStringLiteral(val);
+                            if(!lbl) lbl="str_0";
+                            asmEmit("   la    t0,%s",lbl);
+                            asmEmit("   sw    t0,%d(s0)",byte_off);
+                            count_loads++;
+                            count_stores++;
+                    }
+                    else{
+                            asmEmit("   li    t0,%s",val);
+                            asmEmit("   sw    t0,%d(s0)",byte_off);
+                            count_loads++;
+                            count_stores++;
+
+                }
+            }
+        }
+    }
+    // recurse into child scopes (for/if/block inside the function)
+    for (SymTable* child = scope->first_child; child; child = child->next_sibling)
+        emitLocalArrayInits(child);
+}
+
+
 /*
   genArith function handles + ,- ,*,/ and %
   quad form:  op  arg1  arg2  result
@@ -2178,6 +2219,8 @@ void genFunctionPrologue(const Quad* q){
 			i++;
 		}
 	}
+	asmComment("--initialize local arrays --");
+        emitLocalArrayInits(func_scope);
 
 	asmComment("-- prologue end --");
 	asmBlank();
@@ -2252,6 +2295,8 @@ static void genConstructorPrologue(const Quad* q){
 			i++;
 		}
 	}
+	asmComment("-- initialize local arrays --");
+        emitLocalArrayInits(csym ? csym->attr.ctor.scope: NULL);
 
 	/*if(csym && csym->attr.ctor.scope){
 		setCurrentFuncScope(csym->attr.ctor.scope);
@@ -2322,7 +2367,8 @@ static void genMethodPrologue(const Quad* q){
 			i++;
 		}
 	}
-
+        asmComment("-- initialize local arrays --");
+        emitLocalArrayInits(msym ? msym->attr.method.scope : NULL);
 
 	asmComment("-- method prologue end --");
 	asmBlank();
@@ -2418,6 +2464,8 @@ void genFunctionEpilogue(const Quad* q){
 }
 
 
+
+
 // genIO - a function that is used for handling the generation of equivalent assembly code for IO operations
 void genIO(const Quad* q){
     // If the quad is a output quad that is "out"
@@ -2471,23 +2519,25 @@ void genIO(const Quad* q){
             }
         }
     	else{
-		OperandType ot = getOperandType(q->arg1);
-		if(ot == OT_CONST){
-			asmEmit("    li     a0, %s", q->arg1);
-			count_loads++;
-		}
-		else{
-			int reg_idx = findRegFor(q->arg1);
-			if(reg_idx >= 0){
-				asmEmit("    mv     a0, %s", reg_name[reg_idx]);
-				spillAllRegs();
-			}
-			else{
-				spillAllRegs();
-				asmEmit("    lw     a0, %d(s0)", getVarOffset(q->arg1));
+			OperandType ot = getOperandType(q->arg1);
+			if(ot == OT_CONST){
+				asmEmit("    li     a0, %s", q->arg1);
 				count_loads++;
 			}
-		}
+			else{
+				int reg_idx = findRegFor(q->arg1);
+				if(reg_idx >= 0){
+					asmEmit("    mv     a0, %s", reg_name[reg_idx]);
+					spillAllRegs();
+				}
+				else{
+					spillAllRegs();
+					asmEmit("    lw     a0, %d(s0)", getVarOffset(q->arg1));
+					count_loads++;
+				}
+			}
+
+			
     	}
 
         asmEmit("    li     a7, %d", service);
