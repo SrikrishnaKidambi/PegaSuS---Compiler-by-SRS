@@ -57,6 +57,12 @@ static int pending_constr_ir_idx = -1;
 static int pending_method_ir_idx = -1;
 static int pending_func_ir_idx = -1;
 
+//function calls inside the same function
+// Add these globals near your other pending_*_ir_idx variables
+static int pending_calls[1000];       // IR indices of calls needing patch
+static char pending_call_base[1000][64]; // original base name e.g. "add"
+static int pending_call_count = 0;
+
 DataType last_expr_type = DT_UNKNOWN;
 DataType current_array_elem_type = DT_UNKNOWN;
 int array_type_errors = 0;
@@ -959,6 +965,9 @@ function_decl
             emit("func", ir_name_of($3), "", "");
             pending_func_ir_idx = IR_idx - 1;
 
+            // ADD THIS LINE right here:
+            pending_call_count = 0;
+
             SymTable* fs = create_scope(SCOPE_FUNCTION, $3, current_scope);
             if(sym) sym->attr.func.scope = fs;
             current_scope = fs;
@@ -1011,6 +1020,18 @@ function_decl
                 pending_func_ir_idx = -1;
             }
 
+            for(int i = 0; i < pending_call_count; i++){
+                if(strcmp(pending_call_base[i], $3) == 0){
+                    strncpy(IR[pending_calls[i]].arg1, mangled_ir, 19);
+                    for(int j = i; j < pending_call_count - 1; j++){
+                        pending_calls[j] = pending_calls[j+1];
+                        strncpy(pending_call_base[j], pending_call_base[j+1], 63);
+                    }
+                    pending_call_count--;
+                    i--;
+                }
+            }
+
             print_table(current_scope);
             current_scope = current_scope->parent;
             current_function = NULL;
@@ -1031,6 +1052,9 @@ function_decl
 
             emit("func", ir_name_of($3), "", "");
             pending_func_ir_idx = IR_idx - 1;
+
+            // ADD THIS LINE right here:
+            pending_call_count = 0;
 
             SymTable* fs = create_scope(SCOPE_FUNCTION, $3, current_scope);
             if(sym) sym->attr.func.scope = fs;
@@ -1080,6 +1104,18 @@ function_decl
             if(pending_func_ir_idx >= 0){
                 strncpy(IR[pending_func_ir_idx].arg1, mangled_ir, 19);
                 pending_func_ir_idx = -1;
+            }
+
+            for(int i = 0; i < pending_call_count; i++){
+                if(strcmp(pending_call_base[i], $3) == 0){
+                    strncpy(IR[pending_calls[i]].arg1, mangled_ir, 19);
+                    for(int j = i; j < pending_call_count - 1; j++){
+                        pending_calls[j] = pending_calls[j+1];
+                        strncpy(pending_call_base[j], pending_call_base[j+1], 63);
+                    }
+                    pending_call_count--;
+                    i--;
+                }
             }
 
             print_table(current_scope);
@@ -1477,6 +1513,16 @@ factor
         const char* emit_name = (fsym && is_already_mangled(fsym->name))
                          ? fsym->name : $1;
         emit("call", emit_name, "", t);
+
+        // ===== FIX: if we emitted unmangled, record for later patching =====
+        if(fsym && !is_already_mangled(fsym->name)){
+            if(pending_call_count < 1000){
+                pending_calls[pending_call_count] = IR_idx - 1;
+                strncpy(pending_call_base[pending_call_count], $1, 63);
+                pending_call_count++;
+            }
+        }
+
         $$ = t;
     }
     | IDENTIFIER DOT IDENTIFIER
