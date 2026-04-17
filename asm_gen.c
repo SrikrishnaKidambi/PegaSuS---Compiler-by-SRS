@@ -77,25 +77,24 @@ static int getDeepNextOffset(SymTable* tbl){
 static SymTable* current_func_scope = NULL;
 
 static int getTempFrameOffset(const char* tname){
-	for(int i = 0; i < temp_slot_count; i++){
-		if(strcmp(temp_slots[i].name, tname) == 0){
-			return temp_slots[i].frame_offset;
-		}
-
-	}
-
-	int raw = temp_next_raw;
-	temp_next_raw += 4;
-
-	int frame_off = -(raw + 8);
-
-	strncpy(temp_slots[temp_slot_count].name, tname, 19);
-	temp_slots[temp_slot_count].name[19] = '\0';
-	temp_slots[temp_slot_count].frame_offset = frame_off;
-	temp_slot_count++;
-	return frame_off;
+    for(int i = 0; i < temp_slot_count; i++){
+        if(strcmp(temp_slots[i].name, tname) == 0){
+            return temp_slots[i].frame_offset;
+        }
+    }
+    
+    int raw = temp_next_raw;
+    temp_next_raw += 4;
+    
+    // Store temps BELOW the current frame (more negative offsets)
+    int frame_off = -(raw + 8);
+    
+    strncpy(temp_slots[temp_slot_count].name, tname, 19);
+    temp_slots[temp_slot_count].name[19] = '\0';
+    temp_slots[temp_slot_count].frame_offset = frame_off;
+    temp_slot_count++;
+    return frame_off;
 }
-
 typedef enum{
 	MODE_REG,	// Value currently in register, so use it directly (no load instruction to be generated
 	MODE_IMM,	// Compile time constant - so use the instructions like li or immediate instruction
@@ -131,6 +130,8 @@ Symbol* lookupForCodeGen(const char* name){
 		if(sym){
 			return sym;
 		}
+		        sym = lookup_deep_by_irname(current_func_scope, name);
+        if(sym) return sym;
 	}
 
 	// Serach at the global scope using the global_scope defined pointer in the symbol table implementation
@@ -528,7 +529,7 @@ static void emitLocalArrayInits(SymTable* scope) {
                 if(!s->attr.array.is_initialized) continue;
                 if(s->attr.array.init_count<=0) continue;
                 int elem_size = datatype_size(s->datatype);
-                int base_off  = -(s->offset + 8);   // same formula as getVarOffset
+                int base_off  = -(s->offset + 8);  // same formula as getVarOffset
 
                 asmComment ("init local array");
 
@@ -557,8 +558,46 @@ static void emitLocalArrayInits(SymTable* scope) {
     for (SymTable* child = scope->first_child; child; child = child->next_sibling)
         emitLocalArrayInits(child);
 }
-
-
+// Add this function RIGHT AFTER emitLocalArrayInits() closes
+static void emitLocalScalarInits(SymTable* scope) {
+    if (!scope) return;
+    
+    for (int b = 0; b < HASH_SIZE; b++) {
+        for (Symbol* s = scope->buckets[b]; s; s = s->next) {
+            // Skip arrays, functions, methods, etc.
+            if (s->kind == KIND_ARRAY || 
+                s->kind == KIND_FUNCTION || 
+                s->kind == KIND_METHOD || 
+                s->kind == KIND_CONSTRUCTOR ||
+                s->kind == KIND_ENTITY ||
+                s->kind == KIND_OBJECT) continue;
+            
+            if (!s->is_initialized) continue;
+            
+            // Calculate offset manually without using getVarOffset
+            // Local variables are stored at negative offsets from s0
+            // The offset includes the 8 bytes for ra and s0
+            int offset = -(s->offset + 8);
+            
+            char comment[256];
+            snprintf(comment, sizeof(comment), "init local scalar %s at offset %d", s->name, offset);
+            asmComment(comment);
+            
+            if (s->init_value[0] != '\0') {
+                if (s->datatype == DT_INT || s->datatype == DT_BOOL) {
+                    asmEmit("    li    t0, %s", s->init_value);
+                    asmEmit("    sw    t0, %d(s0)", offset);
+                    count_loads++;
+                    count_stores++;
+                }
+            }
+        }
+    }
+    
+    // Recurse into child scopes
+    for (SymTable* child = scope->first_child; child; child = child->next_sibling)
+        emitLocalScalarInits(child);
+}
 /*
   genArith function handles + ,- ,*,/ and %
   quad form:  op  arg1  arg2  result
@@ -724,10 +763,11 @@ void genAssign(const Quad* q) {
 	const char* lbl = getStringLabel(src);
         const char* dst = getReg(dst_name);
 		if(lbl){
-				asmEmit("    la   %s, str_literal", dst);
+				asmEmit("    la   %s, %s", dst,lbl);
 		}
 		else{
-			asmEmit("    la   %s, str_0", dst);
+			    const char* fallback = registerStringLiteral(src);
+    asmEmit("    la   %s, %s", dst, fallback ? fallback : "str_0");
 		}	
 		count_loads++;
 	markDirty(dst);
@@ -764,30 +804,40 @@ void genArrayAccess(const Quad* q) {
 
     asmComment("array access []");
 
-    // r_base = address of the array's first element 
-    const char* r_base   = getReg("_arr_base_tmp");
-
+    // For local arrays, we need the base address
+    const char* r_base = getReg("_arr_base_tmp");
+    
     Symbol* asym = lookupForCodeGen(q->arg1);
     if(asym && asym->scope_level == 0){
-	    asmEmit("    la   %s, %s", r_base, q->arg1);
+        // Global array
+        asmEmit("    la   %s, %s", r_base, q->arg1);
+        count_loads++;
+    } else if (asym && asym->kind == KIND_ARRAY) {
+        // Local array - get its address on stack
+        int base_offset = getVarOffset(q->arg1);
+        asmEmit("    addi %s, s0, %d", r_base, base_offset);
+        count_loads++;
+    } else {
+        asmComment("ERROR: array symbol not found");
+        return;
     }
-    else{
-	    asmEmit("    addi %s, s0, %d", r_base, getVarOffset(q->arg1));
-    }
-    count_loads++;
-
+    
+    // Load the offset (byte offset, already computed)
     OperandMode m_off = getMode(q->arg2);
     const char* r_off = (m_off == MODE_REG) ? reg_name[findRegFor(q->arg2)] : load(q->arg2);
+    
+    // Compute effective address
     const char* r_ea = getReg(q->result);
     asmEmit("    add  %s, %s, %s", r_ea, r_base, r_off);
+    
+    // Load the value
     asmEmit("    lw   %s, 0(%s)", r_ea, r_ea);
     count_loads++;
-
+    
     freeReg("_arr_base_tmp");
     freeReg(q->arg2);
     markDirty(r_ea);
 }
-
 
 /*
   genObjectOps function handles new,call_constr,call_method,get_field,set_field and push_ptr
@@ -908,9 +958,16 @@ void genObjectOps(const Quad* q) {
 	asmEmit("    addi sp, sp, 4");
 	asmEmit("    call %s", q->arg1);
 	if(q->result[0] != '\0'){
-		asmEmit("    sw  a0, %d(s0)", getVarOffset(q->result));
-		count_stores++;
-	}
+    Symbol* rsym = lookupForCodeGen(q->result);
+    if(rsym && rsym->scope_level == 0){
+        // global variable — must store via label address
+        asmEmit("    la     t0, %s", rsym->name);
+        asmEmit("    sw     a0, 0(t0)");
+    } else {
+        asmEmit("    sw     a0, %d(s0)", getVarOffset(q->result));
+    }
+    count_stores++;
+}
         return;
     }
 
@@ -1062,7 +1119,10 @@ static FILE* out(void){
 //asmEmit(ins) is the signature
 //while printing indentation is given so labels standout properly.
 void asmEmit(const char* fmt, ...){
-	fprintf(out(),"    "); //for indentation to keep the labels visible
+	    size_t n = strlen(fmt);
+    if(n == 0 || fmt[n-1] != ':'){
+        fprintf(out(), "    ");
+    }
 	va_list args;
 	va_start(args,fmt);
 	vfprintf(out(),fmt,args);
@@ -1390,25 +1450,26 @@ static int findFreeReg(void) {
 //spillOne is the function that spills the register at index i.
 
 static void spillOne(int i){
-    if(reg_contents[i][0] == '\0') return;
-    if(reg_dirty[i]){
-        const char* occupant = reg_contents[i];
-        OperandType ot = getOperandType(occupant);
-        if(ot == OT_VAR || ot == OT_TEMP){
-            Symbol* sym = lookupForCodeGen(occupant);
+	if(reg_contents[i][0]=='\0') return; // already free ntg to spill
+	if(reg_dirty[i]){
+		const char* occupant = reg_contents[i];
+		OperandType ot = getOperandType(occupant);
+
+		if(ot == OT_VAR || ot == OT_TEMP){
+			            Symbol* sym = lookupForCodeGen(occupant);
             if(sym && sym->scope_level == 0){
+                // global variable lives in .data, not on the stack frame
                 asmEmit("    la   t0, %s", sym->name);
                 asmEmit("    sw   %s, 0(t0)", reg_name[i]);
-            }
-            else{
+            } else {
                 int frame_off = getVarOffset(occupant);
                 asmEmit("    sw   %s, %d(s0)", reg_name[i], frame_off);
             }
             count_stores++;
-        }
-    }
-    reg_contents[i][0] = '\0';
-    reg_dirty[i] = 0;
+		}
+	}
+	reg_contents[i][0] = '\0';
+	reg_dirty[i] = 0;
 }
 
 //getReg - reg allocation algorithm
@@ -2118,7 +2179,6 @@ static int getVarOffset(const char* var_name){
     	return (int)offset;
 }
 */
-
 static int getVarOffset(const char* var_name){
 	if(!var_name || var_name[0] == '\0'){
 		return 0;
@@ -2137,13 +2197,21 @@ static int getVarOffset(const char* var_name){
 		return -(20 + sym->offset);
 	}
 
-	if(isTemp(var_name)){
-		return getTempFrameOffset(var_name);
-	}
-	asmComment("WARNING: getVarOffset - unknown operand, returning 0");
-	return 0;
-}
+    if(isTemp(var_name)){
+        return getTempFrameOffset(var_name);
+    }
 
+    // Only warn once per variable to avoid spam
+    static char last_warning[64] = "";
+    if(strcmp(last_warning, var_name) != 0){
+        strncpy(last_warning, var_name, 63);
+        char warning[256];
+        snprintf(warning, sizeof(warning), "WARNING: getVarOffset - unknown operand '%s'", var_name);
+        asmComment(warning);
+    }
+
+    return 0;
+}
 // genIfGoto - A function for handling the opcodes: label, goto and ifFalse in IR
 // label - place a label in the assembly code and then spill all the registers (that is write back to the memory as it is not safe to assume same register contents after this control flow structure
 // goto - generate an unconditional jump statement (using "j")
@@ -2350,7 +2418,9 @@ void genFunctionPrologue(const Quad* q){
 	}
 	asmComment("--initialize local arrays --");
 	emitLocalArrayInits(fscope);
-
+        
+	asmComment("--initialize local scalars --");  
+        emitLocalScalarInits(fscope);  
 	asmComment("-- prologue end --");
 	asmBlank();
 

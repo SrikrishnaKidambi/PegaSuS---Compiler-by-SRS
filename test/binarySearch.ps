@@ -1,23 +1,27 @@
 int _func binarySearch(int tgt){
-	int 1seq arr = {1,2,3,4,5};
-	int l = 0;
-	int r = 4;
-
-	for(;l<r;){
-		int mid = (l+r)/2;
-		if(arr[mid] == tgt){
-			return mid;
-		}
-		else if(arr[mid] < tgt){
-			l = mid+1;
-		}
-		else{
-			r = mid-1;
-		}
-	}
-	return -1;
+    int l = 0;
+    int r = 4;
+    int mid;
+    int search_target = tgt;  // Different name, declare before array
+    int 1seq arr = {1, 2, 3, 4, 5};
+    
+    for(;l < r||l==r;){
+        mid = (l + r) / 2;
+        if(arr[mid] == search_target){
+            return mid;
+        }
+        if(arr[mid] < search_target){
+            l = mid + 1;
+        }
+        else{
+            r = mid - 1;
+        }
+    }
+    return -1;
 }
 
-int target = 1;
-int res = binarySearch(target);
-show(res);
+    int result;
+    result = binarySearch(1);
+    show(result);
+    show(10);
+
