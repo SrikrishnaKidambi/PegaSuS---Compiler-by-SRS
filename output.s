@@ -2,13 +2,16 @@
 
     # -- Global Scalar Variables --
         .align 2
-    r1:    .word  0
+    a:    .word  100
         .align 2
-    r2:    .word  0
+    b:    .word  200
+        .align 2
+    res:    .word  0
 
     # -- global arrays --
 
     # -- string literals --
+    str_0:    .asciz "The maximum is:"
 
     # -- I/O format strings --
     .fmt_int:    .asciz  "%d\n"
@@ -34,127 +37,88 @@ main:
         ret
 
 
-add_ii:
+max_ii:
     # -- prologue --
-        addi   sp, sp, -256
-        sd     ra, 248(sp)
-        sd     s0, 240(sp)
-        addi   s0, sp, 256
+        addi   sp, sp, -224
+        sd     ra, 216(sp)
+        sd     s0, 208(sp)
+        addi   s0, sp, 224
         sw     a0, -20(s0)
         sw     a1, -24(s0)
     # --initialize local arrays --
     # --initialize local scalars --
     # -- prologue end --
 
-    # a
-    # b
+    # x
+    # y
+    # >
         lw   t1, -20(s0)
         lw   t2, -24(s0)
-        add  t3, t1, t2
-        mv     a0, t3
-        j      Lepi_add_ii
-Lepi_add_ii:
+        slt  t3, t2, t1
+        beqz   t3, L0
+        sw   t3, -80(s0)
+        mv     a0, t1
+        j      Lepi_max_ii
+    # spill all registers
+        j      L1
+    # spill all registers
+
+L0:
+    # spill all registers
+
+L1:
+        lw     a0, -24(s0)
+        j      Lepi_max_ii
+Lepi_max_ii:
     # -- epilogue --
-        ld     ra, 248(sp)
-        ld     s0, 240(sp)
-        addi   sp, sp, 256
-        ret
-    # -- epilogue end --
-
-
-add_iii:
-    # -- prologue --
-        addi   sp, sp, -272
-        sd     ra, 264(sp)
-        sd     s0, 256(sp)
-        addi   s0, sp, 272
-        sw     a0, -20(s0)
-        sw     a1, -24(s0)
-        sw     a2, -28(s0)
-    # --initialize local arrays --
-    # --initialize local scalars --
-    # -- prologue end --
-
-    # a
-    # b
-    # c
-        lw   t1, -20(s0)
-        lw   t2, -24(s0)
-        add  t3, t1, t2
-        lw   t4, -28(s0)
-        add  t5, t3, t4
-        mv     a0, t5
-        j      Lepi_add_iii
-Lepi_add_iii:
-    # -- epilogue --
-        ld     ra, 264(sp)
-        ld     s0, 256(sp)
-        addi   sp, sp, 272
+        ld     ra, 216(sp)
+        ld     s0, 208(sp)
+        addi   sp, sp, 224
         ret
     # -- epilogue end --
 
 
 global_body:
     # -- Global body --
-        addi sp, sp, -256
-        sd   ra, 248(sp)
-        sd   s0, 240(sp)
-        addi s0, sp, 256
+        addi sp, sp, -224
+        sd   ra, 216(sp)
+        sd   s0, 208(sp)
+        addi s0, sp, 224
+        li   t1, 100
+        li   t2, 200
     # spill all registers
-        addi sp, sp, -16
-        sd   ra, 8(sp)
-        li     a0, 3
-        li     a1, 5
-        call   add_ii
-        ld   ra, 8(sp)
-        addi sp, sp, 16
+        la   t0, a
+        sw   t1, 0(t0)
+        la   t0, b
+        sw   t2, 0(t0)
+        la     t0, a
+        lw     a0, 0(t0)
+        la     t0, b
+        lw     a1, 0(t0)
+        call   max_ii
         sw     a0, -84(s0)
         lw   t1, -84(s0)
         mv   t2, t1
     # spill all registers
-        la   t0, r1
+        la   t0, res
         sw   t2, 0(t0)
-        addi sp, sp, -16
-        sd   ra, 8(sp)
-        li     a0, 1
-        li     a1, 2
-        li     a2, 3
-        call   add_iii
-        ld   ra, 8(sp)
-        addi sp, sp, 16
-        sw     a0, -88(s0)
-        lw   t1, -88(s0)
-        mv   t2, t1
+        la a0, str_0
+        call puts
     # spill all registers
-        la   t0, r2
-        sw   t2, 0(t0)
-        addi sp, sp, -16
-        sd ra, 8(sp)
-        la t0, r1
+        la t0, res
         lw a1, 0(t0)
         la a0, .fmt_int
         call printf
-        ld ra, 8(sp)
-        addi sp, sp, 16
-    # spill all registers
-        addi sp, sp, -16
-        sd ra, 8(sp)
-        la t0, r2
-        lw a1, 0(t0)
-        la a0, .fmt_int
-        call printf
-        ld ra, 8(sp)
-        addi sp, sp, 16
 
     # -- global scope epilogue --
-        ld   ra, 248(sp)
-        ld   s0, 240(sp)
-        addi sp, sp, 256
+        ld   ra, 216(sp)
+        ld   s0, 208(sp)
+        addi sp, sp, 224
         ret
 
 #--- Register Allocation Statistics -----
 # Strategy: BASIC (first dirty VAR)
-# Loads (lw/li): 20
-# Stores (sw) : 13
-# Total : 33
+# Loads (lw/li): 13
+# Stores (sw) : 9
+# Total : 22
 # --------------------------------------

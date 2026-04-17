@@ -2269,8 +2269,8 @@ void genFunctionCall(const Quad* q){
 	if(strcmp(q->op, "call") == 0){
 		spillAllRegs();   // spill FIRST (correct, keep this)
 
-		asmEmit("    addi sp, sp, -16");
-    	asmEmit("    sd   ra, 8(sp)");
+		// asmEmit("    addi sp, sp, -16");
+    	// asmEmit("    sd   ra, 8(sp)");
 		for(int i = 0; i < pending_arg_count; i++){
 			OperandType ot = getOperandType(pending_args[i]);
 			if(ot == OT_CONST){
@@ -2293,8 +2293,8 @@ void genFunctionCall(const Quad* q){
 		pending_arg_count = 0;
 
 		asmEmit("    call   %s", q->arg1);
-		asmEmit("    ld   ra, 8(sp)");
-   		asmEmit("    addi sp, sp, 16");
+		// asmEmit("    ld   ra, 8(sp)");
+   		// asmEmit("    addi sp, sp, 16");
 
 		if(q->result[0] != '\0'){
 			asmEmit("    sw     a0, %d(s0)", getVarOffset(q->result));
@@ -2688,8 +2688,8 @@ void genIO(const Quad* q){
 		// Since we are calling printf which is a C library function call, 			it might clobber the registers 
 		spillAllRegs();
 
-		asmEmit("    addi sp, sp, -16");
-		asmEmit("    sd ra, 8(sp)");
+		// asmEmit("    addi sp, sp, -16");
+		// asmEmit("    sd ra, 8(sp)");
 
         // Step 1: Load the value to be printed into a0 register
         // For constant use "li" instruction
@@ -2703,8 +2703,8 @@ void genIO(const Quad* q){
 	    	const char* lbl = getStringLabel(q->arg1);
             if(!lbl){
 				asmComment("Warning: string literal label not found in genIO");
-				asmEmit("    ld ra, 8(sp)");
-				asmEmit("    addi sp, sp, 16");
+				// asmEmit("    ld ra, 8(sp)");
+				// asmEmit("    addi sp, sp, 16");
 				return;
 			}
 
@@ -2712,8 +2712,8 @@ void genIO(const Quad* q){
 			asmEmit("    la a0, %s", lbl);
 			count_loads++;
 			asmEmit("    call puts");
-			asmEmit("    ld ra, 8(sp)");
-			asmEmit("    addi sp, sp, 16");
+			// asmEmit("    ld ra, 8(sp)");
+			// asmEmit("    addi sp, sp, 16");
 			return;
         }
 
@@ -2729,8 +2729,8 @@ void genIO(const Quad* q){
             }
 
 			asmEmit("    call puts");
-			asmEmit("    ld ra, 8(sp)");
-			asmEmit("    addi sp, sp, 16");
+			// asmEmit("    ld ra, 8(sp)");
+			// asmEmit("    addi sp, sp, 16");
 			return;
         }
 
@@ -2748,8 +2748,8 @@ void genIO(const Quad* q){
 			asmEmit("    la a0, .fmt_float");
 			count_loads++;
 			asmEmit("    call printf");
-			asmEmit("    ld ra, 8(sp)");
-			asmEmit("    addi sp, sp, 16");
+			// asmEmit("    ld ra, 8(sp)");
+			// asmEmit("    addi sp, sp, 16");
 			return;
 		}
 
@@ -2758,8 +2758,8 @@ void genIO(const Quad* q){
 			asmEmit("    li a0, %d", (int)(unsigned char)q->arg1[1]);
 			count_loads++;
 			asmEmit("    call putchar");
-			asmEmit("    ld ra, 8(sp)");
-			asmEmit("    addi sp, sp, 16");
+			// asmEmit("    ld ra, 8(sp)");
+			// asmEmit("    addi sp, sp, 16");
 			return;
 		}
 
@@ -2774,8 +2774,8 @@ void genIO(const Quad* q){
 			}	
 				count_loads++;
 				asmEmit("    call   putchar");
-				asmEmit("    ld ra, 8(sp)");
-				asmEmit("    addi sp, sp, 16");
+				// asmEmit("    ld ra, 8(sp)");
+				// asmEmit("    addi sp, sp, 16");
 				return;
 		}
 
@@ -2786,8 +2786,8 @@ void genIO(const Quad* q){
             asmEmit("    la     a0, .fmt_int");
             count_loads++;
             asmEmit("    call   printf");
-            asmEmit("    ld ra, 8(sp)");
-			asmEmit("    addi sp, sp, 16");
+            // asmEmit("    ld ra, 8(sp)");
+			// asmEmit("    addi sp, sp, 16");
             return;
 		}
 
@@ -2813,8 +2813,8 @@ void genIO(const Quad* q){
 		count_loads++;
 		asmEmit("    call printf");
 
-		asmEmit("    ld ra, 8(sp)");
-		asmEmit("    addi sp, sp, 16");
+		// asmEmit("    ld ra, 8(sp)");
+		// asmEmit("    addi sp, sp, 16");
 		return;
     }
     
@@ -2822,8 +2822,8 @@ void genIO(const Quad* q){
 		Symbol* sym = lookupForCodeGen(q->result);
 		spillAllRegs();
 
-		asmEmit("    addi sp, sp, -16");
-		asmEmit("    sd ra, 8(sp)");
+		// asmEmit("    addi sp, sp, -16");
+		// asmEmit("    sd ra, 8(sp)");
 
 		// Read string
 		if(sym && sym->datatype == DT_STRING){
@@ -2836,8 +2836,8 @@ void genIO(const Quad* q){
 				asmEmit("    addi a1, s0, %d", slot);
 			}
 			asmEmit("    call scanf");
-			asmEmit("    ld ra, 8(sp)");
-			asmEmit("    addi sp, sp, 16");
+			// asmEmit("    ld ra, 8(sp)");
+			// asmEmit("    addi sp, sp, 16");
 			return;
 		}
 
@@ -2853,8 +2853,8 @@ void genIO(const Quad* q){
 			}
 			count_loads++;
 			asmEmit("    call scanf");
-			asmEmit("    ld ra, 8(sp)");
-			asmEmit("    addi sp, sp, 16");
+			// asmEmit("    ld ra, 8(sp)");
+			// asmEmit("    addi sp, sp, 16");
 			return;
 		}
 
@@ -2870,8 +2870,8 @@ void genIO(const Quad* q){
 			}
 			count_loads++;
 			asmEmit("    call scanf");
-			asmEmit("    ld ra, 8(sp)");
-			asmEmit("    addi sp, sp, 16");
+			// asmEmit("    ld ra, 8(sp)");
+			// asmEmit("    addi sp, sp, 16");
 			return;
 		}
 
@@ -2886,8 +2886,8 @@ void genIO(const Quad* q){
 		}
 		count_loads++;
 		asmEmit("    call scanf");
-		asmEmit("    ld ra, 8(sp)");
-		asmEmit("    addi sp, sp, 16");
+		// asmEmit("    ld ra, 8(sp)");
+		// asmEmit("    addi sp, sp, 16");
 		return;
 	}
 }
