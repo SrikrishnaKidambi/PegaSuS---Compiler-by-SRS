@@ -273,7 +273,7 @@ constructor_decl
                 while(s){
                     Symbol* next = s->next;
                     if(strcmp(s->name, $1) == 0 && s->kind == KIND_CONSTRUCTOR
-                            && strchr(s->name, '_') == NULL){
+                            && !is_already_mangled(s->name)){
                         char newName[80];
                         overloaded_ctor_name(newName, $1, s->attr.ctor.param_list);
                         strncpy(s->name, newName, 63);
@@ -725,9 +725,11 @@ var_decl
 		//printf("==== $1 = %d and last_expr_type = %d\n", $1, last_expr_type);
 		fprintf(stderr, "ERROR line %d: Cannot initialize '%s' (declared as %s) with value of type %s.\n", yylineno, $2, dt_names[$1], dt_names[last_expr_type]);
 	    }
-            emit("=", $4, "", $2);
+            //emit("=", $4, "", $2);
+	    printf("Inserting the symbol: %s with the scope: %d\n", $2, current_scope->kind); 
             Symbol* sym = insert_symbol(current_scope, $2,
                                         KIND_VAR, $1, yylineno);
+	    emit("=", ir_name_of($4), "", ir_name_of($2));
             if (sym){
 		sym->is_initialized = 1;
 		if(isConstant($4)){
@@ -954,7 +956,7 @@ function_decl
             current_function = sym;
 
             // emit func with original name as placeholder, record index
-            emit("func", $3, "", "");
+            emit("func", ir_name_of($3), "", "");
             pending_func_ir_idx = IR_idx - 1;
 
             SymTable* fs = create_scope(SCOPE_FUNCTION, $3, current_scope);
@@ -969,7 +971,7 @@ function_decl
                 while(s){
                     Symbol* next = s->next;
                     if(strcmp(s->name, $3) == 0 && s->kind == KIND_FUNCTION
-                            && strchr(s->name, '_') == NULL){
+                            && !is_already_mangled(s->name)){
                         char newName[80];
                         overloaded_method_name(newName, $3,
                                                s->attr.func.param_list);
@@ -1027,7 +1029,7 @@ function_decl
             }
             current_function = sym;
 
-            emit("func", $3, "", "");
+            emit("func", ir_name_of($3), "", "");
             pending_func_ir_idx = IR_idx - 1;
 
             SymTable* fs = create_scope(SCOPE_FUNCTION, $3, current_scope);
@@ -1042,7 +1044,7 @@ function_decl
                 while(s){
                     Symbol* next = s->next;
                     if(strcmp(s->name, $3) == 0 && s->kind == KIND_FUNCTION
-                            && strchr(s->name, '_') == NULL){
+                            && !is_already_mangled(s->name)){
                         char newName[80];
                         overloaded_method_name(newName, $3,
                                                s->attr.func.param_list);
@@ -1115,9 +1117,9 @@ param
     /* primitive-typed param: int x */
     : type IDENTIFIER
         {
-            emit("param", $2, "", "");
             Symbol* sym = insert_symbol(current_scope, $2,
                                         KIND_PARAM, $1, yylineno);
+            emit("param", ir_name_of($2), "", "");
             Symbol* owner = lookup(current_scope->parent,
                                    current_scope->name);
             if (owner) {
@@ -1136,9 +1138,9 @@ param
     /* entity-typed param: Dog myDog */
     | IDENTIFIER IDENTIFIER
         {
-            emit("param", $2, "", "");
             Symbol* sym = insert_symbol(current_scope, $2,
                                         KIND_PARAM, DT_ENTITY, yylineno);
+            emit("param", ir_name_of($2), "", "");
             Symbol* owner = lookup(current_scope->parent,
                                    current_scope->name);
             if (owner) {
@@ -1472,8 +1474,8 @@ factor
         }
 
         // emit with mangled name if overloaded, original otherwise
-        const char* emit_name = (fsym && strchr(fsym->name, '_'))
-                                 ? fsym->name : $1;
+        const char* emit_name = (fsym && is_already_mangled(fsym->name))
+                         ? fsym->name : $1;
         emit("call", emit_name, "", t);
         $$ = t;
     }
@@ -1727,9 +1729,9 @@ for_header
     ;
 
 for_init_opt
-    : var_decl_no_semi	{ $$ = NULL; }
+    : var_decl_no_semi	{ printf("Hit var_decl_no_semi");$$ = NULL; }
     | expression	{ $$ = $1; }
-    | /* empty */   { $$ = NULL; }
+    | /* empty */   { printf("Matching with empty string wala in for_init\n");$$ = NULL; }
     ;
 
 for_cond_opt

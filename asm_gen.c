@@ -20,9 +20,9 @@
 // We use the registers t0-t6.(7 caller-saved registers) remaining are used by OS and functions(stack)
 // t0 may be used for control
 // so we first go from t1 to t6 and in imp case we use t1
-
+// t0 is permanently reserved for scratch register
 static const char* reg_name[NUM_REGS] = {
-    "t1", "t2", "t3", "t4", "t5", "t6", "t0",   // 7 caller-saved
+    "t1", "t2", "t3", "t4", "t5", "t6",   // 7 caller-saved
     "s1", "s2", "s3", "s4", "s5",                 // 5 callee-saved
     "s6", "s7", "s8", "s9", "s10", "s11"          // 6 more callee-saved
 };
@@ -506,38 +506,37 @@ void genDataSection(void)
 	scanStringLiterals();
 	asmBlank();
 }
-// In genFunctionPrologue, after the param-saving while loop:
 
-// Initialize local arrays declared inside this function's scope tree
+
 static void emitLocalArrayInits(SymTable* scope) {
     if (!scope) return;
     for (int b = 0; b < HASH_SIZE; b++) {
         for (Symbol* s = scope->buckets[b]; s; s = s->next) {
 
-		if (s->kind!=KIND_ARRAY) continue;
-		if(!s->attr.array.is_initialized) continue;
-		if(s->attr.array.init_count<=0) continue;
+                if (s->kind!=KIND_ARRAY) continue;
+                if(!s->attr.array.is_initialized) continue;
+                if(s->attr.array.init_count<=0) continue;
                 int elem_size = datatype_size(s->datatype);
                 int base_off  = -(s->offset + 8);  // same formula as getVarOffset
 
-		asmComment ("init local array");
+                asmComment ("init local array");
 
                 for (int i = 0; i < s->attr.array.init_count; i++) {
                     const char* val = s->attr.array.init_values[i];
                     int byte_off = base_off + i * elem_size;
-		    if (s->datatype == DT_STRING){
-			    const char* lbl=registerStringLiteral(val);
-			    if(!lbl) lbl="str_0";
-			    asmEmit("   la    t0,%s",lbl);
-			    asmEmit("   sw    t0,%d(s0)",byte_off);
-			    count_loads++;
-			    count_stores++;
-		    }
-		    else{
-			    asmEmit("   li    t0,%s",val);
-			    asmEmit("   sw    t0,%d(s0)",byte_off);
-			    count_loads++;
-			    count_stores++;
+                    if (s->datatype == DT_STRING){
+                            const char* lbl=registerStringLiteral(val);
+                            if(!lbl) lbl="str_0";
+                            asmEmit("   la    t0,%s",lbl);
+                            asmEmit("   sw    t0,%d(s0)",byte_off);
+                            count_loads++;
+                            count_stores++;
+                    }
+                    else{
+                            asmEmit("   li    t0,%s",val);
+                            asmEmit("   sw    t0,%d(s0)",byte_off);
+                            count_loads++;
+                            count_stores++;
 
                 }
             }
@@ -632,7 +631,7 @@ void genArith(const Quad* q) {
     markDirty(dst);
     //freeReg(q->arg1);
     //freeReg(q->arg2);
-    //store(q->result, dst);
+    // store(q->result, dst);
 }
 
 
@@ -1677,19 +1676,27 @@ const char* load(const char* operand){
 //store- write the value in reg back to variable var in memory
 
 void store(const char* var, const char* reg){
-	if(!var || !reg) return;
+    if(!var || !reg) return;
 
-	const char* addr = getVarAddress(var);
-	asmEmit("sw %s, %s",reg,addr);
-	count_stores++;
+    Symbol* sym = lookupForCodeGen(var);
+    if(sym && sym->scope_level == 0){
+        asmEmit("    la   t0, %s", sym->name);
+        asmEmit("    sw   %s, 0(t0)", reg);
+        count_stores++;
+    }
+    else{
+        const char* addr = getVarAddress(var);
+        asmEmit("    sw   %s, %s", reg, addr);
+        count_stores++;
+    }
 
-	for(int i=0;i<NUM_REGS;i++){
-		if(strcmp(reg_name[i],reg)==0){
-			strncpy(reg_contents[i],var,63);
-			reg_dirty[i]=0;
-			return;
-		}
-	}
+    for(int i = 0; i < NUM_REGS; i++){
+        if(strcmp(reg_name[i], reg) == 0){
+            strncpy(reg_contents[i], var, 63);
+            reg_dirty[i] = 0;
+            return;
+        }
+    }
 }
 
 //markDirty - when we write we need to mark dirty
@@ -1859,24 +1866,55 @@ static void emitAssignWithMode(const Quad* q, OperandMode m1){
 		}
 		break;
 		case MODE_REG:
-			// If the variable is in register then generate mv
 		{
-			int src_idx = findRegFor(q->arg1);
-			const char* src_reg = reg_name[src_idx];
-
-			// check if the result already has a register
-			int dst_idx = findRegFor(q->result);
-			if(dst_idx >= 0){
-				if(dst_idx != src_idx){
-					asmEmit("    mv   %s, %s", reg_name[dst_idx], src_reg);
-					markDirty(reg_name[dst_idx]);
-
-				}
-			}
-			else{
-				strncpy(reg_contents[src_idx], q->result, 63);
-				markDirty(reg_name[src_idx]);
-			}
+		    int src_idx = findRegFor(q->arg1);
+		    if(src_idx < 0){
+		        /* src was evicted between getMode() and here — treat as MEM */
+		        const char* r = load(q->arg1);
+		        const char* dst = getReg(q->result);
+		        src_idx = findRegFor(q->arg1);
+		        if(src_idx >= 0 && strcmp(reg_name[src_idx], dst) != 0)
+		            asmEmit("    mv   %s, %s", dst, reg_name[src_idx]);
+		        markDirty(dst);
+		        break;
+		    }
+		
+		    int dst_idx = findRegFor(q->result);
+		    if(dst_idx >= 0){
+		        /* result already has a register */
+		        if(dst_idx != src_idx){
+		            asmEmit("    mv   %s, %s", reg_name[dst_idx], reg_name[src_idx]);
+		            markDirty(reg_name[dst_idx]);
+		        }
+		        /* else same register, nothing to do */
+		    }
+		    else{
+		        /* result needs a fresh register — must NOT rename src_idx
+		           because the temp name (q->arg1) may still be referenced
+		           by subsequent IR instructions as an operand              */
+		        const char* dst = getReg(q->result);
+		        /* getReg may have evicted src — recheck */
+		        src_idx = findRegFor(q->arg1);
+		        if(src_idx >= 0){
+		            asmEmit("    mv   %s, %s", dst, reg_name[src_idx]);
+		        }
+		        else{
+		            /* src was evicted during getReg, reload from memory */
+		            Symbol* sym = lookupForCodeGen(q->arg1);
+		            if(sym && sym->scope_level == 0){
+		                asmEmit("    la   t0, %s", sym->name);
+		                asmEmit("    lw   %s, 0(t0)", dst);
+		            }
+		            else if(isTemp(q->arg1)){
+		                asmEmit("    lw   %s, %d(s0)", dst, getVarOffset(q->arg1));
+		            }
+		            else{
+		                asmEmit("    lw   %s, %s", dst, getVarAddress(q->arg1));
+		            }
+		            count_loads++;
+		        }
+		        markDirty(dst);
+		    }
 		}
 		break;
 		case MODE_MEM:
@@ -2049,6 +2087,7 @@ void genQuad(const Quad* q){
 		genFunctionCall(q);
 		return;
 	}
+
 
 	// IO operations
 	else if(strcmp(op, "in") == 0 || strcmp(op, "out") == 0){
@@ -2257,6 +2296,7 @@ void genFunctionCall(const Quad* q){
 // Also at the start of the function block we are required to store all the arguments in the a registers because they might be re-used or overwritten (use "load" functions for getting those values)
 // Current top of the stack frame pointer is required because we are required because it is required for correct loading of the values from the stored ones in the stack frame
 void genFunctionPrologue(const Quad* q){
+	initRegs();//to initialize the regs b/w functions
 	pending_arg_count = 0;
 	//resetTempSlots();	
 	//temp_slot_count = 0;
@@ -2271,13 +2311,48 @@ void genFunctionPrologue(const Quad* q){
 	asmComment("-- prologue --");
 
 	// Perform a lookup in the symbol table for getting the parameter count
-	Symbol* fsym = lookup(global_scope, fname);
-	SymTable* func_scope = fsym ? fsym->attr.func.scope : NULL;
-	if(func_scope){
-		setCurrentFuncScope(func_scope);
+	//Symbol* fsym = lookup(global_scope, fname);
+
+	//Fixing the bug by looking using the mangled name
+
+	// Fix — search with exact name match since fname is already mangled:
+	Symbol* fsym = NULL;
+	for(int b = 0; b < HASH_SIZE && !fsym; b++){
+	    for(Symbol* s = global_scope->buckets[b]; s; s = s->next){
+	        if(strcmp(s->name, fname) == 0 && s->kind == KIND_FUNCTION){
+	            fsym = s;
+	        }
+	    }
 	}
+	// Also search entity scopes for methods/constructors
+	if(!fsym){
+	    for(int b = 0; b < HASH_SIZE && !fsym; b++){
+	        for(Symbol* s = global_scope->buckets[b]; s && !fsym; s = s->next){
+	            if(s->kind == KIND_ENTITY){
+	                SymTable* es = s->attr.entity.scope;
+	                if(es){
+	                    Symbol* m = lookup_local(es, fname);
+	                    if(m && (m->kind == KIND_METHOD ||
+	                             m->kind == KIND_CONSTRUCTOR)){
+	                        fsym = m;
+	                    }
+	                }
+	            }
+	        }
+	    }
+	}
+
+	// In genFunctionPrologue, after finding fsym:
+	SymTable* fscope = NULL;
+	if(fsym){
+	    if(fsym->kind == KIND_FUNCTION)         fscope = fsym->attr.func.scope;
+	    else if(fsym->kind == KIND_METHOD)      fscope = fsym->attr.method.scope;
+	    else if(fsym->kind == KIND_CONSTRUCTOR) fscope = fsym->attr.ctor.scope;
+	}
+	if(fscope) setCurrentFuncScope(fscope);
+
 	//initTempAllocator(func_scope);
-	int deep_off = getDeepNextOffset(func_scope);
+	int deep_off = getDeepNextOffset(fscope);
 	deep_off += 64;	
 	temp_base_raw = deep_off;
 	temp_next_raw = deep_off;
@@ -2317,10 +2392,10 @@ void genFunctionPrologue(const Quad* q){
 		}
 	}
 	asmComment("--initialize local arrays --");
-	emitLocalArrayInits(func_scope);
+	emitLocalArrayInits(fscope);
         
 	asmComment("--initialize local scalars --");  
-        emitLocalScalarInits(func_scope);  
+        emitLocalScalarInits(fscope);  
 	asmComment("-- prologue end --");
 	asmBlank();
 
@@ -2332,6 +2407,7 @@ void genFunctionPrologue(const Quad* q){
 }
 
 static void genConstructorPrologue(const Quad* q){
+	initRegs();
 	pending_arg_count = 0;
 	//resetTempSlots();
 	int temp_spill_area = (IR_idx * 4 < 2048) ? (IR_idx * 4 + 64) : 2048;              temp_spill_area = (temp_spill_area + 15) & ~15;
@@ -2394,13 +2470,12 @@ static void genConstructorPrologue(const Quad* q){
 			i++;
 		}
 	}
+	asmComment("-- initialize local arrays --");
+        emitLocalArrayInits(csym ? csym->attr.ctor.scope: NULL);
 
 	/*if(csym && csym->attr.ctor.scope){
 		setCurrentFuncScope(csym->attr.ctor.scope);
 	}*/
-
-	asmComment("-- initialize local arrays --");
-	emitLocalArrayInits(csym ? csym->attr.ctor.scope: NULL);
 
 	asmComment("-- constructor prologue end --");
 	asmBlank();
@@ -2409,6 +2484,7 @@ static void genConstructorPrologue(const Quad* q){
 }
 
 static void genMethodPrologue(const Quad* q){
+	initRegs();
 	pending_arg_count = 0;
 	resetTempSlots();
 	int temp_spill_area = (IR_idx * 4 < 2048) ? (IR_idx * 4 + 64) : 2048;
@@ -2467,10 +2543,8 @@ static void genMethodPrologue(const Quad* q){
 			i++;
 		}
 	}
-
-	asmComment("-- initialize local arrays --");
-	emitLocalArrayInits(msym ? msym->attr.method.scope : NULL);
-
+        asmComment("-- initialize local arrays --");
+        emitLocalArrayInits(msym ? msym->attr.method.scope : NULL);
 
 	asmComment("-- method prologue end --");
 	asmBlank();
@@ -2566,6 +2640,8 @@ void genFunctionEpilogue(const Quad* q){
 }
 
 
+
+
 // genIO - a function that is used for handling the generation of equivalent assembly code for IO operations
 void genIO(const Quad* q){
     // If the quad is a output quad that is "out"
@@ -2606,7 +2682,7 @@ void genIO(const Quad* q){
             else{
                 asmComment("String literal not found");
             }
-        }
+		}
         else if(sym && sym->datatype == DT_STRING){
 	    spillAllRegs();
             if(sym->kind == KIND_ARRAY || sym->scope_level == 0){
@@ -2625,12 +2701,14 @@ void genIO(const Quad* q){
 			count_loads++;
 		}
 		else{
-			int reg_idx = findRegFor(q->arg1);
-			if(reg_idx >= 0){
-				asmEmit("    mv     a0, %s", reg_name[reg_idx]);
-				spillAllRegs();
-			}
-			else{
+		    int reg_idx = findRegFor(q->arg1);
+		    if(reg_idx >= 0){
+			asmEmit("    mv     a0, %s", reg_name[reg_idx]);
+			spillAllRegs();
+		    }
+		    else{
+			spillAllRegs();
+			
 				spillAllRegs();
 				Symbol* sym2 = lookupForCodeGen(q->arg1);
 if(sym2 && sym2->scope_level == 0){
@@ -2654,6 +2732,7 @@ if(sym2 && sym2->scope_level == 0){
         }
 
 	}
+
     else if(strcmp(q->op, "in") == 0){
         // Compute the correct read service number
         int service = 5;    // Set the default value to read integer
@@ -2789,6 +2868,7 @@ void generateASM(void)
 	asmBlank();
 	asmEmit("global_body:");
 	asmComment("-- Global body --");	
+	initRegs();
 	int global_deep_offset = getDeepNextOffset(global_scope);
 	global_deep_offset += 64;	// Add a safe gap between the named variables and temp variables
 	temp_base_raw = global_deep_offset;

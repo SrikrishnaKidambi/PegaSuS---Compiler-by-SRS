@@ -317,6 +317,19 @@ void rehash_symbol(SymTable* tbl, Symbol* sym, const char* old_name){
     tbl->buckets[new_h] = sym;
 }
 
+int is_already_mangled(const char* name){
+    const char* p = strchr(name, '_');
+    if(!p) return 0;
+    p++;  // skip the _
+    // check if remaining chars are all valid type codes (i,f,c,s,b,v,e,o,u)
+    if(*p == '\0') return 0;
+    while(*p){
+        if(!strchr("ifcsbveou", *p)) return 0;
+        p++;
+    }
+    return 1;
+}
+
 int name_in_list(NameNode* list,const char* name){
 	for (NameNode* n = list;n;n=n->next){
 		if(strcmp(n->name,name)==0)return 1;
@@ -401,10 +414,11 @@ Symbol* insert_symbol(SymTable* tbl, const char* name,
     sym->next       = tbl->buckets[h];  // new node points to old head
     tbl->buckets[h] = sym;              // new node becomes new head
     tbl->symbol_count++;
-    // Assign a unique IR name for variables in subscopes so that two loops with same variable name don't collide with each other
+    // Assign a unique IR name for variables in subscopes so that two loops with same variable na	me don't collide with each other
     if(kind == KIND_VAR && (tbl->kind == SCOPE_FOR || tbl->kind == SCOPE_BLOCK ||
 			    tbl->kind == SCOPE_IF || tbl->kind == SCOPE_ELIF || tbl->kind == SCOPE_ELSE)){
 	    snprintf(sym->ir_name, 64, "%s_%d", name, ir_name_counter++);
+    		printf("Inserting the symbol with name: %s with scope: %d\n", name, tbl->kind);
     }
     else{
 	    strncpy(sym->ir_name, name, 63);

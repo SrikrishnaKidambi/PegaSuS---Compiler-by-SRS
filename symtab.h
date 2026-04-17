@@ -302,6 +302,7 @@ void overloaded_ctor_name(char* out, const char* name, ParamNode* param_list);
 
 int name_in_list(NameNode* list, const char* name);//look if the name exists in the list
 void rehash_symbol(SymTable* tbl, Symbol* sym, const char* old_name); //rehash so the hash buckets hold the addii name
+int is_already_mangled(const char* name);
 
 extern SymTable* entity_scopes[MAX_ENTITIES];
 extern int entity_scope_count;
