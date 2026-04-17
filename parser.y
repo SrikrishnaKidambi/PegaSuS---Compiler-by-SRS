@@ -273,7 +273,7 @@ constructor_decl
                 while(s){
                     Symbol* next = s->next;
                     if(strcmp(s->name, $1) == 0 && s->kind == KIND_CONSTRUCTOR
-                            && strchr(s->name, '_') == NULL){
+                            && !is_already_mangled(s->name)){
                         char newName[80];
                         overloaded_ctor_name(newName, $1, s->attr.ctor.param_list);
                         strncpy(s->name, newName, 63);
@@ -969,7 +969,7 @@ function_decl
                 while(s){
                     Symbol* next = s->next;
                     if(strcmp(s->name, $3) == 0 && s->kind == KIND_FUNCTION
-                            && strchr(s->name, '_') == NULL){
+                            && !is_already_mangled(s->name)){
                         char newName[80];
                         overloaded_method_name(newName, $3,
                                                s->attr.func.param_list);
@@ -1042,7 +1042,7 @@ function_decl
                 while(s){
                     Symbol* next = s->next;
                     if(strcmp(s->name, $3) == 0 && s->kind == KIND_FUNCTION
-                            && strchr(s->name, '_') == NULL){
+                            && !is_already_mangled(s->name)){
                         char newName[80];
                         overloaded_method_name(newName, $3,
                                                s->attr.func.param_list);
@@ -1472,8 +1472,8 @@ factor
         }
 
         // emit with mangled name if overloaded, original otherwise
-        const char* emit_name = (fsym && strchr(fsym->name, '_'))
-                                 ? fsym->name : $1;
+        const char* emit_name = (fsym && is_already_mangled(fsym->name))
+                         ? fsym->name : $1;
         emit("call", emit_name, "", t);
         $$ = t;
     }

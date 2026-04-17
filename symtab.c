@@ -317,6 +317,19 @@ void rehash_symbol(SymTable* tbl, Symbol* sym, const char* old_name){
     tbl->buckets[new_h] = sym;
 }
 
+int is_already_mangled(const char* name){
+    const char* p = strchr(name, '_');
+    if(!p) return 0;
+    p++;  // skip the _
+    // check if remaining chars are all valid type codes (i,f,c,s,b,v,e,o,u)
+    if(*p == '\0') return 0;
+    while(*p){
+        if(!strchr("ifcsbveou", *p)) return 0;
+        p++;
+    }
+    return 1;
+}
+
 int name_in_list(NameNode* list,const char* name){
 	for (NameNode* n = list;n;n=n->next){
 		if(strcmp(n->name,name)==0)return 1;

@@ -1859,7 +1859,7 @@ yyreduce:
                 while(s){
                     Symbol* next = s->next;
                     if(strcmp(s->name, (yyvsp[-5].sval)) == 0 && s->kind == KIND_CONSTRUCTOR
-                            && strchr(s->name, '_') == NULL){
+                            && !is_already_mangled(s->name)){
                         char newName[80];
                         overloaded_ctor_name(newName, (yyvsp[-5].sval), s->attr.ctor.param_list);
                         strncpy(s->name, newName, 63);
@@ -2673,7 +2673,7 @@ yyreduce:
                 while(s){
                     Symbol* next = s->next;
                     if(strcmp(s->name, (yyvsp[-5].sval)) == 0 && s->kind == KIND_FUNCTION
-                            && strchr(s->name, '_') == NULL){
+                            && !is_already_mangled(s->name)){
                         char newName[80];
                         overloaded_method_name(newName, (yyvsp[-5].sval),
                                                s->attr.func.param_list);
@@ -2753,7 +2753,7 @@ yyreduce:
                 while(s){
                     Symbol* next = s->next;
                     if(strcmp(s->name, (yyvsp[-5].sval)) == 0 && s->kind == KIND_FUNCTION
-                            && strchr(s->name, '_') == NULL){
+                            && !is_already_mangled(s->name)){
                         char newName[80];
                         overloaded_method_name(newName, (yyvsp[-5].sval),
                                                s->attr.func.param_list);
@@ -3294,8 +3294,8 @@ yyreduce:
         }
 
         // emit with mangled name if overloaded, original otherwise
-        const char* emit_name = (fsym && strchr(fsym->name, '_'))
-                                 ? fsym->name : (yyvsp[-3].sval);
+        const char* emit_name = (fsym && is_already_mangled(fsym->name))
+                         ? fsym->name : (yyvsp[-3].sval);
         emit("call", emit_name, "", t);
         (yyval.sval) = t;
     }
