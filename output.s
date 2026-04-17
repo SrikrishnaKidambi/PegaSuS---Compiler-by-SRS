@@ -2,11 +2,66 @@
 
     # -- Global Scalar Variables --
         .align 2
+<<<<<<< HEAD
     result:    .word  0
+=======
+    a:    .word  100
+        .align 2
+<<<<<<< HEAD
+    num1:    .word  48
+        .align 2
+    num2:    .word  18
+=======
+    b:    .word  200
+        .align 2
+    res:    .word  0
+>>>>>>> b6c6f75b10504544f9ebf22fc332fb85eeb03fb4
+>>>>>>> d92a61429a812fe59b93974fbde1d554efa2563d
 
     # -- global arrays --
 
     # -- string literals --
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+
+    .text
+    .globl main
+    main:
+    # -- global scope --
+        addi sp, sp, -240
+        sw ra, 236(sp)
+        sw s0, 232(sp)
+        addi s0, sp, 236
+        j global_body
+    #  -- global scope end --
+
+
+    gcd_ii:
+    # -- prologue --
+        addi   sp, sp, -240
+        sw     ra, 236(sp)
+        sw     s0, 232(sp)
+        addi   s0, sp, 236
+        sw     a0, -8(s0)
+        sw     a1, -12(s0)
+    # --initialize local arrays --
+    # -- prologue end --
+
+    # a
+    # b
+    # ==
+        lw   t1, -12(s0)
+    li t2, 0
+        sub  t3, t1, t2
+        seqz t3, t3
+        beqz   t3, L0
+        sw   t3, -80(s0)
+        lw     a0, -8(s0)
+        j      Lepi_gcd_ii
+=======
+    str_0:    .asciz "The maximum is:"
+>>>>>>> d92a61429a812fe59b93974fbde1d554efa2563d
 
     # -- I/O format strings --
     .fmt_int:    .asciz  "%d\n"
@@ -61,11 +116,27 @@ binarySearch_i:
         sw    t0, -16(s0)
     # -- prologue end --
 
+<<<<<<< HEAD
     # tgt
         li   t1, 0
         li   t2, 4
         lw   t3, -20(s0)
         mv   t4, t3
+=======
+    # x
+    # y
+    # >
+        lw   t1, -20(s0)
+        lw   t2, -24(s0)
+        slt  t3, t2, t1
+        beqz   t3, L0
+        sw   t3, -80(s0)
+        mv     a0, t1
+        j      Lepi_max_ii
+>>>>>>> b6c6f75b10504544f9ebf22fc332fb85eeb03fb4
+    # spill all registers
+        j      L1
+>>>>>>> d92a61429a812fe59b93974fbde1d554efa2563d
     # spill all registers
         sw   t1, -24(s0)
         sw   t2, -28(s0)
@@ -143,6 +214,24 @@ L5:
         j      L0
     # spill all registers
 
+<<<<<<< HEAD
+    L1:
+        lw   t1, -8(s0)
+        lw   t2, -12(s0)
+        rem  t3, t1, t2
+        mv     a0, t2
+        mv     a1, t3
+    # spill all registers
+        call   gcd_ii
+        sw     a0, -84(s0)
+        lw     a0, -84(s0)
+        j      Lepi_gcd_ii
+    Lepi_gcd_ii:
+    # -- epilogue --
+        lw     ra, 236(sp)
+        lw     s0, 232(sp)
+        addi   sp, sp, 240
+=======
 L1:
     li t1, 0
         addi t2, t1, -1
@@ -150,15 +239,23 @@ L1:
         j      Lepi_binarySearch_i
 Lepi_binarySearch_i:
     # -- epilogue --
+<<<<<<< HEAD
         ld     ra, 312(sp)
         ld     s0, 304(sp)
         addi   sp, sp, 320
+=======
+        ld     ra, 216(sp)
+        ld     s0, 208(sp)
+        addi   sp, sp, 224
+>>>>>>> b6c6f75b10504544f9ebf22fc332fb85eeb03fb4
+>>>>>>> d92a61429a812fe59b93974fbde1d554efa2563d
         ret
     # -- epilogue end --
 
 
 global_body:
     # -- Global body --
+<<<<<<< HEAD
         addi sp, sp, -352
         sd   ra, 344(sp)
         sd   s0, 336(sp)
@@ -168,11 +265,61 @@ global_body:
         call   binarySearch_i
         sw     a0, -112(s0)
         lw   t1, -112(s0)
+=======
+<<<<<<< HEAD
+        li   t1, 48
+        li   t2, 18
+        mv     a0, t1
+        mv     a1, t2
+=======
+        addi sp, sp, -224
+        sd   ra, 216(sp)
+        sd   s0, 208(sp)
+        addi s0, sp, 224
+        li   t1, 100
+        li   t2, 200
+>>>>>>> b6c6f75b10504544f9ebf22fc332fb85eeb03fb4
+    # spill all registers
+        la   t0, num1
+        sw   t1, 0(t0)
+        la   t0, num2
+        sw   t2, 0(t0)
+<<<<<<< HEAD
+        call   gcd_ii
+=======
+        la     t0, a
+        lw     a0, 0(t0)
+        la     t0, b
+        lw     a1, 0(t0)
+        call   max_ii
+>>>>>>> b6c6f75b10504544f9ebf22fc332fb85eeb03fb4
+        sw     a0, -84(s0)
+        lw   t1, -84(s0)
+>>>>>>> d92a61429a812fe59b93974fbde1d554efa2563d
         mv   t2, t1
+        mv     a0, t2
     # spill all registers
         la   t0, result
         sw   t2, 0(t0)
+<<<<<<< HEAD
         la t0, result
+=======
+<<<<<<< HEAD
+        li     a7, 1
+        ecall
+
+    # -- global scope epilogue --
+        lw ra, 236(sp)
+        lw s0, 232(sp)
+        addi sp, sp, 240
+        li a7, 10
+        ecall
+=======
+        la a0, str_0
+        call puts
+    # spill all registers
+        la t0, res
+>>>>>>> d92a61429a812fe59b93974fbde1d554efa2563d
         lw a1, 0(t0)
         la a0, .fmt_int
         call printf
@@ -186,10 +333,22 @@ global_body:
         ld   s0, 336(sp)
         addi sp, sp, 352
         ret
+>>>>>>> b6c6f75b10504544f9ebf22fc332fb85eeb03fb4
 
 #--- Register Allocation Statistics -----
 # Strategy: BASIC (first dirty VAR)
+<<<<<<< HEAD
 # Loads (lw/li): 32
 # Stores (sw) : 23
 # Total : 55
+=======
+# Loads (lw/li): 13
+<<<<<<< HEAD
+# Stores (sw) : 10
+# Total : 23
+=======
+# Stores (sw) : 9
+# Total : 22
+>>>>>>> b6c6f75b10504544f9ebf22fc332fb85eeb03fb4
+>>>>>>> d92a61429a812fe59b93974fbde1d554efa2563d
 # --------------------------------------

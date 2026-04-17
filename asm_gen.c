@@ -2257,7 +2257,7 @@ return;
 if(strcmp(q->op, "arg") == 0){
 if(pending_arg_count < MAX_ARG_REGS){
 strncpy(pending_args[pending_arg_count], q->arg1, 63);
-pending_args[pending_arg_count][63] = '\0'; // Terminate with NULL
+pending_args[pending_arg_count][63] = '\0';
 pending_arg_count++;
 }
 else{
@@ -2267,28 +2267,55 @@ return;
 }
 
 if(strcmp(q->op, "call") == 0){
-spillAllRegs();   // spill FIRST (correct, keep this)
-
-// asmEmit("    addi sp, sp, -16");
-    // asmEmit("    sd   ra, 8(sp)");
+// First pass: handle arguments already in registers (using mv)
 for(int i = 0; i < pending_arg_count; i++){
 OperandType ot = getOperandType(pending_args[i]);
 if(ot == OT_CONST){
 asmEmit("    li     %s, %s", arg_regs[i], pending_args[i]);
 count_loads++;
 } else {
+int reg_idx = findRegFor(pending_args[i]);
+if(reg_idx >= 0){
+// Argument in register - use mv
+if(strcmp(reg_name[reg_idx], arg_regs[i]) != 0){
+asmEmit("    mv     %s, %s", arg_regs[i], reg_name[reg_idx]);
+}
+// Mark this argument as handled (so second pass skips it)
+pending_args[i][0] = '\0';  // Mark as handled
+}
+}
+}
+
+// Now spill all registers (needed for memory loads)
+spillAllRegs();
+
+// Second pass: handle arguments that need to be loaded from memory
+for(int i = 0; i < pending_arg_count; i++){
+if(pending_args[i][0] == '\0') continue;  // Already handled
+
+OperandType ot = getOperandType(pending_args[i]);
+if(ot == OT_CONST){
+// Constants already handled in first pass, but just in case
+asmEmit("    li     %s, %s", arg_regs[i], pending_args[i]);
+count_loads++;
+} else {
+// Load from memory
 Symbol* argsym = lookupForCodeGen(pending_args[i]);
 if(argsym && argsym->scope_level == 0){
-// Global variable: load via label
 asmEmit("    la     t0, %s", argsym->name);
 asmEmit("    lw     %s, 0(t0)", arg_regs[i]);
 count_loads++;
 } else {
-// Local/param/temp: load from frame
-asmEmit("    lw     %s, %d(s0)", arg_regs[i], getVarOffset(pending_args[i]));
+int offset = getVarOffset(pending_args[i]);
+asmEmit("    lw     %s, %d(s0)", arg_regs[i], offset);
 count_loads++;
 }
 }
+}
+
+// Free all argument registers
+for(int i = 0; i < pending_arg_count; i++){
+freeReg(pending_args[i]);
 }
 pending_arg_count = 0;
 
@@ -2395,7 +2422,7 @@ asmEmit("    sd     s0, %d(sp)", frame_size - 16);
 count_stores++;
 
 // Load current frame's pointer
-asmEmit("    addi   s0, sp, %d", frame_size);
+asmEmit("    addi   s0, sp, %d", frame_size - 4);
 
 // Copy the argument list from a registers to the stack slots.
 // Parameters are stored at -(20 + sym->offset)(s0), which is the same
@@ -2417,6 +2444,8 @@ i++;
 }
 }
 asmComment("--initialize local arrays --");
+        emitLocalArrayInits(fscope);
+
 emitLocalArrayInits(fscope);
        
 asmComment("--initialize local scalars --");  
@@ -2470,7 +2499,7 @@ asmEmit("    sd   ra, %d(sp)", frame_size - 8);
 count_stores++;
 asmEmit("    sd   s0, %d(sp)", frame_size - 16);
 count_stores++;
-asmEmit("    addi s0, sp, %d", frame_size);
+asmEmit("    addi s0, sp, %d", frame_size - 4);
 
 asmComment("save 'this' pointer");
 // 'this' (a0) is stored at -4(s0) — reserved slot just below saved s0
@@ -2548,7 +2577,7 @@ asmEmit("    sd   ra, %d(sp)", frame_size - 8);
 count_stores++;
 asmEmit("    sd   s0, %d(sp)", frame_size - 16);
 count_stores++;
-asmEmit("    addi s0, sp, %d", frame_size);
+asmEmit("    addi s0, sp, %d", frame_size - 4);
 
 //save 'this' pointer
 asmEmit("    sw   a0, -4(s0)");

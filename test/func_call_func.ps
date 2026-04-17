@@ -1,0 +1,11 @@
+int _func add(int x,int y){
+	return x+y;
+}
+
+int _func helper(int x,int y){
+	int a = add(x,y);
+	return y + a;
+}
+
+int z = helper(3,5);
+show(z);

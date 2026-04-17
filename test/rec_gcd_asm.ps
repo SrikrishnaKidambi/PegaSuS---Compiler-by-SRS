@@ -1,0 +1,12 @@
+int _func gcd(int a, int b){
+        if(b == 0){
+                return a;
+        }
+        return gcd(b, a % b);
+}
+
+int num1 = 48;
+int num2 = 18;
+int result = gcd(num1, num2);
+show(result);
+
