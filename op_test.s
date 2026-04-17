@@ -1,14 +1,17 @@
-    .data
+.data
 
     # -- Global Scalar Variables --
         .align 2
-    result:    .word  0
+    a:    .word  100
         .align 2
-    n:    .word  3
+    b:    .word  200
+        .align 2
+    res:    .word  0
 
     # -- global arrays --
 
     # -- string literals --
+    str_0:    .asciz "The maximum is:"
 
     # -- I/O format strings --
     .fmt_int:    .asciz  "%d\n"
@@ -23,7 +26,7 @@
     .text
     .globl main
 
-    main:
+main:
     # -- main function --
         addi sp, sp, -16
         sd   ra, 8(sp)
@@ -34,88 +37,82 @@
         ret
 
 
-    fact_i:
+max_ii:
     # -- prologue --
         addi   sp, sp, -224
-        sd     ra, 216(sp)
-        sd     s0, 208(sp)
+        sd     ra, 216(sp)      # s0 - 8
+        sd     s0, 208(sp)      # s0 - 16
         addi   s0, sp, 224
-        sw     a0, -20(s0)
-    # --initialize local arrays --
+        # Store parameters at lower offsets (no overlap with saved s0)
+        sw     a0, -24(s0)      # was -8(s0) – now safe
+        sw     a1, -28(s0)      # was -12(s0) – now safe
     # -- prologue end --
 
-    # n
-    # ==
-        lw   t1, -20(s0)
-    li t2, 0
-        sub  t3, t1, t2
-        seqz t3, t3
+    # x
+    # y
+    # >
+        lw   t1, -24(s0)        # load x
+        lw   t2, -28(s0)        # load y
+        slt  t3, t2, t1
         beqz   t3, L0
-        sw   t3, -76(s0)
-        li     a0, 1
-        j      Lepi_fact_i
-    # spill all registers
+        sw   t3, -80(s0)        # temporary, safe
+        mv     a0, t1
+        j      Lepi_max_ii
         j      L1
+
+L0:
     # spill all registers
 
-    L0:
-    # spill all registers
+L1:
+        lw     a0, -28(s0)      # load y
+        j      Lepi_max_ii
 
-    L1:
-        lw   t1, -20(s0)
-        addi t2, t1, -1
-    # spill all registers
-        addi sp, sp, -16
-        sd   ra, 8(sp)
-        lw     a0, -80(s0)
-        call   fact
-        ld   ra, 8(sp)
-        addi sp, sp, 16
-        sw     a0, -84(s0)
-        lw   t1, -84(s0)
-        lw   t2, -20(s0)
-        mul  t3, t1, t2
-        mv     a0, t3
-        j      Lepi_fact_i
-    Lepi_fact_i:
+Lepi_max_ii:
     # -- epilogue --
         ld     ra, 216(sp)
         ld     s0, 208(sp)
         addi   sp, sp, 224
         ret
-    # -- epilogue end --
 
 
-    global_body:
+global_body:
     # -- Global body --
         addi sp, sp, -224
         sd   ra, 216(sp)
         sd   s0, 208(sp)
         addi s0, sp, 224
-        li   t1, 3
+        li   t1, 100
+        li   t2, 200
     # spill all registers
-        la   t0, n
+        la   t0, a
         sw   t1, 0(t0)
-        addi sp, sp, -16
-        sd   ra, 8(sp)
-        la     t0, n
-        lw     a0, 0(t0)
-        call   fact_i
-        ld   ra, 8(sp)
-        addi sp, sp, 16
-        sw     a0, -80(s0)
-        lw   t1, -80(s0)
+        la   t0, b
+        sw   t2, 0(t0)
+        la   t0, a
+        lw   a0, 0(t0)
+        la   t0, b
+        lw   a1, 0(t0)
+        call max_ii
+        sw   a0, -84(s0)
+        lw   t1, -84(s0)
         mv   t2, t1
     # spill all registers
-        la   t0, result
+        la   t0, res
         sw   t2, 0(t0)
         addi sp, sp, -16
-        sd ra, 8(sp)
-        la t0, result
+        sd   ra, 8(sp)
+        la a0, str_0
+        call puts
+        ld   ra, 8(sp)
+        addi sp, sp, 16
+    # spill all registers
+        addi sp, sp, -16
+        sd   ra, 8(sp)
+        la t0, res
         lw a1, 0(t0)
         la a0, .fmt_int
         call printf
-        ld ra, 8(sp)
+        ld   ra, 8(sp)
         addi sp, sp, 16
 
     # -- global scope epilogue --
@@ -123,10 +120,3 @@
         ld   s0, 208(sp)
         addi sp, sp, 224
         ret
-
-#--- Register Allocation Statistics -----
-# Strategy: BASIC (first dirty VAR)
-# Loads (lw/li): 14
-# Stores (sw) : 8
-# Total : 22
-# --------------------------------------

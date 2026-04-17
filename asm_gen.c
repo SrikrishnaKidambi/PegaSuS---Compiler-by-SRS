@@ -504,6 +504,18 @@ void genDataSection(void)
 
 	scanStringLiterals();
 	asmBlank();
+
+	// for handling prininting the type of content
+	asmComment("-- I/O format strings --");
+	asmEmit(".fmt_int:    .asciz  \"%%d\\n\"");
+	asmEmit(".fmt_uint:    .asciz  \"%%u\\n\"");
+	asmEmit(".fmt_float:    .asciz  \"%%f\\n\"");
+	asmEmit(".fmt_str:    .asciz  \"%%s\\n\"");
+	asmEmit(".fmt_char:    .asciz  \"%%c\\n\"");
+	asmEmit(".fmt_scan_int:    .asciz  \"%%d\"");
+	asmEmit(".fmt_scan_float:    .asciz  \"%%f\\n\"");
+	asmEmit(".fmt_scan_str:    .asciz  \"%%s\\n\"");
+	asmBlank();
 }
 
 
@@ -1190,13 +1202,25 @@ const char* getVarAddress(const char* name){
 
 	Symbol* sym = lookupForCodeGen(name);
 	if(!sym){
-		asmComment("ISSUE: symbol not found for addres lookup");
-		snprintf(addr_buf, sizeof(addr_buf),  "0(s0) # unknown: %s",name);
+		asmComment("ISSUE: symbol not found for address lookup");
+		snprintf(addr_buf, sizeof(addr_buf), "0(s0) # unknown: %s", name);
 		return addr_buf;
 	}
-	snprintf(addr_buf,sizeof(addr_buf),"-%d(s0)",sym->offset+8);
+
+	// Global variables are accessed via la+lw, not via s0 offset
+	// Caller must handle this case - return a marker
+	if(sym->scope_level == 0){
+		snprintf(addr_buf, sizeof(addr_buf), "0(s0) # global: %s", name);
+		return addr_buf;
+	}
+
+	// All locals and params use the same formula as getVarOffset:
+	// layout: s0-8=ra, s0-16=s0, s0-20 onward = params/locals
+	int offset = -(20 + sym->offset);
+	snprintf(addr_buf, sizeof(addr_buf), "%d(s0)", offset);
 	return addr_buf;
 }
+
 
 /*--------Next Use Information-------------
 For each instruction i and each variable v we store:
@@ -2096,7 +2120,6 @@ static int getVarOffset(const char* var_name){
 */
 
 static int getVarOffset(const char* var_name){
-
 	if(!var_name || var_name[0] == '\0'){
 		return 0;
 	}
@@ -2105,7 +2128,13 @@ static int getVarOffset(const char* var_name){
 	}
 	Symbol* sym = lookupForCodeGen(var_name);
 	if(sym){
-		return -(sym->offset + 8);	// Since the first 4 bytes are for ra to return at the caller and the second 4 bytes are for storing the top pointer of the stack frame of the caller so that we restore the state of the caller before the callee is returned to caller
+		// Global variables: caller uses la+lw, offset not meaningful
+		if(sym->scope_level == 0){
+			return 0;
+		}
+		// All locals and params: s0-8=ra, s0-16=s0saved, s0-20 onward = data
+		// sym->offset is the raw symtab counter (0, 4, 8, ...)
+		return -(20 + sym->offset);
 	}
 
 	if(isTemp(var_name)){
@@ -2172,6 +2201,8 @@ void genFunctionCall(const Quad* q){
 	if(strcmp(q->op, "call") == 0){
 		spillAllRegs();   // spill FIRST (correct, keep this)
 
+		asmEmit("    addi sp, sp, -16");
+    	asmEmit("    sd   ra, 8(sp)");
 		for(int i = 0; i < pending_arg_count; i++){
 			OperandType ot = getOperandType(pending_args[i]);
 			if(ot == OT_CONST){
@@ -2194,6 +2225,8 @@ void genFunctionCall(const Quad* q){
 		pending_arg_count = 0;
 
 		asmEmit("    call   %s", q->arg1);
+		asmEmit("    ld   ra, 8(sp)");
+   		asmEmit("    addi sp, sp, 16");
 
 		if(q->result[0] != '\0'){
 			asmEmit("    sw     a0, %d(s0)", getVarOffset(q->result));
@@ -2215,7 +2248,7 @@ void genFunctionPrologue(const Quad* q){
 	//resetTempSlots();	
 	//temp_slot_count = 0;
 	//next_temp_offset = 0;
-	int temp_spill_area = (IR_idx * 4 < 2048) ? (IR_idx * 4 + 64) : 2048;
+	int temp_spill_area = (IR_idx * 4 < 512) ? (IR_idx * 4 + 64) : 512;
 	temp_spill_area = (temp_spill_area + 15) & ~15;
 	
 	const char* fname = q->arg1;
@@ -2235,6 +2268,7 @@ void genFunctionPrologue(const Quad* q){
 	    for(Symbol* s = global_scope->buckets[b]; s; s = s->next){
 	        if(strcmp(s->name, fname) == 0 && s->kind == KIND_FUNCTION){
 	            fsym = s;
+	            break;
 	        }
 	    }
 	}
@@ -2274,39 +2308,48 @@ void genFunctionPrologue(const Quad* q){
 	int frame_size = 64;
 
 	if (fsym && (fsym->kind == KIND_FUNCTION || fsym->kind == KIND_METHOD)){
-			int param_count = (fsym->kind == KIND_FUNCTION) ? fsym->attr.func.param_count : fsym->attr.method.param_count;
+		int param_count = (fsym->kind == KIND_FUNCTION) ? fsym->attr.func.param_count : fsym->attr.method.param_count;
 		// align to 16-byte boundary	
-		frame_size = param_count * 4 + 64 + temp_spill_area;
-		frame_size = (frame_size + 15) & ~15;
+		frame_size = param_count * 4 + 64 + temp_spill_area + 8;
 	}
-	
+	// ensure 16 byte alignment
+	frame_size = (frame_size + 15) & ~15;
+
 	// Allocate the space for the new frame
 	asmEmit("    addi   sp, sp, -%d", frame_size);
 	
 	// Save the return address and the caller's frame pointer
-	asmEmit("    sw     ra, %d(sp)", frame_size - 4);
+	// ra saved at sp + frame_size - 8  (i.e. s0 - 8)
+	// s0 saved at sp + frame_size - 16 (i.e. s0 - 16)
+	asmEmit("    sd     ra, %d(sp)", frame_size - 8);
 	count_stores++;
-	asmEmit("    sw     s0, %d(sp)", frame_size - 8);
+	asmEmit("    sd     s0, %d(sp)", frame_size - 16);
 	count_stores++;
 	
 	// Load current frame's pointer
 	asmEmit("    addi   s0, sp, %d", frame_size);
 
-	// Copy the argument list from a registers to the stack slots
+	// Copy the argument list from a registers to the stack slots.
+	// Parameters are stored at -(20 + sym->offset)(s0), which is the same
+	// formula used by getVarOffset so loads will find them correctly.
 	if(fsym){
 		ParamNode* p = (fsym->kind == KIND_FUNCTION)
 				? fsym->attr.func.param_list
 				: fsym->attr.method.param_list;
 		int i = 0;
 		while(p && i < MAX_ARG_REGS){
-			asmEmit("    sw     %s, %d(s0)", arg_regs[i], getVarOffset(p->name));
+			// Look up the symbol to get its symtab offset (0, 4, 8, ...)
+			Symbol* param_sym = fscope ? lookup_local(fscope, p->name) : NULL;
+			int sym_off = param_sym ? param_sym->offset : (i * 4);
+			int frame_off = -(20 + sym_off);
+			asmEmit("    sw     %s, %d(s0)", arg_regs[i], frame_off);
 			count_stores++;
 			p = p->next;
 			i++;
 		}
 	}
 	asmComment("--initialize local arrays --");
-        emitLocalArrayInits(func_scope);
+	emitLocalArrayInits(fscope);
 
 	asmComment("-- prologue end --");
 	asmBlank();
@@ -2322,7 +2365,8 @@ static void genConstructorPrologue(const Quad* q){
 	initRegs();
 	pending_arg_count = 0;
 	//resetTempSlots();
-	int temp_spill_area = (IR_idx * 4 < 2048) ? (IR_idx * 4 + 64) : 2048;              temp_spill_area = (temp_spill_area + 15) & ~15;
+	int temp_spill_area = (IR_idx * 4 < 2048) ? (IR_idx * 4 + 64) : 2048;
+	temp_spill_area = (temp_spill_area + 15) & ~15;
 
 	const char* cname = q->arg1;
 
@@ -2346,18 +2390,20 @@ static void genConstructorPrologue(const Quad* q){
 		}
 	}
 	
-	int param_count = csym ? csym->attr.ctor.param_count:0;
+	int param_count = csym ? csym->attr.ctor.param_count : 0;
 	int frame_size = 4 + param_count * 4 + 64 + temp_spill_area;
 	frame_size = (frame_size + 15) & ~15;
 
 	asmEmit("    addi sp, sp, -%d", frame_size);
-	asmEmit("    sw   ra, %d(sp)", frame_size - 4);
+	// ra at s0-8, s0 at s0-16
+	asmEmit("    sd   ra, %d(sp)", frame_size - 8);
 	count_stores++;
-	asmEmit("    sw   s0, %d(sp)", frame_size - 8);
+	asmEmit("    sd   s0, %d(sp)", frame_size - 16);
 	count_stores++;
 	asmEmit("    addi s0, sp, %d", frame_size);
 
 	asmComment("save 'this' pointer");
+	// 'this' (a0) is stored at -4(s0) — reserved slot just below saved s0
 	asmEmit("    sw   a0, -4(s0)");
 	count_stores++;
 
@@ -2372,22 +2418,24 @@ static void genConstructorPrologue(const Quad* q){
 	temp_next_raw = deep_off;
 	temp_slot_count = 0;
 
+	// Constructor params start at a1 (a0 holds 'this').
+	// Store at -(20 + sym->offset)(s0) to match getVarOffset formula.
 	if(csym && csym->attr.ctor.param_list){
+		SymTable* cscope = csym->attr.ctor.scope;
 		ParamNode* p = csym->attr.ctor.param_list;
-		int i = 1;
+		int i = 1;   // a1, a2, ... (a0 is 'this')
 		while(p && i < MAX_ARG_REGS){
-			asmEmit("    sw   %s, %d(s0)", arg_regs[i], getVarOffset(p->name));
+			Symbol* param_sym = cscope ? lookup_local(cscope, p->name) : NULL;
+			int sym_off = param_sym ? param_sym->offset : ((i - 1) * 4);
+			int frame_off = -(20 + sym_off);
+			asmEmit("    sw   %s, %d(s0)", arg_regs[i], frame_off);
 			count_stores++;
 			p = p->next;
 			i++;
 		}
 	}
 	asmComment("-- initialize local arrays --");
-        emitLocalArrayInits(csym ? csym->attr.ctor.scope: NULL);
-
-	/*if(csym && csym->attr.ctor.scope){
-		setCurrentFuncScope(csym->attr.ctor.scope);
-	}*/
+	emitLocalArrayInits(csym ? csym->attr.ctor.scope : NULL);
 
 	asmComment("-- constructor prologue end --");
 	asmBlank();
@@ -2420,14 +2468,15 @@ static void genMethodPrologue(const Quad* q){
 			}
 		}
 	}
-	int param_count = msym ? msym->attr.method.param_count: 0;
+	int param_count = msym ? msym->attr.method.param_count : 0;
 	int frame_size = 4 + param_count * 4 + 64 + temp_spill_area;
 	frame_size = (frame_size + 15) & ~15;
 
 	asmEmit("    addi sp, sp, -%d", frame_size);
-	asmEmit("    sw   ra, %d(sp)", frame_size - 4);
+	// ra at s0-8, s0 at s0-16
+	asmEmit("    sd   ra, %d(sp)", frame_size - 8);
 	count_stores++;
-	asmEmit("    sw   s0, %d(sp)", frame_size - 8);
+	asmEmit("    sd   s0, %d(sp)", frame_size - 16);
 	count_stores++;
 	asmEmit("    addi s0, sp, %d", frame_size);
 	
@@ -2445,18 +2494,24 @@ static void genMethodPrologue(const Quad* q){
 	temp_slot_count = 0;
 	//initTempAllocator(msym ? msym->attr.method.scope : NULL);
 	
+	// Method params start at a1 (a0 holds 'this').
+	// Store at -(20 + sym->offset)(s0) to match getVarOffset formula.
 	if(msym && msym->attr.method.param_list){
+		SymTable* mscope = msym->attr.method.scope;
 		ParamNode* p = msym->attr.method.param_list;
-		int i = 1;
+		int i = 1;   // a1, a2, ... (a0 is 'this')
 		while(p && i < MAX_ARG_REGS) {
-			asmEmit("    sw   %s, %d(s0)", arg_regs[i], getVarOffset(p->name));
+			Symbol* param_sym = mscope ? lookup_local(mscope, p->name) : NULL;
+			int sym_off = param_sym ? param_sym->offset : ((i - 1) * 4);
+			int frame_off = -(20 + sym_off);
+			asmEmit("    sw   %s, %d(s0)", arg_regs[i], frame_off);
 			count_stores++;
 			p = p->next;
 			i++;
 		}
 	}
-        asmComment("-- initialize local arrays --");
-        emitLocalArrayInits(msym ? msym->attr.method.scope : NULL);
+	asmComment("-- initialize local arrays --");
+	emitLocalArrayInits(msym ? msym->attr.method.scope : NULL);
 
 	asmComment("-- method prologue end --");
 	asmBlank();
@@ -2465,9 +2520,6 @@ static void genMethodPrologue(const Quad* q){
 	current_func_name[sizeof(current_func_name) - 1] = '\0';
 	current_frame_size = frame_size;
 }
-
-
-
 
 // Handles the exit of the function
 void genFunctionEpilogue(const Quad* q){
@@ -2528,12 +2580,11 @@ void genFunctionEpilogue(const Quad* q){
 
 		int frame_size = current_frame_size;
 
-		// Restore ra and s0 from the first and second 4 bytes of the stack frame (as saved in the prologue)
-		asmEmit("    lw     ra, %d(sp)", frame_size - 4);
+		// Restore ra and s0 from the stack - MODIFIED: use ld (64-bit) instead of lw
+		asmEmit("    ld     ra, %d(sp)", frame_size - 8);
 		count_loads++;
-		asmEmit("    lw     s0, %d(sp)", frame_size - 8);
+		asmEmit("    ld     s0, %d(sp)", frame_size - 16);
 		count_loads++;
-
 
 		// Now shrink the stack frame by adding frame_size to the current stack pointer (sp)
 		asmEmit("    addi   sp, sp, %d", frame_size);
@@ -2552,51 +2603,52 @@ void genFunctionEpilogue(const Quad* q){
 }
 
 
-
-
 // genIO - a function that is used for handling the generation of equivalent assembly code for IO operations
 void genIO(const Quad* q){
     // If the quad is a output quad that is "out"
     if(strcmp(q->op, "out") == 0){
-        int service = 1;    // assign the default value (printing integer
+        //int service = 1;    // assign the default value (printing integer
         
         Symbol* sym = NULL;
-
-        if(isStringLiteral(q->arg1)){
-            service = 4;
-        }
-        else{
+		int is_str_literal = isStringLiteral(q->arg1);
+        if(!is_str_literal){
             sym = lookupForCodeGen(q->arg1);
-            if(sym){
-                switch(sym->datatype){
-                    case DT_FLOAT: service = 2; break;
-                    case DT_STRING: service = 4; break;
-                    default: service = 1; break;
-                }
-            }
         }
 
-        // for safety, all the registers are spilled before performing the ecall which is similar to function call as simulator might clobber registers
-        //spillAllRegs();
+		// Since we are calling printf which is a C library function call, 			it might clobber the registers 
+		spillAllRegs();
+
+		asmEmit("    addi sp, sp, -16");
+		asmEmit("    sd ra, 8(sp)");
 
         // Step 1: Load the value to be printed into a0 register
         // For constant use "li" instruction
         // For variable use "lw" instruction
         // For string address load the base address of the string using the name of the string label (defined in .data section). "la" is the type of instruction used
         // If it is a string pointer load it using "lw" with base address from the starting pointer of stack frame and offset computed from the symbol table
+
+
+		// if the argument is a string literal
         if(isStringLiteral(q->arg1)){
-            spillAllRegs();
-	    const char* lbl = getStringLabel(q->arg1);
-            if(lbl){
-                asmEmit("    la     a0, %s", lbl);
-                count_loads++;
-            }
-            else{
-                asmComment("String literal not found");
-            }
+	    	const char* lbl = getStringLabel(q->arg1);
+            if(!lbl){
+				asmComment("Warning: string literal label not found in genIO");
+				asmEmit("    ld ra, 8(sp)");
+				asmEmit("    addi sp, sp, 16");
+				return;
+			}
+
+			// adding a new line
+			asmEmit("    la a0, %s", lbl);
+			count_loads++;
+			asmEmit("    call puts");
+			asmEmit("    ld ra, 8(sp)");
+			asmEmit("    addi sp, sp, 16");
+			return;
         }
-        else if(sym && sym->datatype == DT_STRING){
-	    spillAllRegs();
+
+		// If the variable to be printed is a string variable
+        if(sym && sym->datatype == DT_STRING){
             if(sym->kind == KIND_ARRAY || sym->scope_level == 0){
                 asmEmit("    la     a0, %s", sym->name);
                 count_loads++;
@@ -2605,86 +2657,169 @@ void genIO(const Quad* q){
                 int slot = -(sym->offset + sym->size);
                 asmEmit("    addi   a0, s0, %d", slot);
             }
+
+			asmEmit("    call puts");
+			asmEmit("    ld ra, 8(sp)");
+			asmEmit("    addi sp, sp, 16");
+			return;
         }
-    	else{
-		OperandType ot = getOperandType(q->arg1);
-		if(ot == OT_CONST){
-			asmEmit("    li     a0, %s", q->arg1);
+
+		// If the operand is a float
+		if(sym && sym->datatype == DT_FLOAT){
+			// load the float value we want to print into the register fa0 and then convert into double using fcvt.d.s and then call printf that will pick from the floating point argument registers
+			if(sym->scope_level == 0){
+				asmEmit("    la t0, %s", sym->name);
+				asmEmit("    flw fa0, 0(t0)");
+			}else{
+				asmEmit("    flw fa0, %d(s0)", getVarOffset(q->arg1));
+			}
+			count_loads++;
+			asmEmit("    fcvt.d.s fa0, fa0");
+			asmEmit("    la a0, .fmt_float");
+			count_loads++;
+			asmEmit("    call printf");
+			asmEmit("    ld ra, 8(sp)");
+			asmEmit("    addi sp, sp, 16");
+			return;
+		}
+
+		// if the output to be done is a character literal
+		if(q->arg1[0] == '\'' && q->arg1[2] == '\''){
+			asmEmit("    li a0, %d", (int)(unsigned char)q->arg1[1]);
+			count_loads++;
+			asmEmit("    call putchar");
+			asmEmit("    ld ra, 8(sp)");
+			asmEmit("    addi sp, sp, 16");
+			return;
+		}
+
+		// if the output is a character variable
+		if(sym && sym->datatype == DT_CHAR){
+			if (sym->scope_level == 0) {
+					asmEmit("    la     t0, %s", sym->name);
+					asmEmit("    lb     a0, 0(t0)");        /* load byte */
+			} else 
+			{
+					asmEmit("    lb     a0, %d(s0)", getVarOffset(q->arg1));
+			}	
+				count_loads++;
+				asmEmit("    call   putchar");
+				asmEmit("    ld ra, 8(sp)");
+				asmEmit("    addi sp, sp, 16");
+				return;
+		}
+
+		// if the argument is an integer constant
+		if(isConstant(q->arg1)){
+			asmEmit("    li     a1, %s", q->arg1);
+            count_loads++;
+            asmEmit("    la     a0, .fmt_int");
+            count_loads++;
+            asmEmit("    call   printf");
+            asmEmit("    ld ra, 8(sp)");
+			asmEmit("    addi sp, sp, 16");
+            return;
+		}
+
+		// Integer variable or temp	(default case)
+		if(sym && sym->scope_level == 0){
+			// integer defined at global level
+			asmEmit("    la t0, %s", sym->name);
+			asmEmit("    lw a1, 0(t0)");
+			count_loads++;
+		}
+		else if(sym){
+			// local integer variable
+			asmEmit("    lw a1, %d(s0)", getVarOffset(q->arg1));
 			count_loads++;
 		}
 		else{
-		    int reg_idx = findRegFor(q->arg1);
-		    if(reg_idx >= 0){
-			asmEmit("    mv     a0, %s", reg_name[reg_idx]);
-			spillAllRegs();
-		    }
-		    else{
-			spillAllRegs();
-			// FIX: check if global variable
-			Symbol* gsym = lookupForCodeGen(q->arg1);
-			if(gsym && gsym->scope_level == 0){
-			    asmEmit("    la     t0, %s", gsym->name);
-			    asmEmit("    lw     a0, 0(t0)"); 
-			    // asmEmit("    lw     a0, %d(s0)", getVarOffset(q->arg1));
-			    count_loads+=1;
-			} else {
-			    asmEmit("    lw     a0, %d(s0)", getVarOffset(q->arg1));
-			    count_loads++;
+			// compiler generated temporary variables - look up for it in the frame slot
+			asmEmit("    lw a1, %d(s0)", getVarOffset(q->arg1));
+			count_loads++;
+		}
+
+		asmEmit("    la a0, .fmt_int");
+		count_loads++;
+		asmEmit("    call printf");
+
+		asmEmit("    ld ra, 8(sp)");
+		asmEmit("    addi sp, sp, 16");
+		return;
+    }
+    
+	if(strcmp(q->op, "in") == 0){
+		Symbol* sym = lookupForCodeGen(q->result);
+		spillAllRegs();
+
+		asmEmit("    addi sp, sp, -16");
+		asmEmit("    sd ra, 8(sp)");
+
+		// Read string
+		if(sym && sym->datatype == DT_STRING){
+			asmEmit("    la     a0, .fmt_scan_str");
+			count_loads++;
+			if(sym->scope_level == 0 || sym->kind == KIND_ARRAY){
+				asmEmit("    la a1, %s", sym->name);
+			}else{
+				int slot = -(sym->offset + sym->size);
+				asmEmit("    addi a1, s0, %d", slot);
 			}
-		    }
-        	}
-    	}
+			asmEmit("    call scanf");
+			asmEmit("    ld ra, 8(sp)");
+			asmEmit("    addi sp, sp, 16");
+			return;
+		}
 
-        asmEmit("    li     a7, %d", service);
-        count_loads++;
-        asmEmit("    ecall");
+		// read float
+		if(sym && sym->datatype == DT_FLOAT){
+			asmEmit("    la a0, .fmt_scan_float");
+			count_loads++;
+			if(sym->scope_level == 0){
+				asmEmit("    la a1, %s", sym->name);
+			}
+			else{
+				asmEmit("    addi a1, s0, %d", getVarOffset(q->result));
+			}
+			count_loads++;
+			asmEmit("    call scanf");
+			asmEmit("    ld ra, 8(sp)");
+			asmEmit("    addi sp, sp, 16");
+			return;
+		}
 
-    }
-    else if(strcmp(q->op, "in") == 0){
-        // Compute the correct read service number
-        int service = 5;    // Set the default value to read integer
-        Symbol* sym = lookupForCodeGen(q->result);
-        if(sym){
-            switch(sym->datatype){
-                case DT_FLOAT: service = 6; break;
-                case DT_STRING: service = 8; break;
-                default: service = 5; break;
-            }
-        }
-        spillAllRegs();
-        
-        // In simulators like RARS for reading a 
-        // string - a0 should contain address of the buffer to read into and a1 should contain the maximum number of characters to read
-        // integer or float - no arguments are required and the result is direcrtly kept in a0
-        if(sym && sym->datatype == DT_STRING){
-            if(sym->scope_level == 0 || sym->kind == KIND_ARRAY){
-                asmEmit("    la     a0, %s", sym->name);
-                count_loads++;
-            }
-            else{
-                int slot = -(sym->offset + sym->size);
-                asmEmit("    addi   a0, s0, %d", slot);
-            }
-            asmEmit("    li     a1, %d", (sym->size > 0) ? sym->size : 64);
-            count_loads++;
-        }
+		// read char
+		if(sym && sym->datatype == DT_CHAR){
+			asmEmit("    la a0, .fmt_scan_str");
+			count_loads++;
+			if(sym->scope_level == 0){
+				asmEmit("    la a1, %s", sym->name);
+			}
+			else{
+				asmEmit("    addi a1, s0, %d", getVarOffset(q->result));
+			}
+			count_loads++;
+			asmEmit("    call scanf");
+			asmEmit("    ld ra, 8(sp)");
+			asmEmit("    addi sp, sp, 16");
+			return;
+		}
 
-        asmEmit("    li     a7, %d", service);
-        count_loads++;
-        asmEmit("    ecall");
-        
-        // Now we need to store the input taken from the user in the required register 
-        // ecall stores int input in a0, float input in fa0 and for string it is already stored in the desired buffer
-        if(sym && sym->datatype != DT_STRING){
-            if(sym->datatype == DT_FLOAT){
-                asmEmit("    fsw    fa0, %d(s0)", getVarOffset(q->result)); // floating point store word is used for storing the floating point taken as input
-            }
-            else{
-                asmEmit("    sw     a0, %d(s0)", getVarOffset(q->result));
-                count_stores++;
-            }
-        }
-    }
+		// read integer
+		asmEmit("    la a0, .fmt_scan_int");
+		count_loads++;
+		if(sym && sym->scope_level == 0){
+			asmEmit("    la a1, %s", sym->name);
+		}
+		else{
+			asmEmit("    addi a1, s0, %d", getVarOffset(q->result));
+		}
+		count_loads++;
+		asmEmit("    call scanf");
+		asmEmit("    ld ra, 8(sp)");
+		asmEmit("    addi sp, sp, 16");
+		return;
+	}
 }
 
 // Single entry point from the main function after the optimizations
@@ -2734,8 +2869,9 @@ void generateASM(void)
 	// Generating .text section
 	asmEmit(".text");
 	asmEmit(".globl main");		// Entry point of the asm file
-
+	asmBlank();
 	// emit a prologue for the global scope so that s0 is valid and spills have a real stack frame to land in. Compute the size of the frame from global scope's next_offset
+	
 	#define TEMP_SPILL_AREA 512
 	int global_frame = getDeepNextOffset(global_scope);
 	// Add 8 bytes for ra and s0 save slots then round up to 16-byte boundary
@@ -2746,13 +2882,15 @@ void generateASM(void)
 	saved_global_frame = global_frame;
 
 	asmEmit("main:");
-	asmComment("-- global scope --");
-	asmEmit("    addi sp, sp, -%d", global_frame);
-	asmEmit("    sw ra, %d(sp)", global_frame - 4);
-	asmEmit("    sw s0, %d(sp)", global_frame - 8);
-	asmEmit("    addi s0, sp, %d", global_frame);
-	asmEmit("    j global_body");	// Emit a new jump ins to the label that has the global body code
-	asmComment(" -- global scope end --");
+	asmComment("-- main function --");
+	asmEmit("    addi sp, sp, -16");
+	asmEmit("    sd   ra, 8(sp)");      // CHANGE: sw -> sd
+	asmEmit("    call global_body");
+	asmEmit("    ld   ra, 8(sp)");      // CHANGE: lw -> ld
+	asmEmit("    addi sp, sp, 16");
+	asmEmit("    li a0, 0");
+	asmEmit("    ret");
+
 	asmBlank();
 
 	// Pass 1: Emit all the function/constructor/method bodies by walking through the IR code
@@ -2774,7 +2912,14 @@ void generateASM(void)
 	// Global body label 
 	asmBlank();
 	asmEmit("global_body:");
-	asmComment("-- Global body --");	
+	asmComment("-- Global body --");
+	
+	// Use the computed global_frame for proper stack allocation
+	asmEmit("    addi sp, sp, -%d", global_frame);
+	asmEmit("    sd   ra, %d(sp)", global_frame - 8);   
+	asmEmit("    sd   s0, %d(sp)", global_frame - 16);  
+	asmEmit("    addi s0, sp, %d", global_frame);
+
 	initRegs();
 	int global_deep_offset = getDeepNextOffset(global_scope);
 	global_deep_offset += 64;	// Add a safe gap between the named variables and temp variables
@@ -2803,13 +2948,12 @@ void generateASM(void)
 	asmBlank();
 
 	asmComment("-- global scope epilogue --");
-	asmEmit("    lw ra, %d(sp)", global_frame - 4);
-	asmEmit("    lw s0, %d(sp)", global_frame - 8);
-	asmEmit("    addi sp, sp, %d", global_frame);
+	// Restore from the computed frame that was actually allocated
+	asmEmit("    ld   ra, %d(sp)", global_frame - 8);   // CHANGE: lw -> ld
+	asmEmit("    ld   s0, %d(sp)", global_frame - 16);  // CHANGE: lw -> ld
 
-	asmEmit("    li a7, 10");
-	count_loads++;
-	asmEmit("    ecall");
+	asmEmit("    addi sp, sp, %d", global_frame);
+	asmEmit("    ret");  // Return to main instead of calling exit directly
 
 	//print stats of register allocation
 	fprintf(out(), "\n");
