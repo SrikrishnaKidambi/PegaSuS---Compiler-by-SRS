@@ -1815,10 +1815,18 @@ io_stmt
 		if(!var){
 			fprintf(stderr, "ERROR line %d: assignment to undeclared variable '%s'.\n", yylineno, $1);
 		}
+		emit("out", $<sval>5, "", "");
 		emit("in", "", "", $1); 
 	}
     | type IDENTIFIER ASSIGN FEED LPAREN STRING_LITERAL RPAREN SEMICOLON
-        { emit("in", "", "", $2); }
+        { 
+		Symbol* sym = insert_symbol(current_scope, $2, KIND_VAR, $1, yylineno);
+		if(sym){
+			sym->is_initialized = 1;
+		}
+		emit("out", $<sval>6, "", "");
+		emit("in", "", "", $2); 
+	}
     | SHOW LPAREN expression RPAREN SEMICOLON
         { emit("out", $3, "", ""); }
     | SHOW LPAREN expression LBRACKET expression RBRACKET RPAREN SEMICOLON

@@ -922,7 +922,7 @@ static const yytype_int16 yyrline[] =
     1653,  1670,  1672,  1677,  1652,  1679,  1684,  1683,  1696,  1713,
     1715,  1720,  1695,  1722,  1727,  1726,  1750,  1759,  1766,  1773,
     1758,  1778,  1779,  1780,  1784,  1785,  1789,  1790,  1794,  1798,
-    1812,  1820,  1822,  1824
+    1812,  1821,  1830,  1832
 };
 #endif
 
@@ -3782,35 +3782,43 @@ yyreduce:
 		if(!var){
 			fprintf(stderr, "ERROR line %d: assignment to undeclared variable '%s'.\n", yylineno, (yyvsp[-6].sval));
 		}
+		emit("out", (yyvsp[-2].sval), "", "");
 		emit("in", "", "", (yyvsp[-6].sval)); 
 	}
-#line 3788 "y.tab.c"
+#line 3789 "y.tab.c"
     break;
 
   case 171: /* io_stmt: type IDENTIFIER ASSIGN FEED LPAREN STRING_LITERAL RPAREN SEMICOLON  */
-#line 1821 "parser.y"
-        { emit("in", "", "", (yyvsp[-6].sval)); }
-#line 3794 "y.tab.c"
+#line 1822 "parser.y"
+        { 
+		Symbol* sym = insert_symbol(current_scope, (yyvsp[-6].sval), KIND_VAR, (yyvsp[-7].dtype), yylineno);
+		if(sym){
+			sym->is_initialized = 1;
+		}
+		emit("out", (yyvsp[-2].sval), "", "");
+		emit("in", "", "", (yyvsp[-6].sval)); 
+	}
+#line 3802 "y.tab.c"
     break;
 
   case 172: /* io_stmt: SHOW LPAREN expression RPAREN SEMICOLON  */
-#line 1823 "parser.y"
+#line 1831 "parser.y"
         { emit("out", (yyvsp[-2].sval), "", ""); }
-#line 3800 "y.tab.c"
+#line 3808 "y.tab.c"
     break;
 
   case 173: /* io_stmt: SHOW LPAREN expression LBRACKET expression RBRACKET RPAREN SEMICOLON  */
-#line 1825 "parser.y"
+#line 1833 "parser.y"
         {
             char* t = genVar();
             emit("[]",  (yyvsp[-5].sval), (yyvsp[-3].sval), t);
             emit("out", t,  "", "");
         }
-#line 3810 "y.tab.c"
+#line 3818 "y.tab.c"
     break;
 
 
-#line 3814 "y.tab.c"
+#line 3822 "y.tab.c"
 
       default: break;
     }
@@ -4003,7 +4011,7 @@ yyreturnlab:
   return yyresult;
 }
 
-#line 1832 "parser.y"
+#line 1840 "parser.y"
 
 
 char* genVar() {
