@@ -1892,7 +1892,7 @@ int main(int argc, char* argv[]) {
         else if (strcmp(argv[i], "-S") == 0) {
             // bare -S means print ALL stats
             stats_mode = STATS_ALL;
-            printf("Stats mode: ALL\n");
+            printf("Stats mode: ALL(Register Allocation + Instruction Selection)\n");
         }
         else if (strncmp(argv[i], "-S=", 3) == 0) {
             const char* sub = argv[i] + 3;   // part after "="
@@ -1900,6 +1900,10 @@ int main(int argc, char* argv[]) {
                 stats_mode = STATS_REGALLOC;
                 printf("Stats mode: regAlloc\n");
             }
+	    else if(strcmp(sub, "instrSel") == 0){
+		stats_mode = STATS_INSTRSEL;
+		printf("Stats mode: Instruction Selection comparision\n");
+	    }
             else {
                 fprintf(stderr, "Warning: unknown stats category '%s', "
                                 "use -S or -S=regAlloc\n", sub);

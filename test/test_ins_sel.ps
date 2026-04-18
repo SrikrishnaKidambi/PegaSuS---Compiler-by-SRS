@@ -1,0 +1,34 @@
+int _func compute(int x, int y){
+    int sum = x + y
+    int diff = x - 5
+    int scaled = sum + 3
+    return scaled
+}
+
+int _func factorial(int n){
+    int result = 1
+    int i = 1
+    for(int k = 0; k < n; k += 1){
+        result = result + i
+        i = i + 1
+    }
+    return result
+}
+
+int a = 10
+int b = 4
+int c = compute(a, b)
+show("Result of compute:")
+show(c)
+
+int limit = 5
+int acc = 0
+for(int i = 0; i < limit; i += 1){
+    acc = acc + i
+    show("acc so far:")
+    show(acc)
+}
+
+int f = factorial(6)
+show("factorial result:")
+show(f)
