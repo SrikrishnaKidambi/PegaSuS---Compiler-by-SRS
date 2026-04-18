@@ -12,6 +12,8 @@ KEEP_ASM=false	 	# stores the generated assembly code
 VERBOSE=false	 	# shows each command being run sequentially
 RUN_AFTER=false		# run the program after compiling
 EXTRA_GCC_FLAGS=()	# a bucket for future flags
+# Flags forwarded directly to pegasus-cc
+PEGASUS_CC_FLAGS=()
 # parsing arguments (from command line)
 # Walking through the args one by one
 # When want to add a new flag just add an elif branch
@@ -28,7 +30,34 @@ while [[ $# -gt 0 ]]; do
 			;;
 		-S)
 			# Stop after producing assembly, don't compile further
+			# Note: -S=<category> is a stats flag for pegasus-cc, handled below
 			STOP_AT_ASM=true
+			;;
+		-S=regAlloc)
+			# Stats flag: print register allocation stats — forwarded to pegasus-cc
+			PEGASUS_CC_FLAGS+=("$1")
+			;;
+		-S=instrSel)
+			# Stats flag: print instruction selection stats — forwarded to pegasus-cc
+			PEGASUS_CC_FLAGS+=("$1")
+			;;
+		-S=*)
+			# Unknown stats sub-category — warn but forward anyway so pegasus-cc
+			# can emit its own warning with full context
+			echo "pegasus: warning: unknown stats category '${1#-S=}', use -S=regAlloc or -S=instrSel" >&2
+			PEGASUS_CC_FLAGS+=("$1")
+			;;
+		--noalloc)
+			# Use basic register allocation instead of optimized
+			PEGASUS_CC_FLAGS+=("$1")
+			;;
+		-O0|-O1|-O2|-O3)
+			# Optimization level — forwarded to pegasus-cc
+			PEGASUS_CC_FLAGS+=("$1")
+			;;
+		-py)
+			# Transpile to Python after compilation — forwarded to pegasus-cc
+			PEGASUS_CC_FLAGS+=("$1")
 			;;
 		-save-temps)
 			# Keep the intermediate .s file
@@ -46,12 +75,20 @@ while [[ $# -gt 0 ]]; do
 			echo "Usage: pegasus [options] <source-file>"
 			echo ""
 			echo "Options:"
-			echo "	-o <file>	Writes output to <file>, defaults to a.out"
-			echo "	-S		Stops the command running after generating assembly file"
-			echo "	-save-temps	Keep the intermediate assembly file"
-			echo "	-v, --verbose	Show each of the compilation command sequentially"
-			echo "	--run		Run the program immediately after compilation"
-			echo "	-h, --help	Show the help message"
+			echo "  -o <file>       Writes output to <file>, defaults to a.out"
+			echo "  -S              Stop after generating assembly file"
+			echo "  -S=regAlloc     Print register allocation stats"
+			echo "  -S=instrSel     Print instruction selection stats"
+			echo "  --noalloc       Use basic register allocation (disable optimized)"
+			echo "  -O0             No optimizations"
+			echo "  -O1             Algebraic simplification, constant folding/propagation"
+			echo "  -O2             O1 + CSE and dead code elimination"
+			echo "  -O3             O2 + strength reduction, LICM, induction var elim (default)"
+			echo "  -py             Also transpile to Python (output.py)"
+			echo "  -save-temps     Keep the intermediate assembly file"
+			echo "  -v, --verbose   Show each compilation command sequentially"
+			echo "  --run           Run the program immediately after compilation"
+			echo "  -h, --help      Show this help message"
 			exit 0
 			;;
 		-*)
@@ -94,8 +131,10 @@ BASENAME_NOEXT="${BASENAME%.*}"
 # $$ gets the value of PID and appends it to assembly file to avoid collisions
 ASM_FILE="/tmp/pegasus_${BASENAME_NOEXT}_$$.s"
 # Run the compiler — pegasus-cc writes to output.s, so we move it to our temp path
-run_cmd "$PEGASUS_CC" < "$SOURCE_FILE"
+# All pegasus-cc flags are forwarded here
+run_cmd "$PEGASUS_CC" "${PEGASUS_CC_FLAGS[@]}" < "$SOURCE_FILE"
 mv output.s "$ASM_FILE"
+# If -py was requested, output.py will have been written by pegasus-cc — keep it as-is
 # If the mode is just stopping at assembly then stop
 if $STOP_AT_ASM; then
 	FINAL_ASM="${OUTPUT_NAME%.out}.s"

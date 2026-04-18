@@ -30,7 +30,8 @@ extern int use_template_matching;
 typedef enum {
     STATS_NONE    = 0,
     STATS_ALL     = 1,
-    STATS_REGALLOC = 2
+    STATS_REGALLOC = 2,
+    STATS_INSTRSEL = 3
 } StatsMode;
 
 /* Call after generateASM() to print stats to stdout based on mode. */
