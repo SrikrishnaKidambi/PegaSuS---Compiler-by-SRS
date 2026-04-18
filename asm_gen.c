@@ -2260,126 +2260,96 @@ freeReg(q->arg1);
 // Then store the return value in the a0 register
 
 void genFunctionCall(const Quad* q){
-if(strcmp(q->op, "param") == 0){
-asmComment(q->arg1);
-return;
-}
+    if(strcmp(q->op, "param") == 0){
+        asmComment(q->arg1);
+        return;
+    }
 
-if(strcmp(q->op, "arg") == 0){
-if(pending_arg_count < MAX_ARG_REGS){
-strncpy(pending_args[pending_arg_count], q->arg1, 63);
-pending_args[pending_arg_count][63] = '\0';
-pending_arg_count++;
-}
-else{
-asmComment("stack-arg (>8 args) not allowed in current implementation");
-}
-return;
-}
+    if(strcmp(q->op, "arg") == 0){
+        if(pending_arg_count < MAX_ARG_REGS){
+            strncpy(pending_args[pending_arg_count], q->arg1, 63);
+            pending_args[pending_arg_count][63] = '\0';
+            pending_arg_count++;
+        }
+        else{
+            asmComment("stack-arg (>8 args) not allowed in current implementation");
+        }
+        return;
+    }
 
-	if(strcmp(q->op, "call") == 0){
-		// First pass: handle arguments already in registers (using mv)
-		for(int i = 0; i < pending_arg_count; i++){
-			OperandType ot = getOperandType(pending_args[i]);
+    if(strcmp(q->op, "call") == 0){
+        // First pass: handle arguments already in registers (using mv)
+        for(int i = 0; i < pending_arg_count; i++){
+            OperandType ot = getOperandType(pending_args[i]);
 
-			// Handle string literals specially
-        	if(isStringLiteral(pending_args[i])){
-        	    const char* lbl = getStringLabel(pending_args[i]);
-        	    if(!lbl){
-        	        lbl = registerStringLiteral(pending_args[i]);
-        	    }
-        	    asmEmit("    la     %s, %s", arg_regs[i], lbl);
-        	    count_loads++;
-        	    pending_args[i][0] = '\0';  // Mark as handled
-        	    continue;
-        	}
+            // Handle string literals specially
+            if(isStringLiteral(pending_args[i])){
+                const char* lbl = getStringLabel(pending_args[i]);
+                if(!lbl){
+                    lbl = registerStringLiteral(pending_args[i]);
+                }
+                asmEmit("    la     %s, %s", arg_regs[i], lbl);
+                count_loads++;
+                pending_args[i][0] = '\0';  // Mark as handled
+                continue;
+            }
 
-			if(ot == OT_CONST){
-				asmEmit("    li     %s, %s", arg_regs[i], pending_args[i]);
-				count_loads++;
-			} else {
-				int reg_idx = findRegFor(pending_args[i]);
-				if(reg_idx >= 0){
-					// Argument in register - use mv
-					if(strcmp(reg_name[reg_idx], arg_regs[i]) != 0){
-						asmEmit("    mv     %s, %s", arg_regs[i], reg_name[reg_idx]);
-					}
-					// Mark this argument as handled (so second pass skips it)
-					pending_args[i][0] = '\0';  // Mark as handled
-				}
-			}
-		}
-		
-		// Now spill all registers (needed for memory loads)
-		spillAllRegs();
-		
-		// Second pass: handle arguments that need to be loaded from memory
-		for(int i = 0; i < pending_arg_count; i++){
-			if(pending_args[i][0] == '\0') continue;  // Already handled
-			
-			OperandType ot = getOperandType(pending_args[i]);
-			if(ot == OT_CONST){
-				// Constants already handled in first pass, but just in case
-				asmEmit("    li     %s, %s", arg_regs[i], pending_args[i]);
-				count_loads++;
-			} else {
-				// Load from memory
-				Symbol* argsym = lookupForCodeGen(pending_args[i]);
-				if(argsym && argsym->scope_level == 0){
-					asmEmit("    la     t0, %s", argsym->name);
-					asmEmit("    lw     %s, 0(t0)", arg_regs[i]);
-					count_loads++;
-				} else {
-					int offset = getVarOffset(pending_args[i]);
-					asmEmit("    lw     %s, %d(s0)", arg_regs[i], offset);
-					count_loads++;
-				}
-			}
-		}
+            if(ot == OT_CONST){
+                asmEmit("    li     %s, %s", arg_regs[i], pending_args[i]);
+                count_loads++;
+                pending_args[i][0] = '\0';
+            } else {
+                int reg_idx = findRegFor(pending_args[i]);
+                if(reg_idx >= 0){
+                    // Argument in register - use mv
+                    if(strcmp(reg_name[reg_idx], arg_regs[i]) != 0){
+                        asmEmit("    mv     %s, %s", arg_regs[i], reg_name[reg_idx]);
+                    }
+                    pending_args[i][0] = '\0';  // Mark as handled
+                }
+            }
+        }
+        
+        // Now spill all registers (needed for memory loads)
+        spillAllRegs();
+        
+        // Second pass: handle arguments that need to be loaded from memory
+        for(int i = 0; i < pending_arg_count; i++){
+            if(pending_args[i][0] == '\0') continue;  // Already handled
+            
+            OperandType ot = getOperandType(pending_args[i]);
+            if(ot == OT_CONST){
+                asmEmit("    li     %s, %s", arg_regs[i], pending_args[i]);
+                count_loads++;
+            } else {
+                // Load from memory
+                Symbol* argsym = lookupForCodeGen(pending_args[i]);
+                if(argsym && argsym->scope_level == 0){
+                    asmEmit("    la     t0, %s", argsym->name);
+                    asmEmit("    lw     %s, 0(t0)", arg_regs[i]);
+                    count_loads++;
+                } else {
+                    int offset = getVarOffset(pending_args[i]);
+                    asmEmit("    lw     %s, %d(s0)", arg_regs[i], offset);
+                    count_loads++;
+                }
+            }
+        }
 
-// Now spill all registers (needed for memory loads)
-spillAllRegs();
+        // Free all argument registers
+        for(int i = 0; i < pending_arg_count; i++){
+            freeReg(pending_args[i]);
+        }
+        pending_arg_count = 0;
 
-// Second pass: handle arguments that need to be loaded from memory
-for(int i = 0; i < pending_arg_count; i++){
-if(pending_args[i][0] == '\0') continue;  // Already handled
+        asmEmit("    call   %s", q->arg1);
 
-OperandType ot = getOperandType(pending_args[i]);
-if(ot == OT_CONST){
-// Constants already handled in first pass, but just in case
-asmEmit("    li     %s, %s", arg_regs[i], pending_args[i]);
-count_loads++;
-} else {
-// Load from memory
-Symbol* argsym = lookupForCodeGen(pending_args[i]);
-if(argsym && argsym->scope_level == 0){
-asmEmit("    la     t0, %s", argsym->name);
-asmEmit("    lw     %s, 0(t0)", arg_regs[i]);
-count_loads++;
-} else {
-int offset = getVarOffset(pending_args[i]);
-asmEmit("    lw     %s, %d(s0)", arg_regs[i], offset);
-count_loads++;
-}
-}
-}
-
-// Free all argument registers
-for(int i = 0; i < pending_arg_count; i++){
-freeReg(pending_args[i]);
-}
-pending_arg_count = 0;
-
-asmEmit("    call   %s", q->arg1);
-// asmEmit("    ld   ra, 8(sp)");
-    // asmEmit("    addi sp, sp, 16");
-
-if(q->result[0] != '\0'){
-asmEmit("    sw     a0, %d(s0)", getVarOffset(q->result));
-count_stores++;
-}
-return;
-}
+        if(q->result[0] != '\0'){
+            asmEmit("    sw     a0, %d(s0)", getVarOffset(q->result));
+            count_stores++;
+        }
+        return;
+    }
 }
 
 // genFunctionPrologue - creating the opening of the function, called for every "func" opcode.
