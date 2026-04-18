@@ -383,8 +383,10 @@ Symbol* insert_symbol(SymTable* tbl, const char* name,
             sym->size = datatype_size(dt);
             break;
         case KIND_ENTITY:
+	    sym->size=0;
+	    break;
 	case KIND_OBJECT:
-	    sym->size = 0; // for now later we update
+	    sym->size = 8; // for now later we update
 	    break;
         case KIND_FUNCTION:
         case KIND_METHOD:

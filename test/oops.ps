@@ -1,0 +1,17 @@
+Entity Patient {
+	public string name;
+	public int fee;
+	public int days;
+	Patient(string name, int fee, int days){
+		this.name=name;
+		this.fee=fee;
+		this.days=days;
+	}
+	public int _func total_fee(){
+		return fee * days;
+	}
+}
+
+Patient P = new Patient("Saiman",200,5);
+int result=P.total_fee();
+show(result);

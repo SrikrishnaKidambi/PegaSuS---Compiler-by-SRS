@@ -28,7 +28,7 @@ static const char* reg_name[NUM_REGS] = {
 };
 static char reg_contents[NUM_REGS][64]; // operand name int this register
 static int reg_dirty[NUM_REGS]; //1 if the value is modifed and need to be stored.
-
+static FILE* asm_out = NULL;
 //0 = basic spill, 1 = optimized next use spill coming from parser.y
 int use_optimized_regalloc = 1;
 
@@ -87,7 +87,7 @@ static int getTempFrameOffset(const char* tname){
     temp_next_raw += 4;
    
     // Store temps BELOW the current frame (more negative offsets)
-    int frame_off = -(20+raw);
+    int frame_off = -(24+raw);
    
     strncpy(temp_slots[temp_slot_count].name, tname, 19);
     temp_slots[temp_slot_count].name[19] = '\0';
@@ -506,6 +506,14 @@ asmComment("-- string literals --");
 scanStringLiterals();
 asmBlank();
 
+asmComment("-- global objects (pointer slots) --");
+for(int b = 0; b < HASH_SIZE; b++){
+    for(Symbol* sym = global_scope->buckets[b]; sym; sym = sym->next){
+        if(sym->kind != KIND_OBJECT) continue;
+        asmEmit("    .align 3");           // 8-byte alignment
+        asmEmit("%s:    .dword 0", sym->name);  // 8-byte zero slot
+    }
+}
 // for handling prininting the type of content
 asmComment("-- I/O format strings --");
 asmEmit(".fmt_int:    .asciz  \"%%d\\n\"");
@@ -529,7 +537,7 @@ static void emitLocalArrayInits(SymTable* scope) {
                 if(!s->attr.array.is_initialized) continue;
                 if(s->attr.array.init_count<=0) continue;
                 int elem_size = datatype_size(s->datatype);
-                int base_off  = -(20+s->offset);  // same formula as getVarOffset
+                int base_off  = -(24+s->offset);  // same formula as getVarOffset
 
                 asmComment ("init local array");
 
@@ -577,7 +585,7 @@ static void emitLocalScalarInits(SymTable* scope) {
             // Calculate offset manually without using getVarOffset
             // Local variables are stored at negative offsets from s0
             // The offset includes the 8 bytes for ra and s0
-            int offset = -(20+s->offset);
+            int offset = -(24+s->offset);
            
             char comment[256];
             snprintf(comment, sizeof(comment), "init local scalar %s at offset %d", s->name, offset);
@@ -880,33 +888,44 @@ void genObjectOps(const Quad* q) {
       allocates memory for a new object on the heap.We call malloc(class_size),class_size comes from the symbol table; we use a placeholder for now.
      example quad: new  ClassName  ""  result
      */
-    if (strcmp(q->op, "new") == 0) {
-        asmComment("new object");
-
-        // symtab for the class size
-        Symbol* cls = lookup(global_scope, q->arg1);
-int class_size = cls && cls->kind == KIND_ENTITY ? cls->attr.entity.class_size:4;
-spillAllRegs();
-asmEmit("    li   a0, %d", class_size);
-count_loads++;
-asmEmit("    call malloc");
-// Store the pointer directly instead of going through register allocator
-asmEmit("    sw   a0, %d(s0)", getVarOffset(q->result));
-count_stores++;
-return;
+ if (strcmp(q->op, "new") == 0) {
+    asmComment("new object");
+    Symbol* cls = lookup(global_scope, q->arg1);
+    int class_size = cls && cls->kind == KIND_ENTITY ? cls->attr.entity.class_size : 8;
+    if(class_size == 0) class_size = 8;
+    spillAllRegs();
+    asmEmit("    li   a0, %d", class_size);
+    count_loads++;
+    asmEmit("    call malloc");
+    // Store the 64-bit pointer
+    Symbol* rsym = lookupForCodeGen(q->result);
+    if(rsym && rsym->scope_level == 0){
+        asmEmit("    la   t0, %s", rsym->name);
+        asmEmit("    sd   a0, 0(t0)");  // Use sd for 64-bit store
+    } else {
+        asmEmit("    sd   a0, %d(s0)", getVarOffset(q->result));  // Use sd
     }
+    count_stores++;
+    return;
+}
 
     /*
     "push_ptr"
      push object pointer into a0 before calling a method.
      example quad: push_ptr  obj  ""  ""
      */
-    if(strcmp(q->op, "push_ptr") == 0){
-   asmComment("push_ptr: load obj pointer into a0");
-   asmEmit("    lw   a0, %d(s0)", getVarOffset(q->arg1));
-count_loads++;
-   return;
+if(strcmp(q->op, "push_ptr") == 0){
+    asmComment("push_ptr: load obj pointer into a0");
+    Symbol* psym = lookupForCodeGen(q->arg1);
+    if(psym && psym->scope_level == 0){
+        asmEmit("    la   t0, %s", psym->name);
+        asmEmit("    ld   a0, 0(t0)");
+    } else {
+        asmEmit("    ld   a0, %d(s0)", getVarOffset(q->arg1));
     }
+    count_loads++;
+    return;
+}
 
     /*
       "call_constr"
@@ -914,32 +933,27 @@ count_loads++;
       example quad: call_constr  ctor_label  ""  ""
      */
     if (strcmp(q->op, "call_constr") == 0) {
-   asmComment("call_constr");
-   // save "this" pointer below sp before spilling a0
-   asmEmit("    addi sp, sp, -4");
-   asmEmit("    sw   a0, 0(sp)");
-count_stores++;
-   spillAllRegs();
-   // load arguments in constructor arguments into a1...a7
-   for(int i = 0; i < pending_arg_count; i++){
-   OperandType ot = getOperandType(pending_args[i]);
-   if(ot == OT_CONST){
-   asmEmit("    li   %s, %s", arg_regs[i+1], pending_args[i]);
-count_loads++;
-   }
-   else{
-   asmEmit("    lw   %s, %d(s0)", arg_regs[i+1], getVarOffset(pending_args[i]));
-count_loads++;
-   }
-   }
-   pending_arg_count = 0;
-   asmEmit("    lw   a0, 0(sp)");
-count_loads++;
-   asmEmit("    addi sp, sp, 4");
-   asmEmit("    call %s", q->arg1);
-   return;
-
+    asmComment("call_constr");
+    asmEmit("    addi sp, sp, -16");   // 16-byte aligned
+    asmEmit("    sd   a0, 0(sp)");     // sd = 8 bytes
+    count_stores++;
+    spillAllRegs();
+    for(int i = 0; i < pending_arg_count; i++){
+        OperandType ot = getOperandType(pending_args[i]);
+        if(ot == OT_CONST){
+            asmEmit("    li   %s, %s", arg_regs[i+1], pending_args[i]);
+            count_loads++;
+        } else {
+            asmEmit("    lw   %s, %d(s0)", arg_regs[i+1], getVarOffset(pending_args[i]));
+            count_loads++;
+        }
     }
+    pending_arg_count = 0;
+    asmEmit("    ld   a0, 0(sp)");     // ld = 8 bytes
+    asmEmit("    addi sp, sp, 16");    // matches -16 above
+    asmEmit("    call %s", q->arg1);
+    return;
+}
 
     /*
      "call_method"
@@ -947,40 +961,45 @@ count_loads++;
      example quad: call_method  mangled_label  ""  t_result
      */
     if (strcmp(q->op, "call_method") == 0) {
-        asmComment("call method");
-asmEmit("    addi sp, sp, -4");
-asmEmit("    sw   a0, 0(sp)");
-count_stores++;
-        spillAllRegs();
-        for(int i = 0; i < pending_arg_count; i++){
-OperandType ot = getOperandType(pending_args[i]);
-if(ot == OT_CONST){
-asmEmit("    li   %s, %s", arg_regs[i+1], pending_args[i]);
-count_loads++;
-}
-else{
-asmEmit("    lw   %s, %d(s0)", arg_regs[i+1], getVarOffset(pending_args[i]));
-count_loads++;
-}
-}
-pending_arg_count = 0;
-asmEmit("    lw a0, 0(sp)");
-count_loads++;
-asmEmit("    addi sp, sp, 4");
-asmEmit("    call %s", q->arg1);
-if(q->result[0] != '\0'){
-    Symbol* rsym = lookupForCodeGen(q->result);
-    if(rsym && rsym->scope_level == 0){
-        // global variable — must store via label address
-        asmEmit("    la     t0, %s", rsym->name);
-        asmEmit("    sw     a0, 0(t0)");
-    } else {
-        asmEmit("    sw     a0, %d(s0)", getVarOffset(q->result));
-    }
+    asmComment("call method");
+    asmEmit("    addi sp, sp, -16");   // 16-byte aligned
+    asmEmit("    sd   a0, 0(sp)");     // sd = 8 bytes
     count_stores++;
-}
-        return;
+    spillAllRegs();
+    for(int i = 0; i < pending_arg_count; i++){
+        OperandType ot = getOperandType(pending_args[i]);
+        if(ot == OT_CONST){
+            asmEmit("    li   %s, %s", arg_regs[i+1], pending_args[i]);
+            count_loads++;
+        } else {
+            asmEmit("    lw   %s, %d(s0)", arg_regs[i+1], getVarOffset(pending_args[i]));
+            count_loads++;
+        }
     }
+    pending_arg_count = 0;
+    asmEmit("    ld   a0, 0(sp)");     // ld = 8 bytes
+    asmEmit("    addi sp, sp, 16");    // matches -16 above
+    asmEmit("    call %s", q->arg1);
+    if(q->result[0] != '\0'){
+        Symbol* rsym = lookupForCodeGen(q->result);
+        int res_is_ptr = rsym && (rsym->kind == KIND_OBJECT ||
+                                  rsym->datatype == DT_STRING);
+        if(rsym && rsym->scope_level == 0){
+            asmEmit("    la   t0, %s", rsym->name);
+            if(res_is_ptr)
+                asmEmit("    sd   a0, 0(t0)");
+            else
+                asmEmit("    sw   a0, 0(t0)");
+        } else {
+            if(res_is_ptr)
+                asmEmit("    sd   a0, %d(s0)", getVarOffset(q->result));
+            else
+                asmEmit("    sw   a0, %d(s0)", getVarOffset(q->result));
+        }
+        count_stores++;
+    }
+    return;
+}
 
     /*
      "get_field"
@@ -988,49 +1007,38 @@ if(q->result[0] != '\0'){
       example quad: get_field  obj  fieldname  t_result
       We look up field offset from symtab then: lw  dst, offset(obj_reg)
      */
-    if (strcmp(q->op, "get_field") == 0) {
-   asmComment("get_field");
-   int field_off = 0;
-   Symbol* obj_sym = lookupForCodeGen(q->arg1); // local-first lookup
-
-   if(obj_sym && obj_sym->kind == KIND_OBJECT){
-   SymTable* esc = find_entity_scope(obj_sym->attr.object.entity_name);
-   if(esc){
-   Symbol* f = lookup_local(esc, q->arg2);
-   if(f){
-   field_off = f->offset;
-   }
-   }
-   }
-   else if(strcmp(q->arg1, "this") == 0 && current_func_scope){
-   SymTable* sc = current_func_scope->parent;
-   while(sc){
-   if(sc->kind == SCOPE_ENTITY){
-   Symbol* f = lookup_local(sc, q->arg2);
-   if(f){
-   field_off = f->offset;
-   break;
-   }
-   }
-   sc = sc->parent;
-   }
-   }
-   const char* r_obj = getReg("_obj_ptr_tmp");
-   if(strcmp(q->arg1, "this") == 0){
-   asmEmit("    lw  %s, -4(s0)", r_obj);
-count_loads++;
-   }
-   else{
-   asmEmit("    lw  %s, %d(s0)", r_obj, getVarOffset(q->arg1));
-count_loads++;
-   }
-   const char* dst = getReg(q->result);
-   asmEmit("    lw  %s, %d(%s)", dst, field_off, r_obj);
-count_loads++;
-   freeReg("_obj_ptr_tmp");
-   store(q->result, dst);
-   return;
+   if (strcmp(q->op, "get_field") == 0) {
+    asmComment("get_field");
+    int field_off = 0;
+    Symbol* obj_sym = lookupForCodeGen(q->arg1);
+    
+    // Look up field offset
+    if(obj_sym && obj_sym->kind == KIND_OBJECT){
+        SymTable* esc = find_entity_scope(obj_sym->attr.object.entity_name);
+        if(esc){
+            Symbol* f = lookup_local(esc, q->arg2);
+            if(f){
+                field_off = f->offset;
+            }
+        }
     }
+    
+    const char* r_obj = getReg("_obj_ptr_tmp");
+    if(strcmp(q->arg1, "this") == 0){
+        asmEmit("    ld  %s, -24(s0)", r_obj);  // Load 64-bit pointer
+        count_loads++;
+    }
+    else{
+        asmEmit("    ld  %s, %d(s0)", r_obj, getVarOffset(q->arg1));
+        count_loads++;
+    }
+    const char* dst = getReg(q->result);
+    asmEmit("    lw  %s, %d(%s)", dst, field_off, r_obj);  // Field is 32-bit int
+    count_loads++;
+    freeReg("_obj_ptr_tmp");
+    store(q->result, dst);
+    return;
+}
 
     /*
     "set_field"
@@ -1038,58 +1046,159 @@ count_loads++;
      example quad: set_field  obj  fieldname  value
     */
     if (strcmp(q->op, "set_field") == 0) {
-        asmComment("set_field");
-int field_off = 0;
-Symbol* obj_sym = lookupForCodeGen(q->arg1);
-if(obj_sym && obj_sym->kind == KIND_OBJECT){
-SymTable* esc = find_entity_scope(obj_sym->attr.object.entity_name);
-if(esc){
-Symbol* f = lookup_local(esc, q->arg2);
-if(f){
-field_off = f->offset;
-}
-}
-}
-else if(strcmp(q->arg1, "this") == 0 && current_func_scope){
-SymTable* sc = current_func_scope->parent;
-while(sc){
-if(sc->kind == SCOPE_ENTITY){
-Symbol* f = lookup_local(sc, q->arg2);
-if(f){
-field_off = f->offset;
-break;
-}
-}
-sc = sc->parent;
-}
-}
-const char* r_obj = getReg("_obj_ptr_tmp");
-if(strcmp(q->arg1, "this") == 0){
-asmEmit("    lw  %s, -4(s0)", r_obj);
-count_loads++;
-}
-else{
-asmEmit("    lw  %s, %d(s0)", r_obj, getVarOffset(q->arg1));
-count_loads++;
-}
-const char* r_val = getReg("_field_val_tmp");
-OperandType vt = getOperandType(q->result);
-if(vt == OT_CONST){
-asmEmit("    li  %s, %s", r_val, q->result);
-count_loads++;
-}
-else{
-asmEmit("    lw  %s, %d(s0)", r_val, getVarOffset(q->result));
-count_loads++;
-}
-asmEmit("    sw  %s, %d(%s)", r_val, field_off, r_obj);
-count_stores++;
-freeReg("_obj_ptr_tmp");
-freeReg("_field_val_tmp");
-return;
+    asmComment("set_field");
+    int field_off = -1;  // Initialize to invalid value
+    Symbol* obj_sym = lookupForCodeGen(q->arg1);
+    
+    // Look up the field offset
+    if(obj_sym && obj_sym->kind == KIND_OBJECT){
+        SymTable* esc = find_entity_scope(obj_sym->attr.object.entity_name);
+        if(esc){
+            Symbol* f = lookup_local(esc, q->arg2);
+            if(f){
+                field_off = f->offset;
+            } else {
+                asmComment("ERROR: Field not found in entity scope");
+                return;
+            }
+        } else {
+            asmComment("ERROR: Entity scope not found");
+            return;
+        }
     }
-
-    asmComment("unknown object op — skipped");
+    else if(strcmp(q->arg1, "this") == 0 && current_func_scope){
+        SymTable* sc = current_func_scope->parent;
+        while(sc){
+            if(sc->kind == SCOPE_ENTITY){
+                Symbol* f = lookup_local(sc, q->arg2);
+                if(f){
+                    field_off = f->offset;
+                    break;
+                }
+            }
+            sc = sc->parent;
+        }
+        if(field_off == -1) {
+            asmComment("ERROR: Field not found in 'this' scope");
+            return;
+        }
+    }
+    else {
+        asmComment("ERROR: Object symbol not found or not an object");
+        return;
+    }
+    
+    // Load the object pointer (64-bit)
+    const char* r_obj = getReg("_obj_ptr_tmp");
+    if(strcmp(q->arg1, "this") == 0){
+        asmEmit("    ld  %s, -24(s0)", r_obj);  // 'this' pointer
+        count_loads++;
+    }
+    else if(obj_sym && obj_sym->scope_level == 0){
+        // Global object
+        asmEmit("    la   t0, %s", obj_sym->name);
+        asmEmit("    ld   %s, 0(t0)", r_obj);
+        count_loads += 2;
+    }
+    else {
+        // Local object variable
+        asmEmit("    ld   %s, %d(s0)", r_obj, getVarOffset(q->arg1));
+        count_loads++;
+    }
+    
+    // Load the value to store
+    const char* r_val = getReg("_field_val_tmp");
+    OperandType vt = getOperandType(q->result);
+    
+    // Determine if we're storing a pointer or a scalar
+    Symbol* val_sym = lookupForCodeGen(q->result);
+    int is_storing_ptr = (val_sym && (val_sym->kind == KIND_OBJECT || 
+                                      val_sym->datatype == DT_STRING));
+    
+    if(vt == OT_CONST){
+        // Check if it's a string literal
+        if(isStringLiteral(q->result)){
+            const char* lbl = getStringLabel(q->result);
+            if(!lbl){
+                lbl = registerStringLiteral(q->result);
+            }
+            asmEmit("    la   %s, %s", r_val, lbl);
+            count_loads++;
+            is_storing_ptr = 1;  // String literals are pointers
+        }
+        else if(q->result[0] == '\'' && q->result[2] == '\''){
+            // Character literal
+            asmEmit("    li   %s, %d", r_val, (int)q->result[1]);
+            count_loads++;
+        }
+        else {
+            // Integer constant
+            asmEmit("    li   %s, %s", r_val, q->result);
+            count_loads++;
+        }
+    }
+    else if(is_storing_ptr){
+        // Loading a pointer value (object or string)
+        if(val_sym && val_sym->scope_level == 0){
+            asmEmit("    la   t0, %s", val_sym->name);
+            asmEmit("    ld   %s, 0(t0)", r_val);
+            count_loads += 2;
+        }
+        else {
+            asmEmit("    ld   %s, %d(s0)", r_val, getVarOffset(q->result));
+            count_loads++;
+        }
+    }
+    else {
+        // Loading a scalar value (int, char, bool)
+        if(val_sym && val_sym->scope_level == 0){
+            asmEmit("    la   t0, %s", val_sym->name);
+            asmEmit("    lw   %s, 0(t0)", r_val);
+            count_loads += 2;
+        }
+        else {
+            asmEmit("    lw   %s, %d(s0)", r_val, getVarOffset(q->result));
+            count_loads++;
+        }
+    }
+    
+    // Store the value into the object field
+    // Determine if field is a pointer or scalar
+    SymTable* esc = NULL;
+    if(obj_sym && obj_sym->kind == KIND_OBJECT){
+        esc = find_entity_scope(obj_sym->attr.object.entity_name);
+    }
+    else if(strcmp(q->arg1, "this") == 0 && current_func_scope){
+        SymTable* sc = current_func_scope->parent;
+        while(sc){
+            if(sc->kind == SCOPE_ENTITY){
+                esc = sc;
+                break;
+            }
+            sc = sc->parent;
+        }
+    }
+    
+    int field_is_ptr = 0;
+    if(esc){
+        Symbol* f = lookup_local(esc, q->arg2);
+        if(f && (f->kind == KIND_OBJECT || f->datatype == DT_STRING)){
+            field_is_ptr = 1;
+        }
+    }
+    
+    if(field_is_ptr || is_storing_ptr){
+        asmEmit("    sd   %s, %d(%s)", r_val, field_off, r_obj);  // 64-bit store
+    }
+    else {
+        asmEmit("    sw   %s, %d(%s)", r_val, field_off, r_obj);  // 32-bit store
+    }
+    count_stores++;
+    
+    freeReg("_obj_ptr_tmp");
+    freeReg("_field_val_tmp");
+    return;
+}
 }
 /* ---some info collected
  * The flow:
@@ -1111,7 +1220,6 @@ return;
  */
 
 //write assembly to file and display on terminal
-static FILE* asm_out = NULL;
 
 void asmSetOutput(FILE* fp){
 asm_out = fp ? fp: stdout;
@@ -1121,6 +1229,8 @@ static FILE* out(void){
 if(!asm_out) asm_out = stdout;
 return asm_out;
 }
+
+
 
 //Assembly output helpers
 
@@ -1264,32 +1374,30 @@ return OT_UNKNOWN;
 //getVarAddress will give the string "-offset(s0)" based on the offset in the symbol table
 //offset is negative as stack grows downward
 const char* getVarAddress(const char* name){
-static char addr_buf[64];
-
-if(strcmp(name, "this") == 0){
-snprintf(addr_buf, sizeof(addr_buf), "-4(s0)");
-return addr_buf;
-}
-
-Symbol* sym = lookupForCodeGen(name);
-if(!sym){
-asmComment("ISSUE: symbol not found for address lookup");
-snprintf(addr_buf, sizeof(addr_buf), "0(s0) # unknown: %s", name);
-return addr_buf;
-}
-
-// Global variables are accessed via la+lw, not via s0 offset
-// Caller must handle this case - return a marker
-if(sym->scope_level == 0){
-snprintf(addr_buf, sizeof(addr_buf), "0(s0) # global: %s", name);
-return addr_buf;
-}
-
-// All locals and params use the same formula as getVarOffset:
-// layout: s0-8=ra, s0-16=s0, s0-20 onward = params/locals
-int offset = -(20 + sym->offset);
-snprintf(addr_buf, sizeof(addr_buf), "%d(s0)", offset);
-return addr_buf;
+    static char addr_buf[64];
+    
+    if(strcmp(name, "this") == 0){
+        snprintf(addr_buf, sizeof(addr_buf), "-24(s0)");
+        return addr_buf;
+    }
+    
+    Symbol* sym = lookupForCodeGen(name);
+    if(!sym){
+        asmComment("ISSUE: symbol not found for address lookup");
+        snprintf(addr_buf, sizeof(addr_buf), "0(s0) # unknown: %s", name);
+        return addr_buf;
+    }
+    
+    // Global variables
+    if(sym->scope_level == 0){
+        snprintf(addr_buf, sizeof(addr_buf), "0(s0) # global: %s", name);
+        return addr_buf;
+    }
+    
+    // All locals and params
+    int offset = -(24 + sym->offset);
+    snprintf(addr_buf, sizeof(addr_buf), "%d(s0)", offset);
+    return addr_buf;
 }
 
 
@@ -1461,28 +1569,39 @@ return -1;
 //spillOne is the function that spills the register at index i.
 
 static void spillOne(int i){
-if(reg_contents[i][0]=='\0') return; // already free ntg to spill
-if(reg_dirty[i]){
-const char* occupant = reg_contents[i];
-OperandType ot = getOperandType(occupant);
+    if(reg_contents[i][0]=='\0') return; // already free, nothing to spill
 
-if(ot == OT_VAR || ot == OT_TEMP){
-           Symbol* sym = lookupForCodeGen(occupant);
-            if(sym && sym->scope_level == 0){
-                // global variable lives in .data, not on the stack frame
-                asmEmit("    la   t0, %s", sym->name);
-                asmEmit("    sw   %s, 0(t0)", reg_name[i]);
+    if(reg_dirty[i]){
+        const char* occupant = reg_contents[i];
+        OperandType ot = getOperandType(occupant);
+
+        if(ot == OT_VAR || ot == OT_TEMP){
+            Symbol* spill_sym = lookupForCodeGen(occupant);
+            int is_ptr = spill_sym && (spill_sym->kind == KIND_OBJECT ||
+                                       spill_sym->datatype == DT_STRING);
+            if(spill_sym && spill_sym->scope_level == 0){
+                asmEmit("    la   t0, %s", spill_sym->name);
+                if(is_ptr)
+                    asmEmit("    sd   %s, 0(t0)", reg_name[i]);
+                else
+                    asmEmit("    sw   %s, 0(t0)", reg_name[i]);
             } else {
+                // compute frame_off here before using it
                 int frame_off = getVarOffset(occupant);
-                asmEmit("    sw   %s, %d(s0)", reg_name[i], frame_off);
+                if(is_ptr)
+                    asmEmit("    sd   %s, %d(s0)", reg_name[i], frame_off);
+                else
+                    asmEmit("    sw   %s, %d(s0)", reg_name[i], frame_off);
             }
             count_stores++;
-}
-}
-reg_contents[i][0] = '\0';
-reg_dirty[i] = 0;
-}
+        }
+    }  // <-- this closing brace was missing, causing all subsequent functions
+       //     to be parsed as nested inside spillOne, giving the
+       //     "invalid storage class" errors for getMode, emitArithWithMode, etc.
 
+    reg_contents[i][0] = '\0';
+    reg_dirty[i] = 0;
+}
 //getReg - reg allocation algorithm
 //the basic logic for this is:
 //1) If in register then use the same register
@@ -1683,25 +1802,33 @@ return reg_name[idx];
 const char* reg = getReg(operand);
 
 Symbol* sym = lookupForCodeGen(operand);
-if(sym && sym->scope_level == 0){
-asmEmit("    la   t0, %s", sym->name);
-asmEmit("    lw   %s, 0(t0)", reg);
-count_loads++;
-}
-else if(sym){
-const char* addr = getVarAddress(operand);
-asmEmit("    lw   %s, %s", reg, addr);
-count_loads++;
+// In load() function, when loading a variable:
+if(sym){
+    int is_ptr = (sym->kind == KIND_OBJECT || sym->datatype == DT_STRING);
+    if(sym->scope_level == 0){
+        asmEmit("    la   t0, %s", sym->name);
+        if(is_ptr)
+            asmEmit("    ld   %s, 0(t0)", reg);  // Use ld for 64-bit pointers
+        else
+            asmEmit("    lw   %s, 0(t0)", reg);  // Use lw for 32-bit ints
+    } else {
+        const char* addr = getVarAddress(operand);
+        if(is_ptr)
+            asmEmit("    ld   %s, %s", reg, addr);  // Use ld for 64-bit
+        else
+            asmEmit("    lw   %s, %s", reg, addr);  // Use lw for 32-bit
+    }
+    count_loads++;
 }
 else if(isTemp(operand)){
-int frame_off = getTempFrameOffset(operand);
-asmEmit("    lw   %s, %d(s0)", reg, frame_off);
-count_loads++;
+    int frame_off = getTempFrameOffset(operand);
+    asmEmit("    lw   %s, %d(s0)", reg, frame_off);
+    count_loads++;
 }
 else{
-asmComment("load: unknown operand, loading 0");
-asmEmit("    li   %s, 0", reg);
-count_loads++;
+    asmComment("load: unknown operand, loading 0");
+    asmEmit("    li   %s, 0", reg);
+    count_loads++;
 }
 int new_idx = findRegFor(operand);
 if(new_idx >= 0) reg_dirty[new_idx] = 0;
@@ -1713,18 +1840,25 @@ return reg;
 void store(const char* var, const char* reg){
     if(!var || !reg) return;
 
-    Symbol* sym = lookupForCodeGen(var);
-    if(sym && sym->scope_level == 0){
-        asmEmit("    la   t0, %s", sym->name);
-        asmEmit("    sw   %s, 0(t0)", reg);
-        count_stores++;
-    }
-    else{
-        const char* addr = getVarAddress(var);
-        asmEmit("    sw   %s, %s", reg, addr);
-        count_stores++;
-    }
+   Symbol* store_sym = lookupForCodeGen(var);
+int is_ptr = store_sym && (store_sym->kind == KIND_OBJECT || 
+                           store_sym->datatype == DT_STRING);
 
+if (store_sym && store_sym->scope_level == 0) {
+    asmEmit("    la   t0, %s", store_sym->name);
+    count_stores++;
+    if (is_ptr)
+        asmEmit("    sd   %s, 0(t0)", reg);
+    else
+        asmEmit("    sw   %s, 0(t0)", reg);
+} else {
+    const char* addr = getVarAddress(var);
+    count_stores++;
+    if (is_ptr)
+        asmEmit("    sd   %s, %s", reg, addr);
+    else
+        asmEmit("    sw   %s, %s", reg, addr);
+}
     for(int i = 0; i < NUM_REGS; i++){
         if(strcmp(reg_name[i], reg) == 0){
             strncpy(reg_contents[i], var, 63);
@@ -2195,7 +2329,7 @@ if(!var_name || var_name[0] == '\0'){
 return 0;
 }
 if(strcmp(var_name, "this") == 0){
-return -4;
+return -24;
 }
 Symbol* sym = lookupForCodeGen(var_name);
 if(sym){
@@ -2205,7 +2339,7 @@ return 0;
 }
 // All locals and params: s0-8=ra, s0-16=s0saved, s0-20 onward = data
 // sym->offset is the raw symtab counter (0, 4, 8, ...)
-return -(20 + sym->offset);
+return -(24 + sym->offset);
 }
 
     if(isTemp(var_name)){
@@ -2278,107 +2412,91 @@ return;
 }
 
 	if(strcmp(q->op, "call") == 0){
-		// First pass: handle arguments already in registers (using mv)
-		for(int i = 0; i < pending_arg_count; i++){
-			OperandType ot = getOperandType(pending_args[i]);
+    // First pass: handle arguments already in registers (using mv)
+    for(int i = 0; i < pending_arg_count; i++){
+        OperandType ot = getOperandType(pending_args[i]);
 
-			// Handle string literals specially
-        	if(isStringLiteral(pending_args[i])){
-        	    const char* lbl = getStringLabel(pending_args[i]);
-        	    if(!lbl){
-        	        lbl = registerStringLiteral(pending_args[i]);
-        	    }
-        	    asmEmit("    la     %s, %s", arg_regs[i], lbl);
-        	    count_loads++;
-        	    pending_args[i][0] = '\0';  // Mark as handled
-        	    continue;
-        	}
+        // Handle string literals specially
+        if(isStringLiteral(pending_args[i])){
+            const char* lbl = getStringLabel(pending_args[i]);
+            if(!lbl){
+                lbl = registerStringLiteral(pending_args[i]);
+            }
+            asmEmit("    la     %s, %s", arg_regs[i], lbl);
+            count_loads++;
+            pending_args[i][0] = '\0';  // Mark as handled
+            continue;
+        }
 
-			if(ot == OT_CONST){
-				asmEmit("    li     %s, %s", arg_regs[i], pending_args[i]);
-				count_loads++;
-			} else {
-				int reg_idx = findRegFor(pending_args[i]);
-				if(reg_idx >= 0){
-					// Argument in register - use mv
-					if(strcmp(reg_name[reg_idx], arg_regs[i]) != 0){
-						asmEmit("    mv     %s, %s", arg_regs[i], reg_name[reg_idx]);
-					}
-					// Mark this argument as handled (so second pass skips it)
-					pending_args[i][0] = '\0';  // Mark as handled
-				}
-			}
-		}
-		
-		// Now spill all registers (needed for memory loads)
-		spillAllRegs();
-		
-		// Second pass: handle arguments that need to be loaded from memory
-		for(int i = 0; i < pending_arg_count; i++){
-			if(pending_args[i][0] == '\0') continue;  // Already handled
-			
-			OperandType ot = getOperandType(pending_args[i]);
-			if(ot == OT_CONST){
-				// Constants already handled in first pass, but just in case
-				asmEmit("    li     %s, %s", arg_regs[i], pending_args[i]);
-				count_loads++;
-			} else {
-				// Load from memory
-				Symbol* argsym = lookupForCodeGen(pending_args[i]);
-				if(argsym && argsym->scope_level == 0){
-					asmEmit("    la     t0, %s", argsym->name);
-					asmEmit("    lw     %s, 0(t0)", arg_regs[i]);
-					count_loads++;
-				} else {
-					int offset = getVarOffset(pending_args[i]);
-					asmEmit("    lw     %s, %d(s0)", arg_regs[i], offset);
-					count_loads++;
-				}
-			}
-		}
+        if(ot == OT_CONST){
+            asmEmit("    li     %s, %s", arg_regs[i], pending_args[i]);
+            count_loads++;
+            pending_args[i][0] = '\0';  // Mark as handled
+        } else {
+            int reg_idx = findRegFor(pending_args[i]);
+            if(reg_idx >= 0){
+                // Argument already in register - use mv
+                if(strcmp(reg_name[reg_idx], arg_regs[i]) != 0){
+                    asmEmit("    mv     %s, %s", arg_regs[i], reg_name[reg_idx]);
+                }
+                pending_args[i][0] = '\0';  // Mark as handled
+            }
+        }
+    }
 
-// Now spill all registers (needed for memory loads)
-spillAllRegs();
+    // Spill all registers before memory loads
+    spillAllRegs();
 
-// Second pass: handle arguments that need to be loaded from memory
-for(int i = 0; i < pending_arg_count; i++){
-if(pending_args[i][0] == '\0') continue;  // Already handled
+    // Second pass: handle arguments that need to be loaded from memory
+    for(int i = 0; i < pending_arg_count; i++){
+        if(pending_args[i][0] == '\0') continue;  // Already handled
 
-OperandType ot = getOperandType(pending_args[i]);
-if(ot == OT_CONST){
-// Constants already handled in first pass, but just in case
-asmEmit("    li     %s, %s", arg_regs[i], pending_args[i]);
-count_loads++;
-} else {
-// Load from memory
-Symbol* argsym = lookupForCodeGen(pending_args[i]);
-if(argsym && argsym->scope_level == 0){
-asmEmit("    la     t0, %s", argsym->name);
-asmEmit("    lw     %s, 0(t0)", arg_regs[i]);
-count_loads++;
-} else {
-int offset = getVarOffset(pending_args[i]);
-asmEmit("    lw     %s, %d(s0)", arg_regs[i], offset);
-count_loads++;
-}
-}
-}
+        OperandType ot = getOperandType(pending_args[i]);
+        if(ot == OT_CONST){
+            asmEmit("    li     %s, %s", arg_regs[i], pending_args[i]);
+            count_loads++;
+        } else {
+            Symbol* argsym = lookupForCodeGen(pending_args[i]);
+            if(argsym && argsym->scope_level == 0){
+                asmEmit("    la     t0, %s", argsym->name);
+                asmEmit("    lw     %s, 0(t0)", arg_regs[i]);
+                count_loads++;
+            } else {
+                int offset = getVarOffset(pending_args[i]);
+                asmEmit("    lw     %s, %d(s0)", arg_regs[i], offset);
+                count_loads++;
+            }
+        }
+    }
 
-// Free all argument registers
-for(int i = 0; i < pending_arg_count; i++){
-freeReg(pending_args[i]);
-}
-pending_arg_count = 0;
+    // Free all argument registers and reset counter
+    for(int i = 0; i < pending_arg_count; i++){
+        freeReg(pending_args[i]);
+    }
+    pending_arg_count = 0;
 
-asmEmit("    call   %s", q->arg1);
-// asmEmit("    ld   ra, 8(sp)");
-    // asmEmit("    addi sp, sp, 16");
+    asmEmit("    call   %s", q->arg1);
 
-if(q->result[0] != '\0'){
-asmEmit("    sw     a0, %d(s0)", getVarOffset(q->result));
-count_stores++;
-}
-return;
+    // Store return value if result is expected
+    if(q->result[0] != '\0'){
+        Symbol* rsym = lookupForCodeGen(q->result);
+        int res_is_ptr = rsym && (rsym->kind == KIND_OBJECT ||
+                                  rsym->datatype == DT_STRING);
+        if(rsym && rsym->scope_level == 0){
+            asmEmit("    la     t0, %s", rsym->name);
+            if(res_is_ptr)
+                asmEmit("    sd     a0, 0(t0)");
+            else
+                asmEmit("    sw     a0, 0(t0)");
+        } else {
+            if(res_is_ptr)
+                asmEmit("    sd     a0, %d(s0)", getVarOffset(q->result));
+            else
+                asmEmit("    sw     a0, %d(s0)", getVarOffset(q->result));
+        }
+        count_stores++;
+    }
+    return;
 }
 }
 
@@ -2487,7 +2605,7 @@ while(p && i < MAX_ARG_REGS){
 // Look up the symbol to get its symtab offset (0, 4, 8, ...)
 Symbol* param_sym = fscope ? lookup_local(fscope, p->name) : NULL;
 int sym_off = param_sym ? param_sym->offset : (i * 4);
-int frame_off = -(20 + sym_off);
+int frame_off = -(24 + sym_off);
 asmEmit("    sw     %s, %d(s0)", arg_regs[i], frame_off);
 count_stores++;
 p = p->next;
@@ -2539,7 +2657,7 @@ csym = c;
 }
 
 int param_count = csym ? csym->attr.ctor.param_count : 0;
-int frame_size = 4 + param_count * 4 + 64 + temp_spill_area;
+int frame_size = 8 + param_count * 4 + 64 + temp_spill_area;
 frame_size = (frame_size + 15) & ~15;
 
 asmEmit("    addi sp, sp, -%d", frame_size);
@@ -2552,7 +2670,7 @@ asmEmit("    addi s0, sp, %d", frame_size);
 
 asmComment("save 'this' pointer");
 // 'this' (a0) is stored at -4(s0) — reserved slot just below saved s0
-asmEmit("    sw   a0, -4(s0)");
+asmEmit("    sd   a0, -24(s0)");
 count_stores++;
 
 if(csym && csym->attr.ctor.scope){
@@ -2575,7 +2693,7 @@ int i = 1;   // a1, a2, ... (a0 is 'this')
 while(p && i < MAX_ARG_REGS){
 Symbol* param_sym = cscope ? lookup_local(cscope, p->name) : NULL;
 int sym_off = param_sym ? param_sym->offset : ((i - 1) * 4);
-int frame_off = -(20 + sym_off);
+int frame_off = -(24 + sym_off);
 asmEmit("    sw   %s, %d(s0)", arg_regs[i], frame_off);
 count_stores++;
 p = p->next;
@@ -2617,7 +2735,7 @@ msym = m;
 }
 }
 int param_count = msym ? msym->attr.method.param_count : 0;
-int frame_size = 4 + param_count * 4 + 64 + temp_spill_area;
+int frame_size = 8 + param_count * 4 + 64 + temp_spill_area;
 frame_size = (frame_size + 15) & ~15;
 
 asmEmit("    addi sp, sp, -%d", frame_size);
@@ -2629,7 +2747,7 @@ count_stores++;
 asmEmit("    addi s0, sp, %d", frame_size);
 
 //save 'this' pointer
-asmEmit("    sw   a0, -4(s0)");
+asmEmit("    sd   a0, -24(s0)");
 count_stores++;
 
 if(msym && msym->attr.method.scope){
@@ -2651,7 +2769,7 @@ int i = 1;   // a1, a2, ... (a0 is 'this')
 while(p && i < MAX_ARG_REGS) {
 Symbol* param_sym = mscope ? lookup_local(mscope, p->name) : NULL;
 int sym_off = param_sym ? param_sym->offset : ((i - 1) * 4);
-int frame_off = -(20 + sym_off);
+int frame_off = -(24 + sym_off);
 asmEmit("    sw   %s, %d(s0)", arg_regs[i], frame_off);
 count_stores++;
 p = p->next;
