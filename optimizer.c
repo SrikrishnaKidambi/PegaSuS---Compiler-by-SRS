@@ -1,15 +1,10 @@
 #include "optimizer.h"
+#include "quad.h"
 #include<stdio.h>
 #include<stdlib.h>
 #include<math.h>
 #include<string.h>
 
-typedef struct {
-    char op[20];
-    char arg1[20];
-    char arg2[20];
-    char result[20];
-} Quad;
 
 extern Quad IR[];
 extern int IR_idx;
@@ -213,6 +208,7 @@ int algebraic_simplification(void)
 //constant folding code
 int constant_folding(void)
 {
+	printf("Entered constant folding");
     Quad tmp[IR_SIZE];
     int tmp_n = OPT_IR_idx;
     memcpy(tmp, OPT_IR, tmp_n * sizeof(Quad));  // snapshot OPT_IR

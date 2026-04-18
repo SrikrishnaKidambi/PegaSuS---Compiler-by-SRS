@@ -1,17 +1,9 @@
 #include "transpiler.h"
+#include "quad.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 
-#ifndef QUAD_DEFINED
-typedef struct {
-    char op[20];
-    char arg1[20];
-    char arg2[20];
-    char result[20];
-} Quad;
-#define QUAD_DEFINED
-#endif
 
 extern Quad IR[];
 extern int  IR_idx;
@@ -303,6 +295,7 @@ static void pre_pass(void) {
                 continue;
             }
         }
+        if (strcmp(q->op, "array_init") == 0) continue;
 
         if (get_use_count(q->result) == 0 && is_temp(q->result)) {
             if (strcmp(qn->op,   q->op)   == 0 &&
@@ -435,6 +428,13 @@ static void emit_range(FILE* out, int from, int to) {
 
         if (strcmp(q->op, "label") == 0 ||
             strcmp(q->op, "goto")  == 0) {
+            consumed[i] = 1;
+            continue;
+        }
+        if (strcmp(q->op, "array_init") == 0) {
+            write_indent(out);
+            /* a1 = "1,2,3,4,5"  res = "arr" */
+            fprintf(out, "%s = [%s]\n", res, a1);
             consumed[i] = 1;
             continue;
         }
