@@ -13,9 +13,9 @@
 #define QUAD_DEFINED
 typedef struct {
     char op[20];
-    char arg1[20];
-    char arg2[20];
-    char result[20];
+    char arg1[256];
+    char arg2[256];
+    char result[256];
 } Quad;
 #endif
 
@@ -25,6 +25,20 @@ extern int    IR_idx;
 
 // A global variable that is used for checking if the template mathing is turned on or not. By default it is always turned on
 extern int use_template_matching;
+
+/* ── Stats reporting ── */
+typedef enum {
+    STATS_NONE    = 0,
+    STATS_ALL     = 1,
+    STATS_REGALLOC = 2
+} StatsMode;
+
+/* Call after generateASM() to print stats to stdout based on mode. */
+void printAsmStats(StatsMode mode);
+
+/* Expose counts so parser.y can read them if needed. */
+int getLoadCount(void);
+int getStoreCount(void);
 
 typedef enum {
     OT_TEMP,    /* t0, t1, t2 …  (genVar temporaries) */

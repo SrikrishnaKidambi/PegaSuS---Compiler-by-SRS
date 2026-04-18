@@ -30,7 +30,7 @@ static char reg_contents[NUM_REGS][64]; // operand name int this register
 static int reg_dirty[NUM_REGS]; //1 if the value is modifed and need to be stored.
 
 //0 = basic spill, 1 = optimized next use spill coming from parser.y
-int use_optimized_regalloc = 0;
+int use_optimized_regalloc = 1;
 
 
 #define MAX_TEMPS 256
@@ -758,22 +758,33 @@ markDirty(dst);
        // store(dst_name, dst);
         return;
     }
-    // string literal
-    if (src[0] == '"') {
-const char* lbl = getStringLabel(src);
-        const char* dst = getReg(dst_name);
-if(lbl){
-asmEmit("    la   %s, %s", dst,lbl);
-}
-else{
-   const char* fallback = registerStringLiteral(src);
-    asmEmit("    la   %s, %s", dst, fallback ? fallback : "str_0");
-}
-count_loads++;
-markDirty(dst);
-        //store(dst_name, dst);
-        return;
-    }
+	// string literal assignment to variable
+	if (src[0] == '"') {
+	    const char* lbl = getStringLabel(src);
+	    if(!lbl){
+	        lbl = registerStringLiteral(src);
+	    }
+	    const char* dst = getReg(dst_name);
+	    asmEmit("    la   %s, %s", dst, lbl);
+	    count_loads++;
+	    markDirty(dst);
+	    return;
+	}
+    // if (src[0] == '"') {
+	// const char* lbl = getStringLabel(src);
+    //     const char* dst = getReg(dst_name);
+	// 	if(lbl){
+	// 			asmEmit("    la   %s, %s", dst,lbl);
+	// 	}
+	// 	else{
+	// 		    const char* fallback = registerStringLiteral(src);
+    // asmEmit("    la   %s, %s", dst, fallback ? fallback : "str_0");
+	// 	}	
+	// 	count_loads++;
+	// markDirty(dst);
+    //     //store(dst_name, dst);
+    //     return;
+    // }
 
     // temp variable
     const char* r   = load(src);
@@ -2266,25 +2277,65 @@ asmComment("stack-arg (>8 args) not allowed in current implementation");
 return;
 }
 
-if(strcmp(q->op, "call") == 0){
-// First pass: handle arguments already in registers (using mv)
-for(int i = 0; i < pending_arg_count; i++){
-OperandType ot = getOperandType(pending_args[i]);
-if(ot == OT_CONST){
-asmEmit("    li     %s, %s", arg_regs[i], pending_args[i]);
-count_loads++;
-} else {
-int reg_idx = findRegFor(pending_args[i]);
-if(reg_idx >= 0){
-// Argument in register - use mv
-if(strcmp(reg_name[reg_idx], arg_regs[i]) != 0){
-asmEmit("    mv     %s, %s", arg_regs[i], reg_name[reg_idx]);
-}
-// Mark this argument as handled (so second pass skips it)
-pending_args[i][0] = '\0';  // Mark as handled
-}
-}
-}
+	if(strcmp(q->op, "call") == 0){
+		// First pass: handle arguments already in registers (using mv)
+		for(int i = 0; i < pending_arg_count; i++){
+			OperandType ot = getOperandType(pending_args[i]);
+
+			// Handle string literals specially
+        	if(isStringLiteral(pending_args[i])){
+        	    const char* lbl = getStringLabel(pending_args[i]);
+        	    if(!lbl){
+        	        lbl = registerStringLiteral(pending_args[i]);
+        	    }
+        	    asmEmit("    la     %s, %s", arg_regs[i], lbl);
+        	    count_loads++;
+        	    pending_args[i][0] = '\0';  // Mark as handled
+        	    continue;
+        	}
+
+			if(ot == OT_CONST){
+				asmEmit("    li     %s, %s", arg_regs[i], pending_args[i]);
+				count_loads++;
+			} else {
+				int reg_idx = findRegFor(pending_args[i]);
+				if(reg_idx >= 0){
+					// Argument in register - use mv
+					if(strcmp(reg_name[reg_idx], arg_regs[i]) != 0){
+						asmEmit("    mv     %s, %s", arg_regs[i], reg_name[reg_idx]);
+					}
+					// Mark this argument as handled (so second pass skips it)
+					pending_args[i][0] = '\0';  // Mark as handled
+				}
+			}
+		}
+		
+		// Now spill all registers (needed for memory loads)
+		spillAllRegs();
+		
+		// Second pass: handle arguments that need to be loaded from memory
+		for(int i = 0; i < pending_arg_count; i++){
+			if(pending_args[i][0] == '\0') continue;  // Already handled
+			
+			OperandType ot = getOperandType(pending_args[i]);
+			if(ot == OT_CONST){
+				// Constants already handled in first pass, but just in case
+				asmEmit("    li     %s, %s", arg_regs[i], pending_args[i]);
+				count_loads++;
+			} else {
+				// Load from memory
+				Symbol* argsym = lookupForCodeGen(pending_args[i]);
+				if(argsym && argsym->scope_level == 0){
+					asmEmit("    la     t0, %s", argsym->name);
+					asmEmit("    lw     %s, 0(t0)", arg_regs[i]);
+					count_loads++;
+				} else {
+					int offset = getVarOffset(pending_args[i]);
+					asmEmit("    lw     %s, %d(s0)", arg_regs[i], offset);
+					count_loads++;
+				}
+			}
+		}
 
 // Now spill all registers (needed for memory loads)
 spillAllRegs();
@@ -2744,22 +2795,21 @@ asmEmit("    call puts");
 return;
         }
 
-// If the variable to be printed is a string variable
-        if(sym && sym->datatype == DT_STRING){
-            if(sym->kind == KIND_ARRAY || sym->scope_level == 0){
-                asmEmit("    la     a0, %s", sym->name);
-                count_loads++;
-            }
-            else{
-                int slot = -(sym->offset + sym->size);
-                asmEmit("    addi   a0, s0, %d", slot);
-            }
-
-asmEmit("    call puts");
-// asmEmit("    ld ra, 8(sp)");
-// asmEmit("    addi sp, sp, 16");
-return;
-        }
+		// If the variable to be printed is a string variable
+		if(sym && sym->datatype == DT_STRING){
+		    if(sym->kind == KIND_ARRAY || sym->scope_level == 0){
+		        asmEmit("    la     a0, %s", sym->name);
+		        count_loads++;
+		    }
+		    else{
+		        // Use getVarOffset instead of manual calculation
+		        int offset = getVarOffset(q->arg1);
+		        asmEmit("    lw     a0, %d(s0)", offset);  // Load the string pointer from stack
+		        count_loads++;
+		    }
+		    asmEmit("    call puts");
+		    return;
+		}
 
 // If the operand is a float
 if(sym && sym->datatype == DT_FLOAT){
@@ -2926,138 +2976,159 @@ return;
 
 void generateASM(void)
 {
-initRegs();
-resetTempSlots();
-if(!asm_out){
-asm_out = stdout;
+	initRegs();
+	resetTempSlots();
+	if(!asm_out){
+		asm_out = stdout;
+	}
+
+	//pre pass register all names so getVarIdx works
+	for(int i=0;i<IR_idx;i++){
+		if(IR[i].arg1[0] && !isConstant(IR[i].arg1)) getVarIdx(IR[i].arg1);
+		if(IR[i].arg2[0] && !isConstant(IR[i].arg2)) getVarIdx(IR[i].arg2);
+		if(IR[i].result[0] && !isConstant(IR[i].result)) getVarIdx(IR[i].result);
+	}
+
+	//compute the next use block by block
+	int block_start = 0;
+	for(int i=0;i<IR_idx;i++){
+		if(isBlockEnd(&IR[i])){
+			computeNextUse(block_start,i);
+			block_start=i+1;
+		}else if(isBlockStart(&IR[i]) && i>0) {
+			computeNextUse(block_start,i-1);
+			block_start=i;
+		}
+	}
+	if(block_start<IR_idx){
+		computeNextUse(block_start,IR_idx-1);
+	}
+	//reset counters before generating
+	count_loads=0;
+	count_stores = 0;
+	initRegs();
+
+
+	// generating .data section with format of strings specified for outputting the strings or taking input
+	// String literals are defined here using the format specifiers using the .asciz directive for internally generating a NULL-terminated string.
+	genDataSection();
+
+	// Generating .text section
+	asmEmit(".text");
+	asmEmit(".globl main");		// Entry point of the asm file
+	asmBlank();
+	// emit a prologue for the global scope so that s0 is valid and spills have a real stack frame to land in. Compute the size of the frame from global scope's next_offset
+	
+	#define TEMP_SPILL_AREA 512
+	int global_frame = getDeepNextOffset(global_scope);
+	// Add 8 bytes for ra and s0 save slots then round up to 16-byte boundary
+	global_frame += 8 + 64 + (IR_idx * 4 < 1024 ? IR_idx * 4 + 64 : 1024);		// Additional 64 bytes for temps
+	global_frame = (global_frame + 15) & ~15;
+
+	static int saved_global_frame;
+	saved_global_frame = global_frame;
+
+	asmEmit("main:");
+	asmComment("-- main function --");
+	asmEmit("    addi sp, sp, -16");
+	asmEmit("    sd   ra, 8(sp)");      // CHANGE: sw -> sd
+	asmEmit("    call global_body");
+	asmEmit("    ld   ra, 8(sp)");      // CHANGE: lw -> ld
+	asmEmit("    addi sp, sp, 16");
+	asmEmit("    li a0, 0");
+	asmEmit("    ret");
+
+	asmBlank();
+
+	// Pass 1: Emit all the function/constructor/method bodies by walking through the IR code
+	int in_func = 0;
+	for(int i = 0; i < IR_idx; i++){
+		const char* op = IR[i].op;
+		if(strcmp(op, "func") == 0 || strcmp(op, "constr") == 0 || strcmp(op, "method") == 0){
+			in_func = 1;
+		}
+		if(in_func){
+			current_ir_idx = i; //tell getReg which instruction we are at
+			genQuad(&IR[i]);
+		}
+		if(strcmp(op, "endfunc") == 0 || strcmp(op, "end_constr") == 0 || strcmp(op, "end_method") == 0){
+			in_func = 0;
+		}
+	}
+
+	// Global body label 
+	asmBlank();
+	asmEmit("global_body:");
+	asmComment("-- Global body --");
+	
+	// Use the computed global_frame for proper stack allocation
+	asmEmit("    addi sp, sp, -%d", global_frame);
+	asmEmit("    sd   ra, %d(sp)", global_frame - 8);   
+	asmEmit("    sd   s0, %d(sp)", global_frame - 16);  
+	asmEmit("    addi s0, sp, %d", global_frame);
+
+	initRegs();
+	int global_deep_offset = getDeepNextOffset(global_scope);
+	global_deep_offset += 64;	// Add a safe gap between the named variables and temp variables
+	temp_base_raw = global_deep_offset;
+	temp_next_raw = global_deep_offset;
+	temp_slot_count = 0;
+	//initTempAllocator(global_scope);
+
+	// Pass 2: emit only global-scope quads that is outside any function or method(class')
+	in_func = 0;
+	for(int i = 0; i < IR_idx; i++){
+		const char* op = IR[i].op;
+		if(strcmp(op, "func") == 0 || strcmp(op, "constr") == 0 || strcmp(op, "method") == 0) {
+			in_func = 1;
+		}
+		if(!in_func){
+			current_ir_idx = i; //tell getReg which instruction we are at
+			genQuad(&IR[i]);
+		}
+		if(strcmp(op, "endfunc") == 0 || strcmp(op, "end_constr") == 0 || strcmp(op, "end_method") == 0){
+			in_func = 0;
+		}
+	}
+
+	// Emit a program exit at the end of the .text section so that simulator does not fall off the end of main and crash. The service for the exit program ecall is 10.
+	asmBlank();
+
+	asmComment("-- global scope epilogue --");
+	// Restore from the computed frame that was actually allocated
+	asmEmit("    ld   ra, %d(sp)", global_frame - 8);   // CHANGE: lw -> ld
+	asmEmit("    ld   s0, %d(sp)", global_frame - 16);  // CHANGE: lw -> ld
+
+	asmEmit("    addi sp, sp, %d", global_frame);
+	asmEmit("    ret");  // Return to main instead of calling exit directly
+
+	//print stats of register allocation
+	// fprintf(out(), "\n");
+	// fprintf(out(), "#--- Register Allocation Statistics -----\n");
+	// fprintf(out(), "# Strategy: %s\n", use_optimized_regalloc?"OPTIMIZED (next use aware)" : "BASIC (first dirty VAR)");
+	// fprintf(out(), "# Loads (lw/li): %d\n", count_loads);
+	// fprintf(out(), "# Stores (sw) : %d\n", count_stores);
+	// fprintf(out(), "# Total : %d\n", count_loads+count_stores);
+	// fprintf(out(), "# --------------------------------------\n");
 }
 
-//pre pass register all names so getVarIdx works
-for(int i=0;i<IR_idx;i++){
-if(IR[i].arg1[0] && !isConstant(IR[i].arg1)) getVarIdx(IR[i].arg1);
-if(IR[i].arg2[0] && !isConstant(IR[i].arg2)) getVarIdx(IR[i].arg2);
-if(IR[i].result[0] && !isConstant(IR[i].result)) getVarIdx(IR[i].result);
-}
+int getLoadCounts(void){return count_loads;}
+int getStoreCount(void){return count_stores;}
 
-//compute the next use block by block
-int block_start = 0;
-for(int i=0;i<IR_idx;i++){
-if(isBlockEnd(&IR[i])){
-computeNextUse(block_start,i);
-block_start=i+1;
-}else if(isBlockStart(&IR[i]) && i>0) {
-computeNextUse(block_start,i-1);
-block_start=i;
-}
-}
-if(block_start<IR_idx){
-computeNextUse(block_start,IR_idx-1);
-}
-//reset counters before generating
-count_loads=0;
-count_stores = 0;
-initRegs();
+void printAsmStats(StatsMode mode) {
+    if (mode == STATS_NONE) return;
 
-
-// generating .data section with format of strings specified for outputting the strings or taking input
-// String literals are defined here using the format specifiers using the .asciz directive for internally generating a NULL-terminated string.
-genDataSection();
-
-// Generating .text section
-asmEmit(".text");
-asmEmit(".globl main"); // Entry point of the asm file
-asmBlank();
-// emit a prologue for the global scope so that s0 is valid and spills have a real stack frame to land in. Compute the size of the frame from global scope's next_offset
-
-#define TEMP_SPILL_AREA 512
-int global_frame = getDeepNextOffset(global_scope);
-// Add 8 bytes for ra and s0 save slots then round up to 16-byte boundary
-global_frame += 8 + 64 + (IR_idx * 4 < 1024 ? IR_idx * 4 + 64 : 1024); // Additional 64 bytes for temps
-global_frame = (global_frame + 15) & ~15;
-
-static int saved_global_frame;
-saved_global_frame = global_frame;
-
-asmEmit("main:");
-asmComment("-- main function --");
-asmEmit("    addi sp, sp, -16");
-asmEmit("    sd   ra, 8(sp)");      // CHANGE: sw -> sd
-asmEmit("    call global_body");
-asmEmit("    ld   ra, 8(sp)");      // CHANGE: lw -> ld
-asmEmit("    addi sp, sp, 16");
-asmEmit("    li a0, 0");
-asmEmit("    ret");
-
-asmBlank();
-
-// Pass 1: Emit all the function/constructor/method bodies by walking through the IR code
-int in_func = 0;
-for(int i = 0; i < IR_idx; i++){
-const char* op = IR[i].op;
-if(strcmp(op, "func") == 0 || strcmp(op, "constr") == 0 || strcmp(op, "method") == 0){
-in_func = 1;
-}
-if(in_func){
-current_ir_idx = i; //tell getReg which instruction we are at
-genQuad(&IR[i]);
-}
-if(strcmp(op, "endfunc") == 0 || strcmp(op, "end_constr") == 0 || strcmp(op, "end_method") == 0){
-in_func = 0;
-}
-}
-
-// Global body label
-asmBlank();
-asmEmit("global_body:");
-asmComment("-- Global body --");
-
-// Use the computed global_frame for proper stack allocation
-asmEmit("    addi sp, sp, -%d", global_frame);
-asmEmit("    sd   ra, %d(sp)", global_frame - 8);  
-asmEmit("    sd   s0, %d(sp)", global_frame - 16);  
-asmEmit("    addi s0, sp, %d", global_frame);
-
-initRegs();
-int global_deep_offset = getDeepNextOffset(global_scope);
-global_deep_offset += 64; // Add a safe gap between the named variables and temp variables
-temp_base_raw = global_deep_offset;
-temp_next_raw = global_deep_offset;
-temp_slot_count = 0;
-//initTempAllocator(global_scope);
-
-// Pass 2: emit only global-scope quads that is outside any function or method(class')
-in_func = 0;
-for(int i = 0; i < IR_idx; i++){
-const char* op = IR[i].op;
-if(strcmp(op, "func") == 0 || strcmp(op, "constr") == 0 || strcmp(op, "method") == 0) {
-in_func = 1;
-}
-if(!in_func){
-current_ir_idx = i; //tell getReg which instruction we are at
-genQuad(&IR[i]);
-}
-if(strcmp(op, "endfunc") == 0 || strcmp(op, "end_constr") == 0 || strcmp(op, "end_method") == 0){
-in_func = 0;
-}
-}
-
-// Emit a program exit at the end of the .text section so that simulator does not fall off the end of main and crash. The service for the exit program ecall is 10.
-asmBlank();
-
-asmComment("-- global scope epilogue --");
-// Restore from the computed frame that was actually allocated
-asmEmit("    ld   ra, %d(sp)", global_frame - 8);   // CHANGE: lw -> ld
-asmEmit("    ld   s0, %d(sp)", global_frame - 16);  // CHANGE: lw -> ld
-
-asmEmit("    addi sp, sp, %d", global_frame);
-asmEmit("    ret");  // Return to main instead of calling exit directly
-
-//print stats of register allocation
-fprintf(out(), "\n");
-fprintf(out(), "#--- Register Allocation Statistics -----\n");
-fprintf(out(), "# Strategy: %s\n", use_optimized_regalloc?"OPTIMIZED (next use aware)" : "BASIC (first dirty VAR)");
-fprintf(out(), "# Loads (lw/li): %d\n", count_loads);
-fprintf(out(), "# Stores (sw) : %d\n", count_stores);
-fprintf(out(), "# Total : %d\n", count_loads+count_stores);
-fprintf(out(), "# --------------------------------------\n");
+    printf("\n");
+    if (mode == STATS_ALL || mode == STATS_REGALLOC) {
+        printf("=== Register Allocator Stats ===\n");
+        printf("  Strategy : %s\n",
+               use_optimized_regalloc
+                   ? "OPTIMIZED (next-use aware)"
+                   : "BASIC (first dirty VAR)");
+        printf("  Loads    (lw/li/la) : %d\n", count_loads);
+        printf("  Stores   (sw)       : %d\n", count_stores);
+        printf("  Total               : %d\n", count_loads + count_stores);
+        printf("================================\n");
+    }
+    //Any future stats go here.
 }

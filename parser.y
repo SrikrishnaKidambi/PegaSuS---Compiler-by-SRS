@@ -16,9 +16,9 @@ extern char* yytext;
 #ifndef QUAD_DEFINED
 typedef struct {
     char op[20];
-    char arg1[20];
-    char arg2[20];
-    char result[20];
+    char arg1[256];
+    char arg2[256];
+    char result[256];
 } Quad;
 #define QUAD_DEFINED
 #endif
@@ -1878,117 +1878,113 @@ void yyerror(const char *s) {
 }
 
 int main(int argc, char* argv[]) {
-    	global_scope  = create_scope(SCOPE_GLOBAL, "global", NULL);
-    	current_scope = global_scope;
+    global_scope  = create_scope(SCOPE_GLOBAL, "global", NULL);
+    current_scope = global_scope;
 
+    int compare_mode = 0;
+    StatsMode stats_mode = STATS_NONE;   // default: no stats printed
 
-        //check --oalloc flag
-	    // Parse the -S flag (stats mode)
-	    int compare_mode = 0;
-	    for(int i = 1; i < argc; i++){
-	    	if(strcmp(argv[i], "-S") == 0){
-	    		compare_mode = 1;
-	    		printf("Mode: Comparision (standard + optimal both generated)\n");
-	    	}
-            else if(strcmp(argv[i],"--oalloc")==0){
-                use_optimized_regalloc=1;
-                printf("Register allocation: OPTIMIZED\n");
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--noalloc") == 0) {
+            use_optimized_regalloc = 0;
+            printf("Register allocation: BASIC\n");
+        }
+        else if (strcmp(argv[i], "-S") == 0) {
+            // bare -S means print ALL stats
+            stats_mode = STATS_ALL;
+            printf("Stats mode: ALL\n");
+        }
+        else if (strncmp(argv[i], "-S=", 3) == 0) {
+            const char* sub = argv[i] + 3;   // part after "="
+            if (strcmp(sub, "regAlloc") == 0) {
+                stats_mode = STATS_REGALLOC;
+                printf("Stats mode: regAlloc\n");
             }
-	    }	
+            else {
+                fprintf(stderr, "Warning: unknown stats category '%s', "
+                                "use -S or -S=regAlloc\n", sub);
+            }
+        }
+    }
 
-    	//global_scope  = create_scope(SCOPE_GLOBAL, "global", NULL);
-    	//current_scope = global_scope;
-    	yyin = stdin;
-    	yyparse();
+    yyin = stdin;
+    yyparse();
 
-    	printf("\n========== GLOBAL SCOPE ==========\n");
-    	print_table(global_scope);
-         
-int opt_level = 3;   //default=O3
-int do_python=0;
-for (int i = 1; i < argc; i++) {
-    if      (strcmp(argv[i], "-O0") == 0) opt_level = 0;
-    else if (strcmp(argv[i], "-O1") == 0) opt_level = 1;
-    else if (strcmp(argv[i], "-O2") == 0) opt_level = 2;
-    else if (strcmp(argv[i], "-O3") == 0) opt_level = 3;
-    else if (strcmp(argv[i], "-py") == 0) do_python = 1;
-}
-printf("Running Optimizations (-%c%d)\n", 'O', opt_level);
+    printf("\n========== GLOBAL SCOPE ==========\n");
+    print_table(global_scope);
 
-//O1
-if (opt_level >= 1) {
-    algebraic_simplification();
-    constant_folding();
-    constant_propagation();
-    copy_propagation(opt_level);
-    //second pass to clean up copies exposed by propagation 
-    constant_folding();
-    constant_propagation();
-}
+    int opt_level = 3;
+    int do_python  = 0;
+    for (int i = 1; i < argc; i++) {
+        if      (strcmp(argv[i], "-O0") == 0) opt_level = 0;
+        else if (strcmp(argv[i], "-O1") == 0) opt_level = 1;
+        else if (strcmp(argv[i], "-O2") == 0) opt_level = 2;
+        else if (strcmp(argv[i], "-O3") == 0) opt_level = 3;
+        else if (strcmp(argv[i], "-py") == 0) do_python  = 1;
+    }
+    printf("Running Optimizations (-O%d)\n", opt_level);
 
-//O2
-if (opt_level >= 2) {
-    common_subexpression_elimination();
-    dead_code_elimination();
-}
+    if (opt_level >= 1) {
+        algebraic_simplification();
+        constant_folding();
+        constant_propagation();
+        copy_propagation(opt_level);
+        constant_folding();
+        constant_propagation();
+    }
+    if (opt_level >= 2) {
+        common_subexpression_elimination();
+        dead_code_elimination();
+    }
+    if (opt_level >= 3) {
+        strength_reduction();
+        loop_invariant_code_motion();
+        induction_variable_elimination();
+        dead_code_elimination();
+    }
 
-//O3
-if (opt_level >= 3) {
-    strength_reduction();
-    loop_invariant_code_motion();
-    induction_variable_elimination();
-    dead_code_elimination();   // final cleanup after loop optimizations
-}
-       printf("\n========== IR Code Visualization Section ==========\n");
-	print_original_IR();
-	print_opt_IR();
+    printf("\n========== IR Code Visualization Section ==========\n");
+    print_original_IR();
+    print_opt_IR();
 
-    /*printf("\nParsing Successful\nGenerated quadruple table:\n");
-    printf("%-15s %-15s %-15s %-15s\n", "OP", "ARG1", "ARG2", "RESULT");
-    for (int i = 0; i < IR_idx; i++)
-        printf("%-15s %-15s %-15s %-15s\n",
-               IR[i].op, IR[i].arg1, IR[i].arg2, IR[i].result);*/
-    	FILE *asm_file = fopen("output.s", "w");
-    	if (!asm_file) {
-        	perror("Failed to open assembly file");
-       		 return 1;
-    	}
-    	asmSetOutput(asm_file);
-	use_template_matching = 1;	// Turning on the optimal instruction selection
-    	printf("\nGenerating RISC-V Assembly...\n");
-    	generateASM(); 
-
+    FILE* asm_file = fopen("output.s", "w");
+    if (!asm_file) { perror("Failed to open assembly file"); return 1; }
+    asmSetOutput(asm_file);
+    use_template_matching = 1;
+    printf("\nGenerating RISC-V Assembly...\n");
+    generateASM();
     fclose(asm_file);
     printf("Assembly code saved to 'output.s'\n");
-   
- if (do_python) {
-    FILE* py_file = fopen("output.py", "w");
-    if (!py_file) {
-        perror("Failed to open output.py");
-    } else {
-        printf("\nTranspiling to Python...\n");
-        transpile_to_python(py_file);
-        fclose(py_file);
-        printf("Python code saved to 'output.py'\n");
-    }
-}
 
-	if(compare_mode){
-		FILE* std_file = fopen("output_standard.s", "w");
-		if(!std_file){
-			perror("Failed to open output_standard.s");
-			return 1;
-		}
-		asmSetOutput(std_file);
-		use_template_matching = 0;	// turn off the optimal ins selection
-		printf("Generating Assembly code using standard if/else chain");
-		generateASM();
-		fclose(std_file);
-		printf("Standard Assembly code saved to 'output_standard.s' file\n");
-	
-		// Now compare the code from two files using a function
-			
-	}
-   	return 0;
+    // ── Print stats to terminal (not into the .s file) ──────────────────
+    printAsmStats(stats_mode);
+
+    if (do_python) {
+        FILE* py_file = fopen("output.py", "w");
+        if (!py_file) { perror("Failed to open output.py"); }
+        else {
+            printf("\nTranspiling to Python...\n");
+            transpile_to_python(py_file);
+            fclose(py_file);
+            printf("Python code saved to 'output.py'\n");
+        }
+    }
+
+    if (compare_mode) {
+        FILE* std_file = fopen("output_standard.s", "w");
+        if (!std_file) { perror("Failed to open output_standard.s"); return 1; }
+        asmSetOutput(std_file);
+        use_template_matching = 0;
+        printf("\nGenerating standard assembly...\n");
+        generateASM();
+        fclose(std_file);
+        printf("Standard assembly saved to 'output_standard.s'\n");
+
+        // Print stats for the standard run too so you can compare
+        printf("\n--- Standard run stats ---\n");
+        printAsmStats(stats_mode);
+    }
+
+    return 0;
 }
 
