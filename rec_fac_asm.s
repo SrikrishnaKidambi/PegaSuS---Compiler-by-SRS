@@ -67,7 +67,6 @@ L1:
         addi t2, t1, -1
         mv     a0, t2
     # spill all registers
-    # spill all registers
         call   fact_i
         sw     a0, -92(s0)
         lw   t1, -20(s0)
@@ -95,7 +94,6 @@ global_body:
     # spill all registers
         la   t0, a
         sw   t1, 0(t0)
-    # spill all registers
         call   fact_i
         sw     a0, -92(s0)
         lw   t1, -92(s0)

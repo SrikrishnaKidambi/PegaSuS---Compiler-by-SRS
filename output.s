@@ -111,140 +111,94 @@ global_body:
         add  s9, t3, t4
         mv   s10, s9
         add  s11, t5, t6
-        la   t0, a
-        sw   t1, 0(t0)
-        mv   t1, s11
-        la   t0, p3
-        sw   t1, 0(t0)
-        add  t1, s1, s2
+        mv   s7, s11
+        add  s9, s1, s2
+        mv   s11, s9
+        add  s9, s3, s4
         la   t0, b
         sw   t2, 0(t0)
-        mv   t2, t1
-        la   t0, p4
-        sw   t2, 0(t0)
-        add  t2, s3, s4
-        la   t0, c
-        sw   t3, 0(t0)
-        mv   t3, t2
-        la   t0, p5
-        sw   t3, 0(t0)
-        add  t3, s5, s6
+        mv   t2, s9
+        add  s9, s5, s6
         la   t0, d
         sw   t4, 0(t0)
-        mv   t4, t3
-        la   t0, p6
-        sw   t4, 0(t0)
-        add  t4, s8, s10
-        la   t0, e
-        sw   t5, 0(t0)
-        mv   t5, t4
-        la   t0, u1
-        sw   t5, 0(t0)
-        la   t0, p3
-        lw   t5, 0(t0)
+        mv   t4, s9
+        add  s9, s8, s10
         la   t0, f
         sw   t6, 0(t0)
-        la   t0, p4
-        lw   t6, 0(t0)
-        la   t0, g
-        sw   s1, 0(t0)
-        add  s1, t5, t6
+        mv   t6, s9
+        add  s9, s7, s11
         la   t0, h
         sw   s2, 0(t0)
-        mv   s2, s1
-        la   t0, u2
-        sw   s2, 0(t0)
+        mv   s2, s9
+        add  s9, t2, t4
         la   t0, p5
-        lw   s2, 0(t0)
-        la   t0, i
-        sw   s3, 0(t0)
+        sw   t2, 0(t0)
+        mv   t2, s9
+        add  s9, t6, s2
         la   t0, p6
-        lw   s3, 0(t0)
-        la   t0, j
-        sw   s4, 0(t0)
-        add  s4, s2, s3
-        la   t0, k
-        sw   s5, 0(t0)
-        mv   s5, s4
+        sw   t4, 0(t0)
+        mv   t4, s9
+        add  s9, t4, t2
         la   t0, u3
-        sw   s5, 0(t0)
-        la   t0, u1
-        lw   s5, 0(t0)
-        la   t0, l
-        sw   s6, 0(t0)
-        la   t0, u2
-        lw   s6, 0(t0)
-        la   t0, p1
-        sw   s8, 0(t0)
-        add  s8, s5, s6
-        la   t0, p2
-        sw   s10, 0(t0)
-        mv   s10, s8
-        la   t0, v1
-        sw   s10, 0(t0)
-        la   t0, u3
-        lw   s10, 0(t0)
-        sw   t1, -200(s0)
-        add  t1, s10, s10
-        sw   t1, -204(s0)
-        lw   t1, -204(s0)
-        la   t0, v2
-        sw   t1, 0(t0)
+        sw   t2, 0(t0)
+        mv   t2, s9
+        add  s9, t1, t3
         la   t0, a
-        lw   t1, 0(t0)
+        sw   t1, 0(t0)
+        mv   t1, s9
+        add  s9, t5, s1
         la   t0, c
-        lw   t1, 0(t0)
-        add  t1, t1, t1
-        sw   t1, -208(s0)
-        lw   t1, -208(s0)
+        sw   t3, 0(t0)
+        mv   t3, s9
+        add  s9, s3, s5
+        la   t0, v1
+        sw   t4, 0(t0)
+        mv   t4, s9
+        add  s9, t1, t3
         la   t0, w1
         sw   t1, 0(t0)
-        la   t0, e
-        lw   t1, 0(t0)
-        la   t0, g
-        lw   t1, 0(t0)
-        add  t1, t1, t1
-        sw   t1, -212(s0)
-        lw   t1, -212(s0)
-        la   t0, w2
-        sw   t1, 0(t0)
-        la   t0, i
-        lw   t1, 0(t0)
-        la   t0, k
-        lw   t1, 0(t0)
-        add  t1, t1, t1
-        sw   t1, -216(s0)
-        lw   t1, -216(s0)
-        la   t0, w3
-        sw   t1, 0(t0)
-        la   t0, w1
-        lw   t1, 0(t0)
-        la   t0, w2
-        lw   t1, 0(t0)
-        add  t1, t1, t1
-        sw   t1, -220(s0)
-        lw   t1, -220(s0)
+        mv   t1, s9
+        add  s9, t4, t1
         la   t0, w4
         sw   t1, 0(t0)
-        la   t0, w3
-        lw   t1, 0(t0)
-        la   t0, w4
-        lw   t1, 0(t0)
-        add  t1, t1, t1
-        sw   t1, -224(s0)
-        lw   t1, -224(s0)
+        mv   t1, s9
+        add  s9, t2, t1
         la   t0, w5
         sw   t1, 0(t0)
-        la   t0, v2
-        lw   t1, 0(t0)
-        la   t0, w5
-        lw   t1, 0(t0)
-        add  t1, t1, t1
-        sw   t1, -228(s0)
-        lw   t1, -228(s0)
+        mv   t1, s9
     # spill all registers
         la   t0, result
         sw   t1, 0(t0)
+        la   t0, v2
+        sw   t2, 0(t0)
+        la   t0, w2
+        sw   t3, 0(t0)
+        la   t0, w3
+        sw   t4, 0(t0)
+        la   t0, e
+        sw   t5, 0(t0)
+        la   t0, u1
+        sw   t6, 0(t0)
+        la   t0, g
+        sw   s1, 0(t0)
+        la   t0, u2
+        sw   s2, 0(t0)
+        la   t0, i
+        sw   s3, 0(t0)
+        la   t0, j
+        sw   s4, 0(t0)
+        la   t0, k
+        sw   s5, 0(t0)
+        la   t0, l
+        sw   s6, 0(t0)
+        la   t0, p3
+        sw   s7, 0(t0)
+        la   t0, p1
+        sw   s8, 0(t0)
+        la   t0, p2
+        sw   s10, 0(t0)
+        la   t0, p4
+        sw   s11, 0(t0)
         la t0, result
         lw a1, 0(t0)
         la a0, .fmt_int
