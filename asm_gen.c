@@ -118,6 +118,10 @@ int use_template_matching = 1; // By default it is 1 and it is turned off when t
 static int count_loads = 0;
 static int count_stores = 0;
 
+static int instr_sel_opt_hits = 0;  // immediate-form instructions used
+static int instr_sel_total_arith  = 0;  // total arith+relational quads processed
+static int instr_sel_lwmv_fused = 0;	// lw + mv fused into lw
+static int instr_sel_reg_reuse = 0;  // lw avoided — value already in register
 
 // lookupForCodeGen - This function can be used for performing the resolution of correct symbol
 // This function first seaches for local that is current function scope and then global scope (returns NULL if found nowhere)
@@ -661,19 +665,22 @@ void genRelational(const Quad* q) {
 
 	OperandMode m1 = getMode(q->arg1);
 	OperandMode m2 = getMode(q->arg2);
-
+	instr_sel_total_arith++;
 	// slti special case - load source first then get dst
 	if(strcmp(q->op, "<") == 0 && m2 == MODE_IMM){
+		instr_sel_opt_hits++;
 		const char* r1 = load(q->arg1);
-		const char* dst = getReg(q->result);   // ← AFTER load
+		const char* dst = getReg(q->result);
 		asmEmit("    slti %s, %s, %s", dst, r1, q->arg2);
 		markDirty(dst);
 		return;
 	}
 
-	const char* r1 = (m1 == MODE_REG) ? reg_name[findRegFor(q->arg1)] : load(q->arg1);
-	const char* r2 = (m2 == MODE_REG) ? reg_name[findRegFor(q->arg2)] : load(q->arg2);
-	const char* dst = getReg(q->result);       // ← AFTER both loads
+	if(m1 == MODE_REG) instr_sel_reg_reuse++;   
+    const char* r1 = (m1 == MODE_REG) ? reg_name[findRegFor(q->arg1)] : load(q->arg1);
+    if(m2 == MODE_REG) instr_sel_reg_reuse++;  
+    const char* r2 = (m2 == MODE_REG) ? reg_name[findRegFor(q->arg2)] : load(q->arg2);
+	const char* dst = getReg(q->result);       
 
 	if (strcmp(q->op, "<") == 0) {
 		asmEmit("    slt  %s, %s, %s", dst, r1, r2);
@@ -702,7 +709,8 @@ void genLogic(const Quad* q) {
 
 	if (strcmp(q->op, "!") == 0) {
 		OperandMode m1 = getMode(q->arg1);
-		const char* src = (m1 == MODE_REG) ? reg_name[findRegFor(q->arg1)] : load(q->arg1);
+		if(m1 == MODE_REG) instr_sel_reg_reuse++;
+        const char* src = (m1 == MODE_REG) ? reg_name[findRegFor(q->arg1)] : load(q->arg1);
 		const char* dst = getReg(q->result);
 		asmEmit("    seqz %s, %s", dst, src);
 		markDirty(dst);
@@ -711,8 +719,10 @@ void genLogic(const Quad* q) {
 
 	OperandMode m1 = getMode(q->arg1);
 	OperandMode m2 = getMode(q->arg2);
-	const char* r1 = (m1 == MODE_REG) ? reg_name[findRegFor(q->arg1)] : load(q->arg1);
-	const char* r2 = (m2 == MODE_REG) ? reg_name[findRegFor(q->arg2)] : load(q->arg2);
+	if(m1 == MODE_REG) instr_sel_reg_reuse++;
+    const char* r1 = (m1 == MODE_REG) ? reg_name[findRegFor(q->arg1)] : load(q->arg1);
+    if(m2 == MODE_REG) instr_sel_reg_reuse++;
+    const char* r2 = (m2 == MODE_REG) ? reg_name[findRegFor(q->arg2)] : load(q->arg2);
 	const char* dst = getReg(q->result);  
 
 	if (strcmp(q->op, "&&") == 0 || strcmp(q->op, "&") == 0) {
@@ -835,6 +845,7 @@ void genArrayAccess(const Quad* q) {
 
 	// Load the offset (byte offset, already computed)
 	OperandMode m_off = getMode(q->arg2);
+    if(m_off == MODE_REG) instr_sel_reg_reuse++;
 	const char* r_off = (m_off == MODE_REG) ? reg_name[findRegFor(q->arg2)] : load(q->arg2);
 
 	// Compute effective address
@@ -1644,7 +1655,10 @@ const char* load(const char* operand){
 
 		//if already a register with same value exist then use it
 		int already = findRegFor(operand);
-		if(already >= 0) return reg_name[already];
+		if(already >= 0) {
+            instr_sel_reg_reuse++;
+            return reg_name[already];
+        }
 
 		const char* reg = getReg(operand);
 
@@ -1676,6 +1690,7 @@ const char* load(const char* operand){
 
 	int idx = findRegFor(operand);
 	if(idx >= 0){
+        instr_sel_reg_reuse++;
 		return reg_name[idx];
 	}
 
@@ -1805,9 +1820,10 @@ static OperandMode getMode(const char* operand){
 
 static void emitArithWithMode(const Quad* q, OperandMode m1, OperandMode m2){
 	// const char* dst = getReg(q->result);
-
+	instr_sel_total_arith++;
 	// if addition operation and one of the operands is a constant, hence use addi
 	if(strcmp(q->op, "+") == 0 && m2 == MODE_IMM){
+		instr_sel_opt_hits++;	// saves one li
 		const char* r1 = load(q->arg1);
 		const char* dst = getReg(q->result);
 		asmEmit("    addi %s, %s, %s", dst, r1, q->arg2);
@@ -1819,6 +1835,7 @@ static void emitArithWithMode(const Quad* q, OperandMode m1, OperandMode m2){
 
 	// Now if the argument 1 has constant value
 	if(strcmp(q->op, "+") == 0 && m1 == MODE_IMM){
+		instr_sel_opt_hits++;   // saves one li
 		const char* r2 = load(q->arg2);
 		const char* dst = getReg(q->result);
 		asmEmit("    addi %s, %s, %s", dst, r2, q->arg1);
@@ -1830,6 +1847,7 @@ static void emitArithWithMode(const Quad* q, OperandMode m1, OperandMode m2){
 
 	// if the argument 2 is constant the operation is subtraction
 	if(strcmp(q->op, "-") == 0 && m2 == MODE_IMM){
+		instr_sel_opt_hits++;   // saves one li
 		const char* r1 = load(q->arg1);
 		long imm = strtol(q->arg2, NULL, 10);
 		const char* dst = getReg(q->result);
@@ -1913,7 +1931,7 @@ static void emitAssignWithMode(const Quad* q, OperandMode m1){
 					markDirty(dst);
 					break;
 				}
-
+                instr_sel_reg_reuse++;
 				int dst_idx = findRegFor(q->result);
 				if(dst_idx >= 0){
 					/* result already has a register */
@@ -1953,16 +1971,32 @@ static void emitAssignWithMode(const Quad* q, OperandMode m1){
 			}
 			break;
 		case MODE_MEM:
-			// Variable is in memory so use mv lw and then mv
-			{
-				const char* r = load(q->arg1);
-				const char* dst = getReg(q->result);
-				asmEmit("    mv   %s, %s", dst, r);
-				// freeReg(q->arg1);
-				// store(q->result, dst);
-				markDirty(dst);
-			}
-			break;
+            {
+                const char* dst = getReg(q->result);
+                Symbol* sym = lookupForCodeGen(q->arg1);
+                if(sym && sym->scope_level == 0){
+                    asmEmit("    la   t0, %s", sym->name);
+                    asmEmit("    lw   %s, 0(t0)", dst);
+                    instr_sel_lwmv_fused++;          // fused: la+lw replaces load()+mv
+                }
+                else if(sym){
+                    asmEmit("    lw   %s, %s", dst, getVarAddress(q->arg1));
+                    instr_sel_lwmv_fused++;          // fused: lw directly into dst
+                }
+                else if(isTemp(q->arg1)){
+                    asmEmit("    lw   %s, %d(s0)", dst, getTempFrameOffset(q->arg1));
+                    instr_sel_lwmv_fused++;          // fused: lw directly into dst
+                }
+                else{
+                    // genuine fallback — not a fusion, still needs mv
+                    const char* r = load(q->arg1);
+                    if(strcmp(r, dst) != 0)
+                        asmEmit("    mv   %s, %s", dst, r);
+                }
+                count_loads++;
+                markDirty(dst);
+            }
+            break;
 		default:
 			genAssign(q);
 			break;
@@ -2243,6 +2277,7 @@ void genIfGoto(const Quad* q){
 	// condition to be checked is stored in the first argumet of the quad, so load it for checking the condition
 	else if(strcmp(q->op, "ifFalse") == 0){
 		OperandMode m1 = getMode(q->arg1);
+        if(m1 == MODE_REG) instr_sel_reg_reuse++;
 		const char* cond_reg = (m1 == MODE_REG) ? reg_name[findRegFor(q->arg1)] : load(q->arg1);
 		asmEmit("    beqz   %s, %s", cond_reg, q->result);
 		freeReg(q->arg1);
@@ -2305,6 +2340,7 @@ void genFunctionCall(const Quad* q){
                     if(strcmp(reg_name[reg_idx], arg_regs[i]) != 0){
                         asmEmit("    mv     %s, %s", arg_regs[i], reg_name[reg_idx]);
                     }
+					instr_sel_reg_reuse++;
                     pending_args[i][0] = '\0';  // Mark as handled
                 }
             }
@@ -2662,6 +2698,7 @@ void genFunctionEpilogue(const Quad* q){
 					if(sym && sym->datatype == DT_STRING){
 						int reg_idx = findRegFor(q->arg1);
 						if(reg_idx >= 0){
+                            instr_sel_reg_reuse++;
 							asmEmit("    mv a0, %s", reg_name[reg_idx]);
 						}
 						else{
@@ -2672,6 +2709,7 @@ void genFunctionEpilogue(const Quad* q){
 					else{
 						int reg_idx = findRegFor(q->arg1);
 						if(reg_idx >= 0){
+                            instr_sel_reg_reuse++;
 							asmEmit("    mv     a0, %s", reg_name[reg_idx]);
 						}
 						else{
@@ -2725,7 +2763,6 @@ void genFunctionEpilogue(const Quad* q){
 void genIO(const Quad* q){
 	// If the quad is a output quad that is "out"
 	if(strcmp(q->op, "out") == 0){
-		//int service = 1;    // assign the default value (printing integer
 
 		Symbol* sym = NULL;
 		int is_str_literal = isStringLiteral(q->arg1);
@@ -2733,15 +2770,14 @@ void genIO(const Quad* q){
 			sym = lookupForCodeGen(q->arg1);
 		}
 
-		// capture register state BEFORE any spill
-		int pre_reg = findRegFor(q->arg1);
+		// classify operand mode BEFORE any spill — replaces the fragile pre_reg hack
+		OperandMode m1 = getMode(q->arg1);
 
 		// Step 1: Load the value to be printed into a0 register
 		// For constant use "li" instruction
 		// For variable use "lw" instruction
 		// For string address load the base address of the string using the name of the string label (defined in .data section). "la" is the type of instruction used
 		// If it is a string pointer load it using "lw" with base address from the starting pointer of stack frame and offset computed from the symbol table
-
 
 		// if the argument is a string literal
 		if(isStringLiteral(q->arg1)){
@@ -2752,7 +2788,7 @@ void genIO(const Quad* q){
 			}
 			spillAllRegs();
 			// adding a new line
-			asmEmit("    la a0, %s", lbl);
+			asmEmit("    la   a0, %s", lbl);
 			count_loads++;
 			asmEmit("    call puts");
 			return;
@@ -2761,7 +2797,7 @@ void genIO(const Quad* q){
 		// if the output to be done is a character literal
 		if(q->arg1[0] == '\'' && q->arg1[2] == '\''){
 			spillAllRegs();
-			asmEmit("    li a0, %d", (int)(unsigned char)q->arg1[1]);
+			asmEmit("    li   a0, %d", (int)(unsigned char)q->arg1[1]);
 			count_loads++;
 			asmEmit("    call putchar");
 			return;
@@ -2779,24 +2815,30 @@ void genIO(const Quad* q){
 		}
 
 		// Since we are calling printf which is a C library function call, it might clobber the registers
-		// spill here for all variable/temp cases, pre_reg already captured above
-		spillAllRegs();
+		// For MODE_REG: move value into argument register BEFORE spill so it isn't lost
+		// For MODE_MEM: spill first, then load directly from stack (lw+mv fusion)
 
 		// If the variable to be printed is a string variable
 		if(sym && sym->datatype == DT_STRING){
 			if(sym->kind == KIND_ARRAY || sym->scope_level == 0){
+				// global/array string — address is a label, no register needed
+				spillAllRegs();
 				asmEmit("    la     a0, %s", sym->name);
 				count_loads++;
 			}
+			else if(m1 == MODE_REG){
+				// value already in register — move to a0 before spill clobbers it
+				int src = findRegFor(q->arg1);
+				asmEmit("    mv     a0, %s", reg_name[src]);
+                instr_sel_reg_reuse++;
+				spillAllRegs();
+			}
 			else{
-				if(pre_reg >= 0){
-					asmEmit("    mv     a0, %s", reg_name[pre_reg]);
-				} else {
-					// Use getVarOffset instead of manual calculation
-					int offset = getVarOffset(q->arg1);
-					asmEmit("    lw     a0, %d(s0)", offset);  // Load the string pointer from stack
-					count_loads++;
-				}
+				// MODE_MEM — spill then load directly into a0 (lw+mv fusion)
+				spillAllRegs();
+				asmEmit("    lw     a0, %d(s0)", getVarOffset(q->arg1));
+				count_loads++;
+				instr_sel_lwmv_fused++;
 			}
 			asmEmit("    call puts");
 			return;
@@ -2806,34 +2848,50 @@ void genIO(const Quad* q){
 		if(sym && sym->datatype == DT_FLOAT){
 			// load the float value we want to print into the register fa0 and then convert into double using fcvt.d.s and then call printf that will pick from the floating point argument registers
 			if(sym->scope_level == 0){
-				asmEmit("    la t0, %s", sym->name);
-				asmEmit("    flw fa0, 0(t0)");
-			} else {
-				if(pre_reg >= 0){
-					asmEmit("    fmv.s  fa0, %s", reg_name[pre_reg]);
-				} else {
-					asmEmit("    flw fa0, %d(s0)", getVarOffset(q->arg1));
-				}
+				spillAllRegs();
+				asmEmit("    la     t0, %s", sym->name);
+				asmEmit("    flw    fa0, 0(t0)");
+			}
+			else if(m1 == MODE_REG){
+				// move to fa0 before spill
+				int src = findRegFor(q->arg1);
+				asmEmit("    fmv.s  fa0, %s", reg_name[src]);
+                instr_sel_reg_reuse++;
+				spillAllRegs();
+			}
+			else{
+				// MODE_MEM — spill then load directly (lw+mv fusion for floats)
+				spillAllRegs();
+				asmEmit("    flw    fa0, %d(s0)", getVarOffset(q->arg1));
+				instr_sel_lwmv_fused++;
 			}
 			count_loads++;
 			asmEmit("    fcvt.d.s fa0, fa0");
-			asmEmit("    la a0, .fmt_float");
+			asmEmit("    la     a0, .fmt_float");
 			count_loads++;
-			asmEmit("    call printf");
+			asmEmit("    call   printf");
 			return;
 		}
 
 		// if the output is a character variable
 		if(sym && sym->datatype == DT_CHAR){
 			if(sym->scope_level == 0){
+				spillAllRegs();
 				asmEmit("    la     t0, %s", sym->name);
 				asmEmit("    lb     a0, 0(t0)");        /* load byte */
-			} else {
-				if(pre_reg >= 0){
-					asmEmit("    mv     a0, %s", reg_name[pre_reg]);
-				} else {
-					asmEmit("    lb     a0, %d(s0)", getVarOffset(q->arg1));
-				}
+			}
+			else if(m1 == MODE_REG){
+				// move to a0 before spill
+				int src = findRegFor(q->arg1);
+				asmEmit("    mv     a0, %s", reg_name[src]);
+                instr_sel_reg_reuse++;
+				spillAllRegs();
+			}
+			else{
+				// MODE_MEM — spill then load byte directly (lw+mv fusion)
+				spillAllRegs();
+				asmEmit("    lb     a0, %d(s0)", getVarOffset(q->arg1));
+				instr_sel_lwmv_fused++;
 			}
 			count_loads++;
 			asmEmit("    call   putchar");
@@ -2842,24 +2900,30 @@ void genIO(const Quad* q){
 
 		// Integer variable or temp (default case)
 		if(sym && sym->scope_level == 0){
-			// integer defined at global level
-			asmEmit("    la t0, %s", sym->name);
-			asmEmit("    lw a1, 0(t0)");
+			// integer defined at global level — address via label
+			spillAllRegs();
+			asmEmit("    la     t0, %s", sym->name);
+			asmEmit("    lw     a1, 0(t0)");
 			count_loads++;
 		}
-		else if(pre_reg >= 0){
-			// value was in a register before spill — covers both local sym and temp
-			asmEmit("    mv     a1, %s", reg_name[pre_reg]);
+		else if(m1 == MODE_REG){
+			// value was in a register — move to a1 before spill clobbers it
+			int src = findRegFor(q->arg1);
+			asmEmit("    mv     a1, %s", reg_name[src]);
+            instr_sel_reg_reuse++;
+			spillAllRegs();
 		}
 		else{
-			// load from stack slot — covers both local sym and compiler generated temp
-			asmEmit("    lw a1, %d(s0)", getVarOffset(q->arg1));
+			// MODE_MEM — spill then load directly into a1 (lw+mv fusion)
+			spillAllRegs();
+			asmEmit("    lw     a1, %d(s0)", getVarOffset(q->arg1));
 			count_loads++;
+			instr_sel_lwmv_fused++;
 		}
 
-		asmEmit("    la a0, .fmt_int");
+		asmEmit("    la     a0, .fmt_int");
 		count_loads++;
-		asmEmit("    call printf");
+		asmEmit("    call   printf");
 		return;
 	}
 
@@ -2875,12 +2939,12 @@ void genIO(const Quad* q){
 			asmEmit("    la     a0, .fmt_scan_str");
 			count_loads++;
 			if(sym->scope_level == 0 || sym->kind == KIND_ARRAY){
-				asmEmit("    la a1, %s", sym->name);
+				asmEmit("    la     a1, %s", sym->name);
 			}else{
 				int slot = -(sym->offset + sym->size);
-				asmEmit("    addi a1, s0, %d", slot);
+				asmEmit("    addi   a1, s0, %d", slot);
 			}
-			asmEmit("    call scanf");
+			asmEmit("    call   scanf");
 			// asmEmit("    ld ra, 8(sp)");
 			// asmEmit("    addi sp, sp, 16");
 			return;
@@ -2888,16 +2952,16 @@ void genIO(const Quad* q){
 
 		// read float
 		if(sym && sym->datatype == DT_FLOAT){
-			asmEmit("    la a0, .fmt_scan_float");
+			asmEmit("    la     a0, .fmt_scan_float");
 			count_loads++;
 			if(sym->scope_level == 0){
-				asmEmit("    la a1, %s", sym->name);
+				asmEmit("    la     a1, %s", sym->name);
 			}
 			else{
-				asmEmit("    addi a1, s0, %d", getVarOffset(q->result));
+				asmEmit("    addi   a1, s0, %d", getVarOffset(q->result));
 			}
 			count_loads++;
-			asmEmit("    call scanf");
+			asmEmit("    call   scanf");
 			// asmEmit("    ld ra, 8(sp)");
 			// asmEmit("    addi sp, sp, 16");
 			return;
@@ -2905,32 +2969,32 @@ void genIO(const Quad* q){
 
 		// read char
 		if(sym && sym->datatype == DT_CHAR){
-			asmEmit("    la a0, .fmt_scan_str");
+			asmEmit("    la     a0, .fmt_scan_str");
 			count_loads++;
 			if(sym->scope_level == 0){
-				asmEmit("    la a1, %s", sym->name);
+				asmEmit("    la     a1, %s", sym->name);
 			}
 			else{
-				asmEmit("    addi a1, s0, %d", getVarOffset(q->result));
+				asmEmit("    addi   a1, s0, %d", getVarOffset(q->result));
 			}
 			count_loads++;
-			asmEmit("    call scanf");
+			asmEmit("    call   scanf");
 			// asmEmit("    ld ra, 8(sp)");
 			// asmEmit("    addi sp, sp, 16");
 			return;
 		}
 
 		// read integer
-		asmEmit("    la a0, .fmt_scan_int");
+		asmEmit("    la     a0, .fmt_scan_int");
 		count_loads++;
 		if(sym && sym->scope_level == 0){
-			asmEmit("    la a1, %s", sym->name);
+			asmEmit("    la     a1, %s", sym->name);
 		}
 		else{
-			asmEmit("    addi a1, s0, %d", getVarOffset(q->result));
+			asmEmit("    addi   a1, s0, %d", getVarOffset(q->result));
 		}
 		count_loads++;
-		asmEmit("    call scanf");
+		asmEmit("    call   scanf");
 		// asmEmit("    ld ra, 8(sp)");
 		// asmEmit("    addi sp, sp, 16");
 		return;
@@ -2974,6 +3038,10 @@ void generateASM(void)
 	//reset counters before generating
 	count_loads=0;
 	count_stores = 0;
+	instr_sel_opt_hits = 0;
+    instr_sel_total_arith = 0;
+	instr_sel_lwmv_fused = 0;
+    instr_sel_reg_reuse = 0;  
 	initRegs();
 
 
@@ -3084,19 +3152,70 @@ int getLoadCounts(void){return count_loads;}
 int getStoreCount(void){return count_stores;}
 
 void printAsmStats(StatsMode mode) {
-	if (mode == STATS_NONE) return;
+    if (mode == STATS_NONE) return;
 
-	printf("\n");
-	if (mode == STATS_ALL || mode == STATS_REGALLOC) {
-		printf("=== Register Allocator Stats ===\n");
-		printf("  Strategy : %s\n",
-				use_optimized_regalloc
-				? "OPTIMIZED (next-use aware)"
-				: "BASIC (first dirty VAR)");
-		printf("  Loads    (lw/li/la) : %d\n", count_loads);
-		printf("  Stores   (sw)       : %d\n", count_stores);
-		printf("  Total               : %d\n", count_loads + count_stores);
-		printf("================================\n");
-	}
-	//Any future stats go here.
+    printf("\n");
+
+    /* ── Register Allocation ─────────────────────────────────────────── */
+    if (mode == STATS_ALL || mode == STATS_REGALLOC) {
+        int total_mem = count_loads + count_stores;
+
+        printf("=== Register Allocation Stats ===\n");
+        printf("  Strategy : %s\n",
+               use_optimized_regalloc
+               ? "OPTIMIZED  (next-use aware spill)"
+               : "BASIC      (first dirty VAR spill)");
+        printf("  Loads  (lw / li / la) : %d\n", count_loads);
+        printf("  Stores (sw)           : %d\n", count_stores);
+        printf("  Total  memory ops     : %d\n", total_mem);
+        if (use_optimized_regalloc)
+            printf("  Tip: run with --noalloc to compare BASIC strategy\n");
+        printf("=================================\n\n");
+    }
+
+    /* ── Instruction Selection ───────────────────────────────────────── */
+    if (mode == STATS_ALL || mode == STATS_INSTRSEL) {
+
+        int imm_naive_extra  = instr_sel_opt_hits;
+        int lwmv_naive_extra = instr_sel_lwmv_fused;
+        int total_saved      = imm_naive_extra + lwmv_naive_extra + instr_sel_reg_reuse;
+
+        float imm_pct = (instr_sel_total_arith > 0)
+                        ? (100.0f * instr_sel_opt_hits / instr_sel_total_arith)
+                        : 0.0f;
+
+        printf("=== Instruction Selection Stats ===\n");
+
+        /* --- immediate-form --- */
+        printf("  [1] Immediate-form optimizations  (addi / slti)\n");
+        printf("    Arith/relational quads seen : %d\n", instr_sel_total_arith);
+        printf("    Immediate-form opts applied : %d\n", instr_sel_opt_hits);
+        printf("    Coverage                    : %.1f%% of arith/rel quads\n", imm_pct);
+        printf("    Instructions (optimal)      : %d\n", instr_sel_total_arith);
+        printf("    Instructions (naive)        : %d  (+%d li's avoided)\n",
+               instr_sel_total_arith + imm_naive_extra, imm_naive_extra);
+        printf("    Saved                       : %d\n\n", imm_naive_extra);
+
+        /* --- lw+mv fusion --- */
+        printf("  [2] lw+mv fusion  (assign from memory)\n");
+        printf("    Fusions applied             : %d\n", instr_sel_lwmv_fused);
+        printf("    Instructions (optimal)      : %d  (direct lw into dst)\n",
+               instr_sel_lwmv_fused);
+        printf("    Instructions (naive)        : %d  (lw tmp + mv dst,tmp)\n",
+               instr_sel_lwmv_fused * 2);
+        printf("    Saved                       : %d\n\n", lwmv_naive_extra);
+
+        /* --- register reuse --- */
+        printf("  [3] Register reuse  (lw avoided — value already in register)\n");
+        printf("    Reuse hits                  : %d\n", instr_sel_reg_reuse);
+        printf("    Instructions (optimal)      : 0  (no load emitted)\n");
+        printf("    Instructions (naive)        : %d  (lw for each hit)\n",
+               instr_sel_reg_reuse);
+        printf("    Saved                       : %d\n\n", instr_sel_reg_reuse);
+
+        /* --- total --- */
+        printf("  [Total instruction selection savings]\n");
+        printf("    imm-form + lw/mv-fusion + reg-reuse : %d\n", total_saved);
+        printf("===================================\n\n");
+    }
 }
