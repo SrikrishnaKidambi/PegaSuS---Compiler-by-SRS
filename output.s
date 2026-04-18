@@ -2,16 +2,17 @@
 
     # -- Global Scalar Variables --
         .align 2
-    a:    .word  100
+    result:    .word  0
         .align 2
-    b:    .word  200
+    a:    .word  1
         .align 2
-    res:    .word  0
+    b:    .word  2
 
     # -- global arrays --
 
     # -- string literals --
-    str_0:    .asciz "The maximum is:"
+    str_0:    .asciz "Going to return the"
+    str_1:    .asciz "The result is:"
 
     # -- I/O format strings --
     .fmt_int:    .asciz  "%d\n"
@@ -37,12 +38,12 @@ main:
         ret
 
 
-max_ii:
+add_ii:
     # -- prologue --
-        addi   sp, sp, -224
-        sd     ra, 216(sp)
-        sd     s0, 208(sp)
-        addi   s0, sp, 224
+        addi   sp, sp, -208
+        sd     ra, 200(sp)
+        sd     s0, 192(sp)
+        addi   s0, sp, 208
         sw     a0, -20(s0)
         sw     a1, -24(s0)
     # --initialize local arrays --
@@ -51,41 +52,31 @@ max_ii:
 
     # x
     # y
-    # >
+    # spill all registers
+        la a0, str_0
+        call puts
         lw   t1, -20(s0)
         lw   t2, -24(s0)
-        slt  t3, t2, t1
-        beqz   t3, L0
-        sw   t3, -80(s0)
-        mv     a0, t1
-        j      Lepi_max_ii
-    # spill all registers
-        j      L1
-    # spill all registers
-
-L0:
-    # spill all registers
-
-L1:
-        lw     a0, -24(s0)
-        j      Lepi_max_ii
-Lepi_max_ii:
+        add  t3, t1, t2
+        mv     a0, t3
+        j      Lepi_add_ii
+Lepi_add_ii:
     # -- epilogue --
-        ld     ra, 216(sp)
-        ld     s0, 208(sp)
-        addi   sp, sp, 224
+        ld     ra, 200(sp)
+        ld     s0, 192(sp)
+        addi   sp, sp, 208
         ret
     # -- epilogue end --
 
 
 global_body:
     # -- Global body --
-        addi sp, sp, -224
-        sd   ra, 216(sp)
-        sd   s0, 208(sp)
-        addi s0, sp, 224
-        li   t1, 100
-        li   t2, 200
+        addi sp, sp, -208
+        sd   ra, 200(sp)
+        sd   s0, 192(sp)
+        addi s0, sp, 208
+        li   t1, 1
+        li   t2, 2
     # spill all registers
         la   t0, a
         sw   t1, 0(t0)
@@ -95,30 +86,30 @@ global_body:
         lw     a0, 0(t0)
         la     t0, b
         lw     a1, 0(t0)
-        call   max_ii
+        call   add_ii
         sw     a0, -84(s0)
         lw   t1, -84(s0)
         mv   t2, t1
     # spill all registers
-        la   t0, res
+        la   t0, result
         sw   t2, 0(t0)
-        la a0, str_0
+        la a0, str_1
         call puts
     # spill all registers
-        la t0, res
+        la t0, result
         lw a1, 0(t0)
         la a0, .fmt_int
         call printf
 
     # -- global scope epilogue --
-        ld   ra, 216(sp)
-        ld   s0, 208(sp)
-        addi sp, sp, 224
+        ld   ra, 200(sp)
+        ld   s0, 192(sp)
+        addi sp, sp, 208
         ret
 
 #--- Register Allocation Statistics -----
 # Strategy: BASIC (first dirty VAR)
 # Loads (lw/li): 13
-# Stores (sw) : 9
-# Total : 22
+# Stores (sw) : 8
+# Total : 21
 # --------------------------------------
