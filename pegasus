@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+# pegasus compiler driver
+set -e	# exit immediately if there is any error
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PEGASUS_CC="$SCRIPT_DIR/pegasus-cc"
+# Default values
+OUTPUT_NAME="a.out"	# just keeping it similar to gcc based
+SOURCE_FILE=""
+STOP_AT_ASM=false
+STOP_AT_OBJ=false	# stop after assembling that is compiled using gnu based riscv compiler
+KEEP_ASM=false	 	# stores the generated assembly code
+VERBOSE=false	 	# shows each command being run sequentially
+RUN_AFTER=false		# run the program after compiling
+EXTRA_GCC_FLAGS=()	# a bucket for future flags
+# parsing arguments (from command line)
+# Walking through the args one by one
+# When want to add a new flag just add an elif branch
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+		-o)
+			# -o <name>: set the output binary file name
+			shift
+			OUTPUT_NAME="$1"
+			;;
+		-o*)
+			# -o<name> (no space): like -ofoo
+			OUTPUT_NAME="${1:2}"
+			;;
+		-S)
+			# Stop after producing assembly, don't compile further
+			STOP_AT_ASM=true
+			;;
+		-save-temps)
+			# Keep the intermediate .s file
+			KEEP_ASM=true
+			;;
+		-v|--verbose)
+			VERBOSE=true
+			;;
+		--run)
+			# Compile and immediately run the result
+			RUN_AFTER=true
+			;;
+		-h|--help)
+			# Displaying the instructions of usage
+			echo "Usage: pegasus [options] <source-file>"
+			echo ""
+			echo "Options:"
+			echo "	-o <file>	Writes output to <file>, defaults to a.out"
+			echo "	-S		Stops the command running after generating assembly file"
+			echo "	-save-temps	Keep the intermediate assembly file"
+			echo "	-v, --verbose	Show each of the compilation command sequentially"
+			echo "	--run		Run the program immediately after compilation"
+			echo "	-h, --help	Show the help message"
+			exit 0
+			;;
+		-*)
+			# Some unknown flag
+			echo "pegasus: warning: unrecognized flag '$1'" >&2
+			EXTRA_GCC_FLAGS+=("$1")
+			;;
+		*)
+			# Not a flag, must be a source file
+			if [[ -n "$SOURCE_FILE" ]]; then
+				echo "pegasus: error: multiple source files not supported" >&2
+				exit 1
+			fi
+			SOURCE_FILE="$1"
+			;;
+	esac
+	shift
+done
+# Validating
+if [[ -z "$SOURCE_FILE" ]]; then
+	echo "pegasus: error: no source file provided" >&2
+	echo "Usage: pegasus [options] <source-file>" >&2
+	exit 1
+fi
+if [[ ! -f "$SOURCE_FILE" ]]; then
+	echo "pegasus: error: file not found: '$SOURCE_FILE'" >&2
+	exit 1
+fi
+# Helper for running a command and printing if the verbose flag is set to true
+run_cmd() {
+	if $VERBOSE; then
+		echo "+ $*" >&2
+	fi
+	"$@"
+}
+# Get the base name without any extension
+BASENAME="$(basename "$SOURCE_FILE")"
+BASENAME_NOEXT="${BASENAME%.*}"
+# Store the temp assembly file so the project directory won't be disturbed
+# $$ gets the value of PID and appends it to assembly file to avoid collisions
+ASM_FILE="/tmp/pegasus_${BASENAME_NOEXT}_$$.s"
+# Run the compiler — pegasus-cc writes to output.s, so we move it to our temp path
+run_cmd "$PEGASUS_CC" < "$SOURCE_FILE"
+mv output.s "$ASM_FILE"
+# If the mode is just stopping at assembly then stop
+if $STOP_AT_ASM; then
+	FINAL_ASM="${OUTPUT_NAME%.out}.s"
+	# If -o wasn't given, name it after the source file
+	[[ "$OUTPUT_NAME" == "a.out" ]] && FINAL_ASM="${BASENAME_NOEXT}.s"
+	cp "$ASM_FILE" "$FINAL_ASM"
+	rm -f "$ASM_FILE"
+	echo "pegasus: assembly written to '$FINAL_ASM'"
+	exit 0
+fi
+# Assemble and link
+run_cmd riscv64-linux-gnu-gcc -static \
+	"${EXTRA_GCC_FLAGS[@]}" \
+	"$ASM_FILE" \
+	-o "$OUTPUT_NAME"
+# Clean up temp assembly unless asked to keep it
+if $KEEP_ASM; then
+	cp "$ASM_FILE" "${BASENAME_NOEXT}.s"
+	echo "pegasus: assembly saved to '${BASENAME_NOEXT}.s'"
+fi
+rm -f "$ASM_FILE"
+echo "pegasus: compiled '$SOURCE_FILE' -> '$OUTPUT_NAME'"
+# Run using QEMU emulator
+if $RUN_AFTER; then
+	echo "pegasus: running '$OUTPUT_NAME' via qemu-riscv64..."
+	echo "─────────────────────────────────────"
+	run_cmd qemu-riscv64 "./$OUTPUT_NAME"
+fi
