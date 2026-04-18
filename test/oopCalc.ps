@@ -1,13 +1,13 @@
 Entity Calculator{
-	public string name;
-	Calculator(string m){
-		this.name = m;
+//	public string name;
+	Calculator(){
+	//	this.name = m;
 	}
 	public int _func add(int a, int b){
 		return a + b;
 	}
 }
 
-Calculator c = new Calculator("Casio");
+Calculator c = new Calculator();
 int ans = c.add(3,5);
 show(ans);

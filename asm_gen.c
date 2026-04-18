@@ -30,7 +30,7 @@ static char reg_contents[NUM_REGS][64]; // operand name int this register
 static int reg_dirty[NUM_REGS]; //1 if the value is modifed and need to be stored.
 
 //0 = basic spill, 1 = optimized next use spill coming from parser.y
-int use_optimized_regalloc = 0;
+int use_optimized_regalloc = 1;
 
 
 #define MAX_TEMPS 256
@@ -758,22 +758,33 @@ void genAssign(const Quad* q) {
        // store(dst_name, dst);
         return;
     }
-    // string literal
-    if (src[0] == '"') {
-	const char* lbl = getStringLabel(src);
-        const char* dst = getReg(dst_name);
-		if(lbl){
-				asmEmit("    la   %s, %s", dst,lbl);
-		}
-		else{
-			    const char* fallback = registerStringLiteral(src);
-    asmEmit("    la   %s, %s", dst, fallback ? fallback : "str_0");
-		}	
-		count_loads++;
-	markDirty(dst);
-        //store(dst_name, dst);
-        return;
-    }
+	// string literal assignment to variable
+	if (src[0] == '"') {
+	    const char* lbl = getStringLabel(src);
+	    if(!lbl){
+	        lbl = registerStringLiteral(src);
+	    }
+	    const char* dst = getReg(dst_name);
+	    asmEmit("    la   %s, %s", dst, lbl);
+	    count_loads++;
+	    markDirty(dst);
+	    return;
+	}
+    // if (src[0] == '"') {
+	// const char* lbl = getStringLabel(src);
+    //     const char* dst = getReg(dst_name);
+	// 	if(lbl){
+	// 			asmEmit("    la   %s, %s", dst,lbl);
+	// 	}
+	// 	else{
+	// 		    const char* fallback = registerStringLiteral(src);
+    // asmEmit("    la   %s, %s", dst, fallback ? fallback : "str_0");
+	// 	}	
+	// 	count_loads++;
+	// markDirty(dst);
+    //     //store(dst_name, dst);
+    //     return;
+    // }
 
     // temp variable
     const char* r   = load(src);
@@ -2270,6 +2281,19 @@ void genFunctionCall(const Quad* q){
 		// First pass: handle arguments already in registers (using mv)
 		for(int i = 0; i < pending_arg_count; i++){
 			OperandType ot = getOperandType(pending_args[i]);
+
+			// Handle string literals specially
+        	if(isStringLiteral(pending_args[i])){
+        	    const char* lbl = getStringLabel(pending_args[i]);
+        	    if(!lbl){
+        	        lbl = registerStringLiteral(pending_args[i]);
+        	    }
+        	    asmEmit("    la     %s, %s", arg_regs[i], lbl);
+        	    count_loads++;
+        	    pending_args[i][0] = '\0';  // Mark as handled
+        	    continue;
+        	}
+
 			if(ot == OT_CONST){
 				asmEmit("    li     %s, %s", arg_regs[i], pending_args[i]);
 				count_loads++;
@@ -2444,7 +2468,7 @@ void genFunctionPrologue(const Quad* q){
 		}
 	}
 	asmComment("--initialize local arrays --");
-        emitLocalArrayInits(fscope);
+    //emitLocalArrayInits(fscope);
 
 	emitLocalArrayInits(fscope);
         
@@ -2747,21 +2771,20 @@ void genIO(const Quad* q){
         }
 
 		// If the variable to be printed is a string variable
-        if(sym && sym->datatype == DT_STRING){
-            if(sym->kind == KIND_ARRAY || sym->scope_level == 0){
-                asmEmit("    la     a0, %s", sym->name);
-                count_loads++;
-            }
-            else{
-                int slot = -(sym->offset + sym->size);
-                asmEmit("    addi   a0, s0, %d", slot);
-            }
-
-			asmEmit("    call puts");
-			// asmEmit("    ld ra, 8(sp)");
-			// asmEmit("    addi sp, sp, 16");
-			return;
-        }
+		if(sym && sym->datatype == DT_STRING){
+		    if(sym->kind == KIND_ARRAY || sym->scope_level == 0){
+		        asmEmit("    la     a0, %s", sym->name);
+		        count_loads++;
+		    }
+		    else{
+		        // Use getVarOffset instead of manual calculation
+		        int offset = getVarOffset(q->arg1);
+		        asmEmit("    lw     a0, %d(s0)", offset);  // Load the string pointer from stack
+		        count_loads++;
+		    }
+		    asmEmit("    call puts");
+		    return;
+		}
 
 		// If the operand is a float
 		if(sym && sym->datatype == DT_FLOAT){
@@ -3055,11 +3078,32 @@ void generateASM(void)
 	asmEmit("    ret");  // Return to main instead of calling exit directly
 
 	//print stats of register allocation
-	fprintf(out(), "\n");
-	fprintf(out(), "#--- Register Allocation Statistics -----\n");
-	fprintf(out(), "# Strategy: %s\n", use_optimized_regalloc?"OPTIMIZED (next use aware)" : "BASIC (first dirty VAR)");
-	fprintf(out(), "# Loads (lw/li): %d\n", count_loads);
-	fprintf(out(), "# Stores (sw) : %d\n", count_stores);
-	fprintf(out(), "# Total : %d\n", count_loads+count_stores);
-	fprintf(out(), "# --------------------------------------\n");
+	// fprintf(out(), "\n");
+	// fprintf(out(), "#--- Register Allocation Statistics -----\n");
+	// fprintf(out(), "# Strategy: %s\n", use_optimized_regalloc?"OPTIMIZED (next use aware)" : "BASIC (first dirty VAR)");
+	// fprintf(out(), "# Loads (lw/li): %d\n", count_loads);
+	// fprintf(out(), "# Stores (sw) : %d\n", count_stores);
+	// fprintf(out(), "# Total : %d\n", count_loads+count_stores);
+	// fprintf(out(), "# --------------------------------------\n");
+}
+
+int getLoadCounts(void){return count_loads;}
+int getStoreCount(void){return count_stores;}
+
+void printAsmStats(StatsMode mode) {
+    if (mode == STATS_NONE) return;
+
+    printf("\n");
+    if (mode == STATS_ALL || mode == STATS_REGALLOC) {
+        printf("=== Register Allocator Stats ===\n");
+        printf("  Strategy : %s\n",
+               use_optimized_regalloc
+                   ? "OPTIMIZED (next-use aware)"
+                   : "BASIC (first dirty VAR)");
+        printf("  Loads    (lw/li/la) : %d\n", count_loads);
+        printf("  Stores   (sw)       : %d\n", count_stores);
+        printf("  Total               : %d\n", count_loads + count_stores);
+        printf("================================\n");
+    }
+    //Any future stats go here.
 }
