@@ -1,19 +1,6 @@
 #ifndef OPTIMIZER_H
 #define OPTIMIZER_H
 
-/*
-#ifndef QUAD_DEFINED
-#define QUAD_DEFINED
-// Define the structure of IR code Quadruples
-
-typedef struct{
-	char op[20];
-	char arg1[20];
-	char arg2[20];
-	char result[20];
-} Quad;
-#endif	
-*/
 
 #define IR_SIZE 10000	// Define the number of lines of IR code supported
 

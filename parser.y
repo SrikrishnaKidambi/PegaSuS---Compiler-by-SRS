@@ -3,6 +3,7 @@
 #include "optimizer.h"
 #include "asm_gen.h"
 #include "transpiler.h"
+#include "quad.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -843,6 +844,16 @@ array_decl
                 for (int i = 0; i < arr_init_count; i++)
                     strncpy(sym->attr.array.init_values[i], arr_init_vals[i], 31);
             }
+            char init_str[512] = "";
+            for (int i = 0; i < arr_init_count; i++) {
+                if (i > 0) strcat(init_str, ",");
+                strcat(init_str, arr_init_vals[i]);
+            }
+            emit("array_init", init_str, "", $3);
+            /* ── END NEW ── */
+
+            arr_init_count = 0;
+            current_array_elem_type = DT_UNKNOWN;
              /* ADD: emit IR for each element */
 //            for (int i = 0; i < arr_init_count; i++) {
   //              char idx_str[16];

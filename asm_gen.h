@@ -3,21 +3,13 @@
 #define ASM_GEN_H
 
 #include "symtab.h"   /* DataType, Symbol, SymTable — already defined */
+#include "quad.h"
 #include <stdio.h>
 #include <limits.h>
 #include <string.h>
 #define MAX_VARS 256
 #define IR_SIZE 10000
 
-#ifndef QUAD_DEFINED
-#define QUAD_DEFINED
-typedef struct {
-    char op[20];
-    char arg1[256];
-    char arg2[256];
-    char result[256];
-} Quad;
-#endif
 
 /* Shared IR array — defined in parser.y, extern here */
 extern Quad   IR[];
