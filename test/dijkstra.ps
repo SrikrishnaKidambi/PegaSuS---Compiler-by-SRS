@@ -1,0 +1,68 @@
+int n = 5;
+int INF = 9999;
+int 1seq dist[5];
+bool 1seq visited[5];
+int 1seq graph = {
+    0, 10, 3, 0, 0,
+    0, 0, 1, 2, 0,
+    0, 4, 0, 8, 2,
+    0, 0, 0, 0, 7,
+    0, 0, 0, 9, 0
+};
+
+void _func dijkstra(int src){
+    int i;
+    int count;
+    int v;
+    int u;
+    int minDist;
+    int weight;
+
+    for(i = 0; i < n; i = i + 1){
+        dist[i] = INF;
+        visited[i] = False;
+    }
+    dist[src] = 0;
+
+    for(count = 0; count < n - 1; count = count + 1){
+        minDist = INF;
+        u = -1;
+        for(v = 0; v < n; v = v + 1){
+            if(visited[v] == False){
+                if(dist[v] < minDist){
+                    minDist = dist[v];
+                    u = v;
+                }
+            }
+        }
+
+        if(u == -1){
+            count = n - 1;
+        } else {
+            visited[u] = True;
+            for(v = 0; v < n; v = v + 1){
+                weight = graph[u * n + v];
+                if(visited[v] == False){
+                    if(weight != 0){
+                        if(dist[u] + weight < dist[v]){
+                            dist[v] = dist[u] + weight;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+void _func main(){
+    int i;
+    dijkstra(0);
+    show("Shortest distances from node 0:");
+    show("\n");
+    for(i = 0; i < n; i = i + 1){
+        show(dist[i]);
+        show("\n");
+    }
+}
+
+main();

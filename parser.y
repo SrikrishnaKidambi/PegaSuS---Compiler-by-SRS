@@ -43,6 +43,11 @@ char* falseStack[100];
 char* endStack[100];
 int topPtr = -1;
 
+// Add these globals near falseStack/endStack in parser.y
+char* loopEndStack[100];
+char* loopCondStack[100];
+int loopTop = -1;
+
 static int if_cnt  = 0;
 static int for_cnt = 0;
 
@@ -129,6 +134,7 @@ void insert_var_list(char* names, DataType dt) {
 
 %token INT FP CHR STRING BOOL VOID
 %token IF ELIF ELSE FOR TRUE FALSE FEED SHOW RETURN
+%token BREAK CONTINUE
 %token SEQ1 SEQ2 FUNC ENTITY NEW PUBLIC PRIVATE THIS DOT
 %token LPAREN RPAREN LBRACE RBRACE LBRACKET RBRACKET SEMICOLON COMMA
 %token <sval> IDENTIFIER STRING_LITERAL
@@ -178,6 +184,8 @@ statement
     | for_stmt
     | io_stmt
     | return_stmt
+    | break_stmt
+    | continue_stmt
     | object_decl
     | block
     | error SEMICOLON
@@ -236,6 +244,7 @@ entity_decl
             emit("end_entity", $2, "", "");
         }
     ;
+
 
 entity_body
     : entity_body entity_member
@@ -1328,6 +1337,36 @@ assignment
 		emit("=", t, "", irn); 	
 		$$ = t; 
 	}
+    | IDENTIFIER LBRACKET expression RBRACKET ASSIGN assignment
+    {
+        Symbol* asym = require_declared(current_scope, $1, yylineno);
+        char width_str[16];
+        if(asym && asym->kind == KIND_ARRAY)
+            sprintf(width_str, "%d", datatype_size(asym->datatype));
+        else
+            strcpy(width_str, "type.width");
+        char* t1 = genVar();
+        emit("*", $3, width_str, t1);
+        emit("[]=", $1, t1, $6);
+        $$ = $6;
+    }
+| IDENTIFIER LBRACKET expression RBRACKET LBRACKET expression RBRACKET ASSIGN assignment
+    {
+        Symbol* asym = require_declared(current_scope, $1, yylineno);
+        char cols_str[16]; char width_str[16];
+        if(asym && asym->kind == KIND_ARRAY){
+            sprintf(cols_str, "%d", asym->attr.array.dim2);
+            sprintf(width_str, "%d", datatype_size(asym->datatype));
+        } else {
+            strcpy(cols_str, "array.cols");
+            strcpy(width_str, "type.width");
+        }
+        char* t1 = genVar(); emit("*", $3, cols_str, t1);
+        char* t2 = genVar(); emit("+", t1, $6, t2);
+        char* t3 = genVar(); emit("*", t2, width_str, t3);
+        emit("[]=", $1, t3, $9);
+        $$ = $9;
+    }
     | indexed_id ASSIGN assignment
         { $$ = $3; }
     | THIS DOT IDENTIFIER ASSIGN assignment
@@ -1788,6 +1827,36 @@ else_opt
     | /* empty */
     ;
 
+break_stmt
+    : BREAK SEMICOLON
+        {
+            if(loopTop < 0){
+                fprintf(stderr, "ERROR line %d: 'break' outside loop.\n", yylineno);
+            } else {
+                emit("goto", "", "", loopEndStack[loopTop]);
+            }
+        }
+    ;
+
+continue_stmt
+    : CONTINUE SEMICOLON
+        {
+            if(loopTop < 0){
+                fprintf(stderr, "ERROR line %d: 'continue' outside loop.\n", yylineno);
+            } else {
+                if(forDepth >= 0){
+                    for(int i = 0; i < forIncIdx[forDepth]; i++){
+                        emit(forIncBuff[forDepth][i].op,
+                             forIncBuff[forDepth][i].arg1,
+                             forIncBuff[forDepth][i].arg2,
+                             forIncBuff[forDepth][i].result);
+                    }
+                }
+                emit("goto", "", "", loopCondStack[loopTop]);
+            }
+        }
+    ;
+
 for_stmt
     : FOR LPAREN
         {
@@ -1807,6 +1876,9 @@ for_stmt
             forDepth--;
             emit("goto",  "", "", topFalse());
             emit("label", "", "", topEnd());
+            free(loopEndStack[loopTop]);
+            free(loopCondStack[loopTop]);
+            loopTop--;
             popIfLabels();
 
             print_table(current_scope);
@@ -1826,6 +1898,8 @@ for_header
             char* b = getLabel();
             char* e = getLabel();
             pushIfLabels(b, e);
+            loopEndStack[++loopTop] = strdup(e);
+            loopCondStack[loopTop]  = strdup(b);
             emit("label", "", "", b);
         }
       for_cond_opt SEMICOLON

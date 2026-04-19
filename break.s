@@ -1,10 +1,6 @@
     .data
 
     # -- Global Scalar Variables --
-        .align 2
-    a:    .word  5
-        .align 2
-    res:    .word  0
 
     # -- global arrays --
 
@@ -35,47 +31,57 @@ main:
         ret
 
 
-fact_i:
+main_:
     # -- prologue --
         addi   sp, sp, -224
         sd     ra, 216(sp)
         sd     s0, 208(sp)
         addi   s0, sp, 224
-        sw   a0, -24(s0)
     # --initialize local arrays --
     # --initialize local scalars --
+    # init local scalar i at offset -24
     # -- prologue end --
 
-    # n
-    # ==
+        li   t1, 0
+    # spill all registers
+        sw   t1, -24(s0)
+
+L0:
+    # <
         lw   t1, -24(s0)
-    li t2, 0
+        slti t2, t1, 5
+        beqz   t2, L1
+        sw   t2, -92(s0)
+    # ==
+    li t2, 3
         sub  t3, t1, t2
         seqz t3, t3
-        beqz   t3, L0
-        sw   t3, -92(s0)
-        li     a0, 1
-        j      Lepi_fact_i
+        beqz   t3, L2
+        sw   t3, -96(s0)
     # spill all registers
         j      L1
     # spill all registers
+        j      L3
+    # spill all registers
 
-L0:
+L2:
+    # spill all registers
+
+L3:
+    # spill all registers
+        lw     a1, -24(s0)
+        la a0, .fmt_int
+        call printf
+        lw   t1, -24(s0)
+        addi t2, t1, 1
+        mv   t1, t2
+    # spill all registers
+        sw   t1, -24(s0)
+        j      L0
     # spill all registers
 
 L1:
-        lw   t1, -24(s0)
-        addi t2, t1, -1
-        mv     a0, t2
-    # spill all registers
-        call   fact_i
-        sw     a0, -96(s0)
-        lw   t1, -24(s0)
-        lw   t2, -96(s0)
-        mul  t3, t1, t2
-        mv     a0, t3
-        j      Lepi_fact_i
-Lepi_fact_i:
+Lepi_main_:
     # -- epilogue --
         ld     ra, 216(sp)
         ld     s0, 208(sp)
@@ -90,21 +96,9 @@ global_body:
         sd   ra, 216(sp)
         sd   s0, 208(sp)
         addi s0, sp, 224
-        li   t1, 5
-        mv     a0, t1
     # spill all registers
-        la   t0, a
-        sw   t1, 0(t0)
-        call   fact_i
-        sw     a0, -96(s0)
-        lw   t1, -96(s0)
-    # spill all registers
-        la   t0, res
-        sw   t1, 0(t0)
-        la     t0, res
-        lw     a1, 0(t0)
-        la a0, .fmt_int
-        call printf
+        call   main_
+        sw     a0, -92(s0)
 
     # -- global scope epilogue --
         ld   ra, 216(sp)

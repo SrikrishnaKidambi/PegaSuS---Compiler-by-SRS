@@ -39,31 +39,71 @@ main:
         ret
 
 
+main_:
+    # -- prologue --
+        addi   sp, sp, -208
+        sd     ra, 200(sp)
+        sd     s0, 192(sp)
+        addi   s0, sp, 208
+    # --initialize local arrays --
+    # --initialize local scalars --
+    # -- prologue end --
+
+    li t1, 2
+    li t2, 4
+        mul  t3, t1, t2
+    # array store []=
+        la   t4, arr
+        add  t5, t4, t3
+        sw   t2, 0(t5)
+    li t4, 0
+        mul  t5, t4, t2
+    # array access []
+        la   t6, arr
+        add  s1, t6, t5
+        lw   s1, 0(s1)
+        sw   t5, -112(s0)
+        mv     a1, s1
+    # spill all registers
+        la a0, .fmt_int
+        call printf
+    li t1, 2
+    li t2, 4
+        mul  t3, t1, t2
+    # array access []
+        la   t4, arr
+        add  t5, t4, t3
+        lw   t5, 0(t5)
+        sw   t3, -116(s0)
+        mv     a1, t5
+    # spill all registers
+        la a0, .fmt_int
+        call printf
+Lepi_main_:
+    # -- epilogue --
+        ld     ra, 200(sp)
+        ld     s0, 192(sp)
+        addi   sp, sp, 208
+        ret
+    # -- epilogue end --
+
+
 global_body:
     # -- Global body --
-        addi sp, sp, -192
-        sd   ra, 184(sp)
-        sd   s0, 176(sp)
-        addi s0, sp, 192
+        addi sp, sp, -224
+        sd   ra, 216(sp)
+        sd   s0, 208(sp)
+        addi s0, sp, 224
     # array_init
         li   t1, 5
-    li t2, 0
-    li t3, 4
-        mul  t4, t2, t3
-    # array access []
-        la   t5, arr
-        add  t6, t5, t4
-        lw   t6, 0(t6)
-        sw   t4, -112(s0)
-        mv     a1, t6
     # spill all registers
         la   t0, n
         sw   t1, 0(t0)
-        la a0, .fmt_int
-        call printf
+        call   main_
+        sw     a0, -112(s0)
 
     # -- global scope epilogue --
-        ld   ra, 184(sp)
-        ld   s0, 176(sp)
-        addi sp, sp, 192
+        ld   ra, 216(sp)
+        ld   s0, 208(sp)
+        addi sp, sp, 224
         ret
