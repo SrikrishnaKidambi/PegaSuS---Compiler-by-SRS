@@ -1022,28 +1022,33 @@ if(strcmp(q->op, "push_ptr") == 0){
     int field_off = 0;
     Symbol* obj_sym = lookupForCodeGen(q->arg1);
     
-    // Look up field offset
     if(obj_sym && obj_sym->kind == KIND_OBJECT){
         SymTable* esc = find_entity_scope(obj_sym->attr.object.entity_name);
         if(esc){
             Symbol* f = lookup_local(esc, q->arg2);
-            if(f){
-                field_off = f->offset;
-            }
+            if(f) field_off = f->offset;
         }
     }
     
     const char* r_obj = getReg("_obj_ptr_tmp");
+    
     if(strcmp(q->arg1, "this") == 0){
-        asmEmit("    ld  %s, -24(s0)", r_obj);  // Load 64-bit pointer
+        asmEmit("    ld  %s, -24(s0)", r_obj);
         count_loads++;
     }
-    else{
+    else if(obj_sym && obj_sym->scope_level == 0){
+        // ← THIS CASE WAS MISSING — global object needs la+ld
+        asmEmit("    la   t0, %s", obj_sym->name);
+        asmEmit("    ld   %s, 0(t0)", r_obj);
+        count_loads += 2;
+    }
+    else {
         asmEmit("    ld  %s, %d(s0)", r_obj, getVarOffset(q->arg1));
         count_loads++;
     }
+    
     const char* dst = getReg(q->result);
-    asmEmit("    lw  %s, %d(%s)", dst, field_off, r_obj);  // Field is 32-bit int
+    asmEmit("    lw  %s, %d(%s)", dst, field_off, r_obj);
     count_loads++;
     freeReg("_obj_ptr_tmp");
     store(q->result, dst);
