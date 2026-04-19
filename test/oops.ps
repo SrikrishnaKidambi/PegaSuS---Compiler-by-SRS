@@ -1,5 +1,5 @@
 Entity Patient {
-	public string name;
+	private string name;
 	public int fee;
 	public int days;
 	Patient(string name, int fee, int days){
@@ -8,10 +8,18 @@ Entity Patient {
 		this.days=days;
 	}
 	public int _func total_fee(){
-		return fee * days;
+		int temp1 = this.fee;
+		int temp2 = this.days;
+		int temp = temp1* temp2;
+		return temp;
+	}
+	public string _func getName(){
+		return this.name;
 	}
 }
 
 Patient P = new Patient("Saiman",200,5);
 int result=P.total_fee();
 show(result);
+string res = P.getName();
+show(res);

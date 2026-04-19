@@ -1209,7 +1209,16 @@ return_stmt
     : RETURN expression SEMICOLON 
 	{ 
 		if(current_function) {
-			DataType expected = current_function->attr.func.return_type;
+			DataType expected;
+            if(current_function->kind == KIND_FUNCTION){
+                 expected = current_function->attr.func.return_type;
+            }
+            else if(current_function->kind == KIND_METHOD){
+                expected = current_function->attr.method.return_type;
+            }
+            else{
+                expected = DT_VOID;
+            }
 			if(expected == DT_VOID){
 				fprintf(stderr, "ERROR line %d: void function '%s' cannot return a value.\n", yylineno, current_function->name);
 			}
@@ -1536,6 +1545,35 @@ factor
 
         $$ = t;
     }
+    | THIS DOT IDENTIFIER
+        {
+            char* t = genVar();
+            
+            const char* entity_name = NULL;
+            if(current_function && current_function->kind == KIND_METHOD){
+                entity_name = current_function->attr.method.belongs_to;
+            }
+
+            if(entity_name){
+                SymTable* esc = find_entity_scope(entity_name);
+                Symbol* field = esc ? lookup_local(esc, $3) : NULL;
+                if(field && field->kind == KIND_FIELD){
+                    last_expr_type = field->datatype;
+                }
+                else{
+                    fprintf(stderr,
+                        "ERROR line %d: '%s' is not a field of '%s'.\n",
+                        yylineno, $3, entity_name);
+                    last_expr_type = DT_UNKNOWN;
+                }
+            }
+            else{
+                last_expr_type = DT_UNKNOWN;
+            }
+            emit("get_field", "this", $3, t);
+            $$ = t;
+        }
+
     | IDENTIFIER DOT IDENTIFIER
     {
         char* t = genVar();
@@ -1606,12 +1644,29 @@ factor
         $$ = t;
     }
     | IDENTIFIER      
-
-	{ 
-		Symbol* s = require_declared(current_scope, $1, yylineno);
-		last_expr_type = s ? s->datatype : DT_UNKNOWN;
-		$$ = strdup(ir_name_of($1)); 
-	}
+    { 
+        int handled = 0;
+        
+        /* Check if bare field name inside a method */
+        if(current_function && current_function->kind == KIND_METHOD){
+            const char* ename = current_function->attr.method.belongs_to;
+            SymTable* esc = find_entity_scope(ename);
+            Symbol* field = esc ? lookup_local(esc, $1) : NULL;
+            if(field && field->kind == KIND_FIELD){
+                char* t = genVar();
+                last_expr_type = field->datatype;
+                emit("get_field", "this", $1, t);
+                $$ = t;
+                handled = 1;
+            }
+        }
+        
+        if(!handled){
+            Symbol* s = require_declared(current_scope, $1, yylineno);
+            last_expr_type = s ? s->datatype : DT_UNKNOWN;
+            $$ = strdup(ir_name_of($1));
+        }
+    }
     | indexed_id      { $$ = $1; }
     | INT_LITERAL     { char b[20]; sprintf(b, "%d",   $1); $$ = strdup(b); last_expr_type = DT_INT; }
     | FLOAT_LITERAL   { char b[20]; sprintf(b, "%f",   $1); $$ = strdup(b);  last_expr_type = DT_FLOAT; }

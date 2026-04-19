@@ -950,6 +950,17 @@ if(strcmp(q->op, "push_ptr") == 0){
     spillAllRegs();
     for(int i = 0; i < pending_arg_count; i++){
         OperandType ot = getOperandType(pending_args[i]);
+	// Handle string literals specially
+        if(isStringLiteral(pending_args[i])){
+            const char* lbl = getStringLabel(pending_args[i]);
+            if(!lbl){
+                lbl = registerStringLiteral(pending_args[i]);
+            }
+            asmEmit("    la     %s, %s", arg_regs[i+1], lbl);
+            count_loads++;
+            pending_args[i][0] = '\0';  // Mark as handled
+            continue;
+        }
         if(ot == OT_CONST){
             asmEmit("    li   %s, %s", arg_regs[i+1], pending_args[i]);
             count_loads++;
@@ -978,6 +989,17 @@ if(strcmp(q->op, "push_ptr") == 0){
     spillAllRegs();
     for(int i = 0; i < pending_arg_count; i++){
         OperandType ot = getOperandType(pending_args[i]);
+	// Handle string literals specially
+        if(isStringLiteral(pending_args[i])){
+            const char* lbl = getStringLabel(pending_args[i]);
+            if(!lbl){
+                lbl = registerStringLiteral(pending_args[i]);
+            }
+            asmEmit("    la     %s, %s", arg_regs[i+1], lbl);
+            count_loads++;
+            pending_args[i][0] = '\0';  // Mark as handled
+            continue;
+        }
         if(ot == OT_CONST){
             asmEmit("    li   %s, %s", arg_regs[i+1], pending_args[i]);
             count_loads++;
@@ -994,6 +1016,26 @@ if(strcmp(q->op, "push_ptr") == 0){
         Symbol* rsym = lookupForCodeGen(q->result);
         int res_is_ptr = rsym && (rsym->kind == KIND_OBJECT ||
                                   rsym->datatype == DT_STRING);
+        if(!res_is_ptr){
+            // Find the method symbol to check its return type
+            // q->arg1 is the mangled method name e.g. "getName_"
+            // Search entity scopes for this method
+            for(int b = 0; b < HASH_SIZE && !res_is_ptr; b++){
+                for(Symbol* s = global_scope->buckets[b]; s && !res_is_ptr; s = s->next){
+                    if(s->kind == KIND_ENTITY){
+                        SymTable* es = s->attr.entity.scope;
+                        if(es){
+                            Symbol* m = lookup_local(es, q->arg1);
+                            if(m && (m->kind == KIND_METHOD) &&
+                               (m->attr.method.return_type == DT_STRING ||
+                                m->attr.method.return_type == DT_ENTITY)){
+                                res_is_ptr = 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
         if(rsym && rsym->scope_level == 0){
             asmEmit("    la   t0, %s", rsym->name);
             if(res_is_ptr)
@@ -1020,15 +1062,34 @@ if(strcmp(q->op, "push_ptr") == 0){
    if (strcmp(q->op, "get_field") == 0) {
     asmComment("get_field");
     int field_off = 0;
+    Symbol* field_sym = NULL;
     Symbol* obj_sym = lookupForCodeGen(q->arg1);
     
+    // if the operand is this then we are trying to access the member field of the Entity
+    if(strcmp(q->arg1, "this") == 0 && current_func_scope){
+        // Walk up to find the entity scope
+        SymTable* sc = current_func_scope->parent;
+        while(sc){
+            if(sc->kind == SCOPE_ENTITY){
+                Symbol* f = lookup_local(sc, q->arg2);
+                if(f) {
+                    field_off = f->offset;
+                    field_sym = f;
+                }
+                break;
+            }
+            sc = sc->parent;
+        }
+    }
+
+    
     // Look up field offset
-    if(obj_sym && obj_sym->kind == KIND_OBJECT){
+    else if(obj_sym && obj_sym->kind == KIND_OBJECT){
         SymTable* esc = find_entity_scope(obj_sym->attr.object.entity_name);
         if(esc){
-            Symbol* f = lookup_local(esc, q->arg2);
-            if(f){
-                field_off = f->offset;
+            field_sym = lookup_local(esc, q->arg2);
+            if(field_sym){
+                field_off = field_sym->offset;
             }
         }
     }
@@ -1042,11 +1103,20 @@ if(strcmp(q->op, "push_ptr") == 0){
         asmEmit("    ld  %s, %d(s0)", r_obj, getVarOffset(q->arg1));
         count_loads++;
     }
+
+    int field_is_ptr = field_sym && 
+                       (field_sym->datatype == DT_STRING || 
+                        field_sym->kind == KIND_OBJECT);
+    
     const char* dst = getReg(q->result);
-    asmEmit("    lw  %s, %d(%s)", dst, field_off, r_obj);  // Field is 32-bit int
+    if(field_is_ptr)
+        asmEmit("    ld  %s, %d(%s)", dst, field_off, r_obj);   // 64-bit
+    else
+        asmEmit("    lw  %s, %d(%s)", dst, field_off, r_obj);   // 32-bit
+
     count_loads++;
     freeReg("_obj_ptr_tmp");
-    store(q->result, dst);
+    // store(q->result, dst);
     return;
 }
 
@@ -1836,7 +1906,58 @@ if(sym){
 }
 else if(isTemp(operand)){
     int frame_off = getTempFrameOffset(operand);
-    asmEmit("    lw   %s, %d(s0)", reg, frame_off);
+    // Check if this temp was defined by a call_method returning a pointer type
+    int use_ld = 0;
+    for(int i = 0; i < IR_idx && !use_ld; i++){
+        if(strcmp(IR[i].result, operand) == 0){
+            if(strcmp(IR[i].op, "call_method") == 0 ||
+               strcmp(IR[i].op, "get_field")   == 0){
+                // For get_field, check field type
+                if(strcmp(IR[i].op, "get_field") == 0){
+                    // find the field in entity scopes
+                    for(int b = 0; b < HASH_SIZE && !use_ld; b++){
+                        for(Symbol* s = global_scope->buckets[b];
+                            s && !use_ld; s = s->next){
+                            if(s->kind == KIND_ENTITY){
+                                SymTable* es = s->attr.entity.scope;
+                                if(es){
+                                    Symbol* f = lookup_local(es, IR[i].arg2);
+                                    if(f && (f->datatype == DT_STRING ||
+                                             f->kind == KIND_OBJECT)){
+                                        use_ld = 1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                // For call_method, check method return type
+                else{
+                    for(int b = 0; b < HASH_SIZE && !use_ld; b++){
+                        for(Symbol* s = global_scope->buckets[b];
+                            s && !use_ld; s = s->next){
+                            if(s->kind == KIND_ENTITY){
+                                SymTable* es = s->attr.entity.scope;
+                                if(es){
+                                    Symbol* m = lookup_local(es, IR[i].arg1);
+                                    if(m && m->kind == KIND_METHOD &&
+                                       (m->attr.method.return_type == DT_STRING ||
+                                        m->attr.method.return_type == DT_ENTITY)){
+                                        use_ld = 1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            break;
+        }
+    }
+    if(use_ld)
+        asmEmit("    ld   %s, %d(s0)", reg, frame_off);
+    else
+        asmEmit("    lw   %s, %d(s0)", reg, frame_off);
     count_loads++;
 }
 else{
@@ -2114,12 +2235,61 @@ if(sym && sym->scope_level == 0){
     instr_sel_lwmv_fused++;          // fused: la+lw replaces load()+mv
 }
 else if(sym){
-    asmEmit("    lw   %s, %s", dst, getVarAddress(q->arg1));
-    instr_sel_lwmv_fused++;          // fused: lw directly into dst
+    int src_is_ptr = (sym->datatype == DT_STRING ||
+                      sym->kind == KIND_OBJECT);
+    if(src_is_ptr)
+        asmEmit("    ld   %s, %s", dst, getVarAddress(q->arg1));
+    else
+        asmEmit("    lw   %s, %s", dst, getVarAddress(q->arg1));
+    instr_sel_lwmv_fused++;
 }
 else if(isTemp(q->arg1)){
-    asmEmit("    lw   %s, %d(s0)", dst, getTempFrameOffset(q->arg1));
-    instr_sel_lwmv_fused++;          // fused: lw directly into dst
+    int tmp_is_ptr = 0;
+    for(int i = 0; i < IR_idx && !tmp_is_ptr; i++){
+        if(strcmp(IR[i].result, q->arg1) == 0){
+            if(strcmp(IR[i].op, "call_method") == 0){
+                for(int b = 0; b < HASH_SIZE && !tmp_is_ptr; b++){
+                    for(Symbol* s = global_scope->buckets[b];
+                        s && !tmp_is_ptr; s = s->next){
+                        if(s->kind == KIND_ENTITY){
+                            SymTable* es = s->attr.entity.scope;
+                            if(es){
+                                Symbol* m = lookup_local(es, IR[i].arg1);
+                                if(m && m->kind == KIND_METHOD &&
+                                   (m->attr.method.return_type == DT_STRING ||
+                                    m->attr.method.return_type == DT_ENTITY)){
+                                    tmp_is_ptr = 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            else if(strcmp(IR[i].op, "get_field") == 0){
+                for(int b = 0; b < HASH_SIZE && !tmp_is_ptr; b++){
+                    for(Symbol* s = global_scope->buckets[b];
+                        s && !tmp_is_ptr; s = s->next){
+                        if(s->kind == KIND_ENTITY){
+                            SymTable* es = s->attr.entity.scope;
+                            if(es){
+                                Symbol* f = lookup_local(es, IR[i].arg2);
+                                if(f && (f->datatype == DT_STRING ||
+                                         f->kind == KIND_OBJECT)){
+                                    tmp_is_ptr = 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            break;
+        }
+    }
+    if(tmp_is_ptr)
+        asmEmit("    ld   %s, %d(s0)", dst, getTempFrameOffset(q->arg1));
+    else
+        asmEmit("    lw   %s, %d(s0)", dst, getTempFrameOffset(q->arg1));
+    instr_sel_lwmv_fused++;
 }
 else{
     // genuine fallback — not a fusion, still needs mv
@@ -2642,7 +2812,13 @@ while(p && i < MAX_ARG_REGS){
 Symbol* param_sym = fscope ? lookup_local(fscope, p->name) : NULL;
 int sym_off = param_sym ? param_sym->offset : (i * 4);
 int frame_off = -(24 + sym_off);
-asmEmit("    sw     %s, %d(s0)", arg_regs[i], frame_off);
+int is_ptr = param_sym && (param_sym->datatype == DT_STRING || param_sym->kind == KIND_OBJECT);
+if(is_ptr){
+    asmEmit("    sd %s, %d(s0)", arg_regs[i], frame_off);
+}
+else{
+    asmEmit("    sw   %s, %d(s0)", arg_regs[i], frame_off);
+}
 count_stores++;
 p = p->next;
 i++;
@@ -2730,7 +2906,13 @@ while(p && i < MAX_ARG_REGS){
 Symbol* param_sym = cscope ? lookup_local(cscope, p->name) : NULL;
 int sym_off = param_sym ? param_sym->offset : ((i - 1) * 4);
 int frame_off = -(24 + sym_off);
-asmEmit("    sw   %s, %d(s0)", arg_regs[i], frame_off);
+int is_ptr = param_sym && (param_sym->datatype == DT_STRING || param_sym->kind == KIND_OBJECT);
+if(is_ptr){
+    asmEmit("    sd %s, %d(s0)", arg_regs[i], frame_off);
+}
+else{
+    asmEmit("    sw   %s, %d(s0)", arg_regs[i], frame_off);
+}
 count_stores++;
 p = p->next;
 i++;
@@ -2806,7 +2988,13 @@ while(p && i < MAX_ARG_REGS) {
 Symbol* param_sym = mscope ? lookup_local(mscope, p->name) : NULL;
 int sym_off = param_sym ? param_sym->offset : ((i - 1) * 4);
 int frame_off = -(24 + sym_off);
-asmEmit("    sw   %s, %d(s0)", arg_regs[i], frame_off);
+int is_ptr = param_sym && (param_sym->datatype == DT_STRING || param_sym->kind == KIND_OBJECT);
+if(is_ptr){
+    asmEmit("    sd %s, %d(s0)", arg_regs[i], frame_off);
+}
+else{
+    asmEmit("    sw   %s, %d(s0)", arg_regs[i], frame_off);
+}
 count_stores++;
 p = p->next;
 i++;
@@ -2855,15 +3043,42 @@ count_loads++;
 }
 }
 else{
-int reg_idx = findRegFor(q->arg1);
-if(reg_idx >= 0){
-instr_sel_reg_reuse++;
-asmEmit("    mv     a0, %s", reg_name[reg_idx]);
-}
-else{
-asmEmit("    lw     a0, %d(s0)", getVarOffset(q->arg1));
-count_loads++;
-}
+    int reg_idx = findRegFor(q->arg1);
+    if(reg_idx >= 0){
+        instr_sel_reg_reuse++;
+        asmEmit("    mv     a0, %s", reg_name[reg_idx]);
+    }
+    else{
+        // Check if this is a pointer temp (from get_field or call_method)
+        int ret_is_ptr = 0;
+        if(isTemp(q->arg1)){
+            for(int i = 0; i < IR_idx && !ret_is_ptr; i++){
+                if(strcmp(IR[i].result, q->arg1) == 0 &&
+                   strcmp(IR[i].op, "get_field") == 0){
+                    for(int b = 0; b < HASH_SIZE && !ret_is_ptr; b++){
+                        for(Symbol* s = global_scope->buckets[b];
+                            s && !ret_is_ptr; s = s->next){
+                            if(s->kind == KIND_ENTITY){
+                                SymTable* es = s->attr.entity.scope;
+                                if(es){
+                                    Symbol* f = lookup_local(es, IR[i].arg2);
+                                    if(f && (f->datatype == DT_STRING ||
+                                             f->kind == KIND_OBJECT)){
+                                        ret_is_ptr = 1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if(ret_is_ptr)
+            asmEmit("    ld     a0, %d(s0)", getVarOffset(q->arg1));
+        else
+            asmEmit("    lw     a0, %d(s0)", getVarOffset(q->arg1));
+        count_loads++;
+    }
 }
 }
 }
@@ -2976,8 +3191,16 @@ int is_str_literal = isStringLiteral(q->arg1);
 			if(sym->kind == KIND_ARRAY || sym->scope_level == 0){
 				// global/array string — address is a label, no register needed
 				spillAllRegs();
-				asmEmit("    la     a0, %s", sym->name);
-				count_loads++;
+				if(sym->scope_level == 0 && sym->kind != KIND_ARRAY){
+                    // Global string VARIABLE (pointer slot) — dereference it
+                    asmEmit("    la     t0, %s", sym->name);
+                    asmEmit("    ld     a0, 0(t0)");   // load the pointer stored in the slot
+                    count_loads++;
+                } else {
+                    // Global string ARRAY or .asciz label — address is the string itself
+                    asmEmit("    la     a0, %s", sym->name);
+                    count_loads++;
+                }
 			}
 			else if(m1 == MODE_REG){
 				// value already in register — move to a0 before spill clobbers it
