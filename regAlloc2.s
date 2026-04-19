@@ -64,6 +64,7 @@
 
     # -- string literals --
 
+    # -- global objects (pointer slots) --
     # -- I/O format strings --
     .fmt_int:    .asciz  "%d\n"
     .fmt_uint:    .asciz  "%u\n"
@@ -201,8 +202,8 @@ global_body:
         sw   s11, 0(t0)
         la     t0, result
         lw     a1, 0(t0)
-        la     a0, .fmt_int
-        call   printf
+        la a0, .fmt_int
+        call printf
 
     # -- global scope epilogue --
         ld   ra, 440(sp)
