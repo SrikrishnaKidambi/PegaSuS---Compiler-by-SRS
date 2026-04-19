@@ -2314,6 +2314,37 @@ break;
 }
 }
 
+
+
+static void emitShiftWithMode(const Quad* q, OperandMode m1, OperandMode m2){
+    instr_sel_total_arith++;
+
+    // slli/srli immediate form — arg2 is a compile-time constant shift amount
+    if(m2 == MODE_IMM){
+        instr_sel_opt_hits++;
+        const char* r1  = load(q->arg1);
+        const char* dst = getReg(q->result);
+        if(strcmp(q->op, "<<") == 0){
+            asmEmit("    slli %s, %s, %s", dst, r1, q->arg2);
+        } else {
+            asmEmit("    srli %s, %s, %s", dst, r1, q->arg2);
+        }
+        markDirty(dst);
+        return;
+    }
+
+    // general register-register form
+    const char* r1  = load(q->arg1);
+    const char* r2  = load(q->arg2);
+    const char* dst = getReg(q->result);
+    if(strcmp(q->op, "<<") == 0){
+        asmEmit("    sll  %s, %s, %s", dst, r1, r2);
+    } else {
+        asmEmit("    srl  %s, %s, %s", dst, r1, r2);
+    }
+    markDirty(dst);
+}
+
 // This function is called for all quads in the generated IR code and then based on the operator present in the Quad corresponding function handler is called
 void genQuad(const Quad* q){
 const char* op = q->op;
@@ -2335,6 +2366,13 @@ emitArithWithMode(q, m1, m2);
 return;
 }
 
+if(strcmp(op, "<<") == 0 || strcmp(op, ">>") == 0){
+    OperandMode m1 = getMode(q->arg1);
+    OperandMode m2 = getMode(q->arg2);
+    emitShiftWithMode(q, m1, m2);
+    return;
+}
+
 if(strcmp(op, "=") == 0){
 emitAssignWithMode(q, m1);
 return;
@@ -2346,6 +2384,11 @@ strcmp(op, "|") == 0){
 genLogic(q);
 return;
 }
+if(strcmp(op, "<<") == 0 || strcmp(op, ">>") == 0){
+    emitShiftWithMode(q, getMode(q->arg1), getMode(q->arg2));
+    return;
+}
+
 if(strcmp(op, ">") == 0 || strcmp(op, "<") == 0 ||
 strcmp(op, "==") == 0){
 genRelational(q);

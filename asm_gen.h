@@ -9,11 +9,15 @@
 #include <string.h>
 #define MAX_VARS 256
 #define IR_SIZE 10000
-
+#define OPT_IR_SIZE 10000
 
 /* Shared IR array — defined in parser.y, extern here */
 extern Quad   IR[];
 extern int    IR_idx;
+
+// Optimized IR array
+extern Quad OPT_IR[];
+extern int OPT_IR_idx;
 
 // A global variable that is used for checking if the template mathing is turned on or not. By default it is always turned on
 extern int use_template_matching;
