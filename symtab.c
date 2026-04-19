@@ -61,7 +61,12 @@ SymTable* create_scope(ScopeKind kind, const char* name, SymTable* parent) {
     t->kind        = kind;
     t->level       = parent ? parent->level + 1 : 0;
     t->parent      = parent;
-    t->next_offset = parent ? parent->next_offset : 0;     // this is field value is set based on the value of next_offset of its parent scope
+    // this is field value is set based on the value of next_offset of its parent scope
+    if (kind == SCOPE_CONSTRUCTOR || kind == SCOPE_METHOD) {
+        t->next_offset = 8;   // reserve slot 0 for 'this' pointer
+    } else {
+        t->next_offset = parent ? parent->next_offset : 0;
+    }    
     t->first_child = NULL;
     t->next_sibling = NULL;
     strncpy(t->name, name, 63);
@@ -159,6 +164,7 @@ void add_name(NameNode** list, const char* name) {
 
 void semantic_error(const char *msg){
 	printf("[Error]: %s\n",msg);
+    parse_error_count++;
 	//	exit(1);
 }
 
@@ -364,9 +370,9 @@ Symbol* insert_symbol(SymTable* tbl, const char* name,
     sym->datatype    = dt;
     sym->scope_level = tbl->level;
     sym->size        = datatype_size(dt);
-    if(strcmp(sym->name, "x") == 0){
-	    printf("Found that the current offset is %d\n", tbl->next_offset);
-    }
+    /*if(strcmp(sym->name, "x") == 0){
+	    //printf("Found that the current offset is %d\n", tbl->next_offset);
+    }*/
     //sym->offset      = tbl->next_offset;
     sym->is_initialized = 0;
 
@@ -420,7 +426,7 @@ Symbol* insert_symbol(SymTable* tbl, const char* name,
     if(kind == KIND_VAR && (tbl->kind == SCOPE_FOR || tbl->kind == SCOPE_BLOCK ||
 			    tbl->kind == SCOPE_IF || tbl->kind == SCOPE_ELIF || tbl->kind == SCOPE_ELSE)){
 	    snprintf(sym->ir_name, 64, "%s_%d", name, ir_name_counter++);
-    		printf("Inserting the symbol with name: %s with scope: %d\n", name, tbl->kind);
+    		//printf("Inserting the symbol with name: %s with scope: %d\n", name, tbl->kind);
     }
     else{
 	    strncpy(sym->ir_name, name, 63);
@@ -488,6 +494,9 @@ static const char* scope_kind_name(ScopeKind k) {
 }
 
 void print_table(SymTable* tbl) {
+    if(parse_error_count > 0){
+	    return;
+    }
     printf("\n");
     printf("+-----------------------------------------------------------------+\n");
     printf("|  SCOPE: %-15s  kind=%-12s  level=%-2d            |\n",

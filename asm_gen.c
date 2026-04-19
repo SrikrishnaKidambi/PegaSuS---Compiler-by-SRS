@@ -96,13 +96,13 @@ static int getTempFrameOffset(const char* tname){
             return temp_slots[i].frame_offset;
         }
     }
-   
+
     int raw = temp_next_raw;
     temp_next_raw += 4;
-   
+
     // Store temps BELOW the current frame (more negative offsets)
     int frame_off = -(24+raw);
-   
+
     strncpy(temp_slots[temp_slot_count].name, tname, 19);
     temp_slots[temp_slot_count].name[19] = '\0';
     temp_slots[temp_slot_count].frame_offset = frame_off;
@@ -120,8 +120,8 @@ MODE_NONE // Opearand is absent
 static void genConstructorPrologue(const Quad* q);
 static void genMethodPrologue(const Quad* q);
 static int getVarOffset(const char* var_name);
-static int findRegFor(const char* operand);      
-static OperandMode getMode(const char* operand);  
+static int findRegFor(const char* operand);
+static OperandMode getMode(const char* operand);
 
 
 
@@ -134,7 +134,7 @@ static int count_stores = 0;
 
 static int instr_sel_opt_hits = 0;  // immediate-form instructions used
 static int instr_sel_total_arith  = 0;  // total arith+relational quads processed
-static int instr_sel_lwmv_fused = 0;	// lw + mv fused into lw
+static int instr_sel_lwmv_fused = 0;    // lw + mv fused into lw
 static int instr_sel_reg_reuse = 0;  // lw avoided — value already in register
 
 // lookupForCodeGen - This function can be used for performing the resolution of correct symbol
@@ -605,7 +605,7 @@ static void emitLocalArrayInits(SymTable* scope) {
 // Add this function RIGHT AFTER emitLocalArrayInits() closes
 static void emitLocalScalarInits(SymTable* scope) {
     if (!scope) return;
-   
+
     for (int b = 0; b < HASH_SIZE; b++) {
         for (Symbol* s = scope->buckets[b]; s; s = s->next) {
             // Skip arrays, functions, methods, etc.
@@ -615,18 +615,18 @@ static void emitLocalScalarInits(SymTable* scope) {
                 s->kind == KIND_CONSTRUCTOR ||
                 s->kind == KIND_ENTITY ||
                 s->kind == KIND_OBJECT) continue;
-           
+
             if (!s->is_initialized) continue;
-           
+
             // Calculate offset manually without using getVarOffset
             // Local variables are stored at negative offsets from s0
             // The offset includes the 8 bytes for ra and s0
             int offset = -(24+s->offset);
-           
+
             char comment[256];
             snprintf(comment, sizeof(comment), "init local scalar %s at offset %d", s->name, offset);
             asmComment(comment);
-           
+
             if (s->init_value[0] != '\0') {
                 if (s->datatype == DT_INT || s->datatype == DT_BOOL) {
                     asmEmit("    li    t0, %s", s->init_value);
@@ -637,7 +637,7 @@ static void emitLocalScalarInits(SymTable* scope) {
             }
         }
     }
-   
+
     // Recurse into child scopes
     for (SymTable* child = scope->first_child; child; child = child->next_sibling)
         emitLocalScalarInits(child);
@@ -649,7 +649,7 @@ static void emitLocalScalarInits(SymTable* scope) {
   RISC-V assembly code:
     add  rd, rs1, rs2   integer add
     sub  rd, rs1, rs2   integer sub
-    mul  rd, rs1, rs2   integer mul  
+    mul  rd, rs1, rs2   integer mul
     div  rd, rs1, rs2   integer div
     rem  rd, rs1, rs2   integer mod
     fadd.s / fsub.s / fmul.s / fdiv.s  for floats
@@ -715,9 +715,9 @@ void genRelational(const Quad* q) {
         return;
     }
 
-    if(m1 == MODE_REG) instr_sel_reg_reuse++;   
+    if(m1 == MODE_REG) instr_sel_reg_reuse++;
     const char* r1 = (m1 == MODE_REG) ? reg_name[findRegFor(q->arg1)] : load(q->arg1);
-    if(m2 == MODE_REG) instr_sel_reg_reuse++;  
+    if(m2 == MODE_REG) instr_sel_reg_reuse++;
     const char* r2 = (m2 == MODE_REG) ? reg_name[findRegFor(q->arg2)] : load(q->arg2);
     const char* dst = getReg(q->result);       // ← AFTER both loads
 
@@ -762,7 +762,7 @@ void genLogic(const Quad* q) {
     const char* r1 = (m1 == MODE_REG) ? reg_name[findRegFor(q->arg1)] : load(q->arg1);
     if(m2 == MODE_REG) instr_sel_reg_reuse++;
     const char* r2 = (m2 == MODE_REG) ? reg_name[findRegFor(q->arg2)] : load(q->arg2);
-    const char* dst = getReg(q->result);  
+    const char* dst = getReg(q->result);
 
     if (strcmp(q->op, "&&") == 0 || strcmp(q->op, "&") == 0) {
         asmEmit("    and  %s, %s, %s", dst, r1, r2);
@@ -807,30 +807,30 @@ markDirty(dst);
        // store(dst_name, dst);
         return;
     }
-	// string literal assignment to variable
-	if (src[0] == '"') {
-	    const char* lbl = getStringLabel(src);
-	    if(!lbl){
-	        lbl = registerStringLiteral(src);
-	    }
-	    const char* dst = getReg(dst_name);
-	    asmEmit("    la   %s, %s", dst, lbl);
-	    count_loads++;
-	    markDirty(dst);
-	    return;
-	}
+        // string literal assignment to variable
+        if (src[0] == '"') {
+            const char* lbl = getStringLabel(src);
+            if(!lbl){
+                lbl = registerStringLiteral(src);
+            }
+            const char* dst = getReg(dst_name);
+            asmEmit("    la   %s, %s", dst, lbl);
+            count_loads++;
+            markDirty(dst);
+            return;
+        }
     // if (src[0] == '"') {
-	// const char* lbl = getStringLabel(src);
+        // const char* lbl = getStringLabel(src);
     //     const char* dst = getReg(dst_name);
-	// 	if(lbl){
-	// 			asmEmit("    la   %s, %s", dst,lbl);
-	// 	}
-	// 	else{
-	// 		    const char* fallback = registerStringLiteral(src);
+        //      if(lbl){
+        //                      asmEmit("    la   %s, %s", dst,lbl);
+        //      }
+        //      else{
+        //                  const char* fallback = registerStringLiteral(src);
     // asmEmit("    la   %s, %s", dst, fallback ? fallback : "str_0");
-	// 	}	
-	// 	count_loads++;
-	// markDirty(dst);
+        //      }
+        //      count_loads++;
+        // markDirty(dst);
     //     //store(dst_name, dst);
     //     return;
     // }
@@ -866,7 +866,7 @@ void genArrayAccess(const Quad* q) {
 
     // For local arrays, we need the base address
     const char* r_base = getReg("_arr_base_tmp");
-   
+
     Symbol* asym = lookupForCodeGen(q->arg1);
     if(asym && asym->scope_level == 0){
         // Global array
@@ -881,20 +881,20 @@ void genArrayAccess(const Quad* q) {
         asmComment("ERROR: array symbol not found");
         return;
     }
-   
+
     // Load the offset (byte offset, already computed)
     OperandMode m_off = getMode(q->arg2);
     if(m_off == MODE_REG) instr_sel_reg_reuse++;
     const char* r_off = (m_off == MODE_REG) ? reg_name[findRegFor(q->arg2)] : load(q->arg2);
-   
+
     // Compute effective address
     const char* r_ea = getReg(q->result);
     asmEmit("    sub  %s, %s, %s", r_ea, r_base, r_off);
-   
+
     // Load the value
     asmEmit("    lw   %s, 0(%s)", r_ea, r_ea);
     count_loads++;
-   
+
     freeReg("_arr_base_tmp");
     freeReg(q->arg2);
     markDirty(r_ea);
@@ -982,7 +982,7 @@ if(strcmp(q->op, "push_ptr") == 0){
     spillAllRegs();
     for(int i = 0; i < pending_arg_count; i++){
         OperandType ot = getOperandType(pending_args[i]);
-	// Handle string literals specially
+        // Handle string literals specially
         if(isStringLiteral(pending_args[i])){
             const char* lbl = getStringLabel(pending_args[i]);
             if(!lbl){
@@ -1021,7 +1021,7 @@ if(strcmp(q->op, "push_ptr") == 0){
     spillAllRegs();
     for(int i = 0; i < pending_arg_count; i++){
         OperandType ot = getOperandType(pending_args[i]);
-	// Handle string literals specially
+        // Handle string literals specially
         if(isStringLiteral(pending_args[i])){
             const char* lbl = getStringLabel(pending_args[i]);
             if(!lbl){
@@ -1096,7 +1096,7 @@ if(strcmp(q->op, "push_ptr") == 0){
     int field_off = 0;
     Symbol* field_sym = NULL;
     Symbol* obj_sym = lookupForCodeGen(q->arg1);
-    
+
     // if the operand is this then we are trying to access the member field of the Entity
     if(strcmp(q->arg1, "this") == 0 && current_func_scope){
         // Walk up to find the entity scope
@@ -1114,7 +1114,7 @@ if(strcmp(q->op, "push_ptr") == 0){
         }
     }
 
-    
+
     // Look up field offset
     else if(obj_sym && obj_sym->kind == KIND_OBJECT){
         SymTable* esc = find_entity_scope(obj_sym->attr.object.entity_name);
@@ -1125,9 +1125,9 @@ if(strcmp(q->op, "push_ptr") == 0){
             }
         }
     }
-    
+
     const char* r_obj = getReg("_obj_ptr_tmp");
-    
+
     if(strcmp(q->arg1, "this") == 0){
         asmEmit("    ld  %s, -24(s0)", r_obj);
         count_loads++;
@@ -1143,10 +1143,10 @@ if(strcmp(q->op, "push_ptr") == 0){
         count_loads++;
     }
 
-    int field_is_ptr = field_sym && 
-                       (field_sym->datatype == DT_STRING || 
+    int field_is_ptr = field_sym &&
+                       (field_sym->datatype == DT_STRING ||
                         field_sym->kind == KIND_OBJECT);
-    
+
     const char* dst = getReg(q->result);
     if(field_is_ptr)
         asmEmit("    ld  %s, %d(%s)", dst, field_off, r_obj);   // 64-bit
@@ -1168,7 +1168,7 @@ if(strcmp(q->op, "push_ptr") == 0){
     asmComment("set_field");
     int field_off = -1;  // Initialize to invalid value
     Symbol* obj_sym = lookupForCodeGen(q->arg1);
-    
+
     // Look up the field offset
     if(obj_sym && obj_sym->kind == KIND_OBJECT){
         SymTable* esc = find_entity_scope(obj_sym->attr.object.entity_name);
@@ -1206,7 +1206,7 @@ if(strcmp(q->op, "push_ptr") == 0){
         asmComment("ERROR: Object symbol not found or not an object");
         return;
     }
-    
+
     // Load the object pointer (64-bit)
     const char* r_obj = getReg("_obj_ptr_tmp");
     if(strcmp(q->arg1, "this") == 0){
@@ -1224,16 +1224,16 @@ if(strcmp(q->op, "push_ptr") == 0){
         asmEmit("    ld   %s, %d(s0)", r_obj, getVarOffset(q->arg1));
         count_loads++;
     }
-    
+
     // Load the value to store
     const char* r_val = getReg("_field_val_tmp");
     OperandType vt = getOperandType(q->result);
-    
+
     // Determine if we're storing a pointer or a scalar
     Symbol* val_sym = lookupForCodeGen(q->result);
-    int is_storing_ptr = (val_sym && (val_sym->kind == KIND_OBJECT || 
+    int is_storing_ptr = (val_sym && (val_sym->kind == KIND_OBJECT ||
                                       val_sym->datatype == DT_STRING));
-    
+
     if(vt == OT_CONST){
         // Check if it's a string literal
         if(isStringLiteral(q->result)){
@@ -1280,7 +1280,7 @@ if(strcmp(q->op, "push_ptr") == 0){
             count_loads++;
         }
     }
-    
+
     // Store the value into the object field
     // Determine if field is a pointer or scalar
     SymTable* esc = NULL;
@@ -1297,7 +1297,7 @@ if(strcmp(q->op, "push_ptr") == 0){
             sc = sc->parent;
         }
     }
-    
+
     int field_is_ptr = 0;
     if(esc){
         Symbol* f = lookup_local(esc, q->arg2);
@@ -1305,7 +1305,7 @@ if(strcmp(q->op, "push_ptr") == 0){
             field_is_ptr = 1;
         }
     }
-    
+
     if(field_is_ptr || is_storing_ptr){
         asmEmit("    sd   %s, %d(%s)", r_val, field_off, r_obj);  // 64-bit store
     }
@@ -1313,7 +1313,7 @@ if(strcmp(q->op, "push_ptr") == 0){
         asmEmit("    sw   %s, %d(%s)", r_val, field_off, r_obj);  // 32-bit store
     }
     count_stores++;
-    
+
     freeReg("_obj_ptr_tmp");
     freeReg("_field_val_tmp");
     return;
@@ -1494,25 +1494,25 @@ return OT_UNKNOWN;
 //offset is negative as stack grows downward
 const char* getVarAddress(const char* name){
     static char addr_buf[64];
-    
+
     if(strcmp(name, "this") == 0){
         snprintf(addr_buf, sizeof(addr_buf), "-24(s0)");
         return addr_buf;
     }
-    
+
     Symbol* sym = lookupForCodeGen(name);
     if(!sym){
         asmComment("ISSUE: symbol not found for address lookup");
         snprintf(addr_buf, sizeof(addr_buf), "0(s0) # unknown: %s", name);
         return addr_buf;
     }
-    
+
     // Global variables
     if(sym->scope_level == 0){
         snprintf(addr_buf, sizeof(addr_buf), "0(s0) # global: %s", name);
         return addr_buf;
     }
-    
+
     // All locals and params
     int offset = -(24 + sym->offset);
     snprintf(addr_buf, sizeof(addr_buf), "%d(s0)", offset);
@@ -2010,7 +2010,7 @@ void store(const char* var, const char* reg){
     if(!var || !reg) return;
 
    Symbol* store_sym = lookupForCodeGen(var);
-int is_ptr = store_sym && (store_sym->kind == KIND_OBJECT || 
+int is_ptr = store_sym && (store_sym->kind == KIND_OBJECT ||
                            store_sym->datatype == DT_STRING);
 
 if (store_sym && store_sym->scope_level == 0) {
@@ -2175,7 +2175,7 @@ static void emitArithWithMode(const Quad* q, OperandMode m1, OperandMode m2){
         } else if(sr){
             asmEmit("    fsw  %s, %d(s0)", frd, getVarOffset(q->result));
         }
-	else if(isTemp(q->result)){
+        else if(isTemp(q->result)){
             int frame_off = getTempFrameOffset(q->result);
             asmEmit("    fsw  %s, %d(s0)", frd, frame_off);
         }
@@ -2796,7 +2796,7 @@ asmComment("stack-arg (>8 args) not allowed in current implementation");
 return;
 }
 
-	if(strcmp(q->op, "call") == 0){
+        if(strcmp(q->op, "call") == 0){
     // First pass: handle arguments already in registers (using mv)
     for(int i = 0; i < pending_arg_count; i++){
         OperandType ot = getOperandType(pending_args[i]);
@@ -3017,9 +3017,9 @@ i++;
 }
 asmComment("--initialize local arrays --");
         emitLocalArrayInits(fscope);
-       
-asmComment("--initialize local scalars --");  
-        emitLocalScalarInits(fscope);  
+
+asmComment("--initialize local scalars --");
+        emitLocalScalarInits(fscope);
 asmComment("-- prologue end --");
 asmBlank();
 
@@ -3226,7 +3226,25 @@ current_frame_size = frame_size;
 // Handles the exit of the function
 void genFunctionEpilogue(const Quad* q){
 if(strcmp(q->op, "return") == 0){
-	spillAllRegs();
+    // Step 1: if return value is already in a register, move it to a0 NOW
+    // before spillAllRegs destroys everything
+    if(q->arg1[0] != '\0'){
+        int ret_reg = findRegFor(q->arg1);
+        if(ret_reg >= 0){
+            // value is live in a register — grab it before spill
+            if(strcmp(reg_name[ret_reg], "a0") != 0){
+                asmEmit("    mv     a0, %s", reg_name[ret_reg]);
+            }
+            spillAllRegs();
+            // a0 is now set, jump to epilogue
+            if(current_func_name[0] != '\0'){
+                asmEmit("    j      Lepi_%s", current_func_name);
+            }
+            return;
+        }
+    }
+    // Step 2: no register hit — spill first, then load from memory
+    spillAllRegs();
 // Load the return value to a0
 if(q->arg1[0] != '\0'){
 if(isStringLiteral(q->arg1)){
@@ -3340,7 +3358,7 @@ void genIO(const Quad* q){
     // If the quad is a output quad that is "out"
     if(strcmp(q->op, "out") == 0){
         //int service = 1;    // assign the default value (printing integer
-       
+
         Symbol* sym = NULL;
 int is_str_literal = isStringLiteral(q->arg1);
         if(!is_str_literal){
@@ -3348,7 +3366,7 @@ int is_str_literal = isStringLiteral(q->arg1);
         }
 
 // classify operand mode BEFORE any spill — replaces the fragile pre_reg hack
-		OperandMode m1 = getMode(q->arg1);
+                OperandMode m1 = getMode(q->arg1);
 
 // asmEmit("    addi sp, sp, -16");
 // asmEmit("    sd ra, 8(sp)");
@@ -3362,49 +3380,49 @@ int is_str_literal = isStringLiteral(q->arg1);
 
 // if the argument is a string literal
         if(isStringLiteral(q->arg1)){
-			const char* lbl = getStringLabel(q->arg1);
-			if(!lbl){
-				asmComment("Warning: string literal label not found in genIO");
-				return;
-			}
-			spillAllRegs();
-			// adding a new line
-			asmEmit("    la   a0, %s", lbl);
-			count_loads++;
-			asmEmit("    call puts");
-			return;
-		}
+                        const char* lbl = getStringLabel(q->arg1);
+                        if(!lbl){
+                                asmComment("Warning: string literal label not found in genIO");
+                                return;
+                        }
+                        spillAllRegs();
+                        // adding a new line
+                        asmEmit("    la   a0, %s", lbl);
+                        count_loads++;
+                        asmEmit("    call puts");
+                        return;
+                }
 
         // if the output to be done is a character literal
-		if(q->arg1[0] == '\'' && q->arg1[2] == '\''){
-			spillAllRegs();
-			asmEmit("    li   a0, %d", (int)(unsigned char)q->arg1[1]);
-			count_loads++;
-			asmEmit("    call putchar");
-			return;
-		}
+                if(q->arg1[0] == '\'' && q->arg1[2] == '\''){
+                        spillAllRegs();
+                        asmEmit("    li   a0, %d", (int)(unsigned char)q->arg1[1]);
+                        count_loads++;
+                        asmEmit("    call putchar");
+                        return;
+                }
 
-		// if the argument is an integer constant
-		if(isConstant(q->arg1)){
-			spillAllRegs();
-			asmEmit("    li     a1, %s", q->arg1);
-			count_loads++;
-			asmEmit("    la     a0, .fmt_int");
-			count_loads++;
-			asmEmit("    call   printf");
-			return;
-		}
-        
-		// Since we are calling printf which is a C library function call, it might clobber the registers
-		// For MODE_REG: move value into argument register BEFORE spill so it isn't lost
-		// For MODE_MEM: spill first, then load directly from stack (lw+mv fusion)
+                // if the argument is an integer constant
+                if(isConstant(q->arg1)){
+                        spillAllRegs();
+                        asmEmit("    li     a1, %s", q->arg1);
+                        count_loads++;
+                        asmEmit("    la     a0, .fmt_int");
+                        count_loads++;
+                        asmEmit("    call   printf");
+                        return;
+                }
 
-		// If the variable to be printed is a string variable
-		if(sym && sym->datatype == DT_STRING){
-			if(sym->kind == KIND_ARRAY || sym->scope_level == 0){
-				// global/array string — address is a label, no register needed
-				spillAllRegs();
-				if(sym->scope_level == 0 && sym->kind != KIND_ARRAY){
+                // Since we are calling printf which is a C library function call, it might clobber the registers
+                // For MODE_REG: move value into argument register BEFORE spill so it isn't lost
+                // For MODE_MEM: spill first, then load directly from stack (lw+mv fusion)
+
+                // If the variable to be printed is a string variable
+                if(sym && sym->datatype == DT_STRING){
+                        if(sym->kind == KIND_ARRAY || sym->scope_level == 0){
+                                // global/array string — address is a label, no register needed
+                                spillAllRegs();
+                                if(sym->scope_level == 0 && sym->kind != KIND_ARRAY){
                     // Global string VARIABLE (pointer slot) — dereference it
                     asmEmit("    la     t0, %s", sym->name);
                     asmEmit("    ld     a0, 0(t0)");   // load the pointer stored in the slot
@@ -3414,104 +3432,104 @@ int is_str_literal = isStringLiteral(q->arg1);
                     asmEmit("    la     a0, %s", sym->name);
                     count_loads++;
                 }
-			}
-			else if(m1 == MODE_REG){
-				// value already in register — move to a0 before spill clobbers it
-				int src = findRegFor(q->arg1);
-				asmEmit("    mv     a0, %s", reg_name[src]);
+                        }
+                        else if(m1 == MODE_REG){
+                                // value already in register — move to a0 before spill clobbers it
+                                int src = findRegFor(q->arg1);
+                                asmEmit("    mv     a0, %s", reg_name[src]);
                 instr_sel_reg_reuse++;
-				spillAllRegs();
-			}
-			else{
-				// MODE_MEM — spill then load directly into a0 (lw+mv fusion)
-				spillAllRegs();
-				asmEmit("    lw     a0, %d(s0)", getVarOffset(q->arg1));
-				count_loads++;
-				instr_sel_lwmv_fused++;
-			}
-			asmEmit("    call puts");
-			return;
-		}
+                                spillAllRegs();
+                        }
+                        else{
+                                // MODE_MEM — spill then load directly into a0 (lw+mv fusion)
+                                spillAllRegs();
+                                asmEmit("    lw     a0, %d(s0)", getVarOffset(q->arg1));
+                                count_loads++;
+                                instr_sel_lwmv_fused++;
+                        }
+                        asmEmit("    call puts");
+                        return;
+                }
 
         // If the operand is a float
-		if(sym && sym->datatype == DT_FLOAT){
-			// load the float value we want to print into the register fa0 and then convert into double using fcvt.d.s and then call printf that will pick from the floating point argument registers
-			if(sym->scope_level == 0){
-				spillAllRegs();
-				asmEmit("    la     t0, %s", sym->name);
-				asmEmit("    flw    fa0, 0(t0)");
-			}
-			else if(m1 == MODE_REG){
-				// move to fa0 before spill
-				int src = findRegFor(q->arg1);
-				asmEmit("    fmv.s  fa0, %s", reg_name[src]);
+                if(sym && sym->datatype == DT_FLOAT){
+                        // load the float value we want to print into the register fa0 and then convert into double using fcvt.d.s and then call printf that will pick from the floating point argument registers
+                        if(sym->scope_level == 0){
+                                spillAllRegs();
+                                asmEmit("    la     t0, %s", sym->name);
+                                asmEmit("    flw    fa0, 0(t0)");
+                        }
+                        else if(m1 == MODE_REG){
+                                // move to fa0 before spill
+                                int src = findRegFor(q->arg1);
+                                asmEmit("    fmv.s  fa0, %s", reg_name[src]);
                 instr_sel_reg_reuse++;
-				spillAllRegs();
-			}
-			else{
-				// MODE_MEM — spill then load directly (lw+mv fusion for floats)
-				spillAllRegs();
-				asmEmit("    flw    fa0, %d(s0)", getVarOffset(q->arg1));
-				instr_sel_lwmv_fused++;
-			}
-			count_loads++;
-			asmEmit("    fcvt.d.s fa0, fa0");
-			asmEmit("    fmv.x.d  a1, fa0");
-			asmEmit("    la     a0, .fmt_float");
-			count_loads++;
-			asmEmit("    call   printf");
-			return;
-		}
+                                spillAllRegs();
+                        }
+                        else{
+                                // MODE_MEM — spill then load directly (lw+mv fusion for floats)
+                                spillAllRegs();
+                                asmEmit("    flw    fa0, %d(s0)", getVarOffset(q->arg1));
+                                instr_sel_lwmv_fused++;
+                        }
+                        count_loads++;
+                        asmEmit("    fcvt.d.s fa0, fa0");
+                        asmEmit("    fmv.x.d  a1, fa0");
+                        asmEmit("    la     a0, .fmt_float");
+                        count_loads++;
+                        asmEmit("    call   printf");
+                        return;
+                }
 
 
         // if the output is a character variable
-		if(sym && sym->datatype == DT_CHAR){
-			if(sym->scope_level == 0){
-				spillAllRegs();
-				asmEmit("    la     t0, %s", sym->name);
-				asmEmit("    lb     a0, 0(t0)");        /* load byte */
-			}
-			else if(m1 == MODE_REG){
-				// move to a0 before spill
-				int src = findRegFor(q->arg1);
-				asmEmit("    mv     a0, %s", reg_name[src]);
+                if(sym && sym->datatype == DT_CHAR){
+                        if(sym->scope_level == 0){
+                                spillAllRegs();
+                                asmEmit("    la     t0, %s", sym->name);
+                                asmEmit("    lb     a0, 0(t0)");        /* load byte */
+                        }
+                        else if(m1 == MODE_REG){
+                                // move to a0 before spill
+                                int src = findRegFor(q->arg1);
+                                asmEmit("    mv     a0, %s", reg_name[src]);
                 instr_sel_reg_reuse++;
-				spillAllRegs();
-			}
-			else{
-				// MODE_MEM — spill then load byte directly (lw+mv fusion)
-				spillAllRegs();
-				asmEmit("    lb     a0, %d(s0)", getVarOffset(q->arg1));
-				instr_sel_lwmv_fused++;
-			}
-			count_loads++;
-			asmEmit("    call   putchar");
-			return;
-		}
+                                spillAllRegs();
+                        }
+                        else{
+                                // MODE_MEM — spill then load byte directly (lw+mv fusion)
+                                spillAllRegs();
+                                asmEmit("    lb     a0, %d(s0)", getVarOffset(q->arg1));
+                                instr_sel_lwmv_fused++;
+                        }
+                        count_loads++;
+                        asmEmit("    call   putchar");
+                        return;
+                }
 
 
         // Integer variable or temp (default case)
-		if(sym && sym->scope_level == 0){
-			// integer defined at global level — address via label
-			spillAllRegs();
-			asmEmit("    la     t0, %s", sym->name);
-			asmEmit("    lw     a1, 0(t0)");
-			count_loads++;
-		}
-		else if(m1 == MODE_REG){
-			// value was in a register — move to a1 before spill clobbers it
-			int src = findRegFor(q->arg1);
-			asmEmit("    mv     a1, %s", reg_name[src]);
+                if(sym && sym->scope_level == 0){
+                        // integer defined at global level — address via label
+                        spillAllRegs();
+                        asmEmit("    la     t0, %s", sym->name);
+                        asmEmit("    lw     a1, 0(t0)");
+                        count_loads++;
+                }
+                else if(m1 == MODE_REG){
+                        // value was in a register — move to a1 before spill clobbers it
+                        int src = findRegFor(q->arg1);
+                        asmEmit("    mv     a1, %s", reg_name[src]);
             instr_sel_reg_reuse++;
-			spillAllRegs();
-		}
-		else{
-			// MODE_MEM — spill then load directly into a1 (lw+mv fusion)
-			spillAllRegs();
-			asmEmit("    lw     a1, %d(s0)", getVarOffset(q->arg1));
-			count_loads++;
-			instr_sel_lwmv_fused++;
-		}
+                        spillAllRegs();
+                }
+                else{
+                        // MODE_MEM — spill then load directly into a1 (lw+mv fusion)
+                        spillAllRegs();
+                        asmEmit("    lw     a1, %d(s0)", getVarOffset(q->arg1));
+                        count_loads++;
+                        instr_sel_lwmv_fused++;
+                }
 
 asmEmit("    la a0, .fmt_int");
 count_loads++;
@@ -3521,7 +3539,7 @@ asmEmit("    call printf");
 // asmEmit("    addi sp, sp, 16");
 return;
     }
-   
+
 if(strcmp(q->op, "in") == 0){
 Symbol* sym = lookupForCodeGen(q->result);
 spillAllRegs();
@@ -3603,105 +3621,105 @@ return;
 
 void generateASM(void)
 {
-	initRegs();
-	resetTempSlots();
-	if(!asm_out){
-		asm_out = stdout;
-	}
+        initRegs();
+        resetTempSlots();
+        if(!asm_out){
+                asm_out = stdout;
+        }
 
-	//pre pass register all names so getVarIdx works
-	for(int i=0;i<IR_idx;i++){
-		if(IR[i].arg1[0] && !isConstant(IR[i].arg1)) getVarIdx(IR[i].arg1);
-		if(IR[i].arg2[0] && !isConstant(IR[i].arg2)) getVarIdx(IR[i].arg2);
-		if(IR[i].result[0] && !isConstant(IR[i].result)) getVarIdx(IR[i].result);
-	}
+        //pre pass register all names so getVarIdx works
+        for(int i=0;i<IR_idx;i++){
+                if(IR[i].arg1[0] && !isConstant(IR[i].arg1)) getVarIdx(IR[i].arg1);
+                if(IR[i].arg2[0] && !isConstant(IR[i].arg2)) getVarIdx(IR[i].arg2);
+                if(IR[i].result[0] && !isConstant(IR[i].result)) getVarIdx(IR[i].result);
+        }
 
-	//compute the next use block by block
-	int block_start = 0;
-	for(int i=0;i<IR_idx;i++){
-		if(isBlockEnd(&IR[i])){
-			computeNextUse(block_start,i);
-			block_start=i+1;
-		}else if(isBlockStart(&IR[i]) && i>0) {
-			computeNextUse(block_start,i-1);
-			block_start=i;
-		}
-	}
-	if(block_start<IR_idx){
-		computeNextUse(block_start,IR_idx-1);
-	}
-	//reset counters before generating
-	count_loads=0;
-	count_stores = 0;
+        //compute the next use block by block
+        int block_start = 0;
+        for(int i=0;i<IR_idx;i++){
+                if(isBlockEnd(&IR[i])){
+                        computeNextUse(block_start,i);
+                        block_start=i+1;
+                }else if(isBlockStart(&IR[i]) && i>0) {
+                        computeNextUse(block_start,i-1);
+                        block_start=i;
+                }
+        }
+        if(block_start<IR_idx){
+                computeNextUse(block_start,IR_idx-1);
+        }
+        //reset counters before generating
+        count_loads=0;
+        count_stores = 0;
     instr_sel_opt_hits = 0;
     instr_sel_total_arith = 0;
-	instr_sel_lwmv_fused = 0;
+        instr_sel_lwmv_fused = 0;
     instr_sel_reg_reuse = 0;
-	initRegs();
+        initRegs();
 
 
-	// generating .data section with format of strings specified for outputting the strings or taking input
-	// String literals are defined here using the format specifiers using the .asciz directive for internally generating a NULL-terminated string.
-	scanFloatLiterals();
-	genDataSection();
+        // generating .data section with format of strings specified for outputting the strings or taking input
+        // String literals are defined here using the format specifiers using the .asciz directive for internally generating a NULL-terminated string.
+        scanFloatLiterals();
+        genDataSection();
 
-	// Generating .text section
-	asmEmit(".text");
-	asmEmit(".globl main");		// Entry point of the asm file
-	asmBlank();
-	// emit a prologue for the global scope so that s0 is valid and spills have a real stack frame to land in. Compute the size of the frame from global scope's next_offset
-	
-	#define TEMP_SPILL_AREA 512
-	int global_frame = getDeepNextOffset(global_scope);
-	// Add 8 bytes for ra and s0 save slots then round up to 16-byte boundary
-	global_frame += 8 + 64 + (IR_idx * 4 < 1024 ? IR_idx * 4 + 64 : 1024);		// Additional 64 bytes for temps
-	global_frame = (global_frame + 15) & ~15;
+        // Generating .text section
+        asmEmit(".text");
+        asmEmit(".globl main");         // Entry point of the asm file
+        asmBlank();
+        // emit a prologue for the global scope so that s0 is valid and spills have a real stack frame to land in. Compute the size of the frame from global scope's next_offset
 
-	static int saved_global_frame;
-	saved_global_frame = global_frame;
+        #define TEMP_SPILL_AREA 512
+        int global_frame = getDeepNextOffset(global_scope);
+        // Add 8 bytes for ra and s0 save slots then round up to 16-byte boundary
+        global_frame += 8 + 64 + (IR_idx * 4 < 1024 ? IR_idx * 4 + 64 : 1024);          // Additional 64 bytes for temps
+        global_frame = (global_frame + 15) & ~15;
 
-	asmEmit("main:");
-	asmComment("-- main function --");
-	asmEmit("    addi sp, sp, -16");
-	asmEmit("    sd   ra, 8(sp)");      // CHANGE: sw -> sd
-	asmEmit("    call global_body");
-	asmEmit("    ld   ra, 8(sp)");      // CHANGE: lw -> ld
-	asmEmit("    addi sp, sp, 16");
-	asmEmit("    li a0, 0");
-	asmEmit("    ret");
+        static int saved_global_frame;
+        saved_global_frame = global_frame;
 
-	asmBlank();
+        asmEmit("main:");
+        asmComment("-- main function --");
+        asmEmit("    addi sp, sp, -16");
+        asmEmit("    sd   ra, 8(sp)");      // CHANGE: sw -> sd
+        asmEmit("    call global_body");
+        asmEmit("    ld   ra, 8(sp)");      // CHANGE: lw -> ld
+        asmEmit("    addi sp, sp, 16");
+        asmEmit("    li a0, 0");
+        asmEmit("    ret");
 
-	// Pass 1: Emit all the function/constructor/method bodies by walking through the IR code
-	int in_func = 0;
-	for(int i = 0; i < IR_idx; i++){
-		const char* op = IR[i].op;
-		if(strcmp(op, "func") == 0 || strcmp(op, "constr") == 0 || strcmp(op, "method") == 0){
-			in_func = 1;
-		}
-		if(in_func){
-			current_ir_idx = i; //tell getReg which instruction we are at
-			genQuad(&IR[i]);
-		}
-		if(strcmp(op, "endfunc") == 0 || strcmp(op, "end_constr") == 0 || strcmp(op, "end_method") == 0){
-			in_func = 0;
-		}
-	}
+        asmBlank();
 
-	// Global body label 
-	asmBlank();
-	asmEmit("global_body:");
-	asmComment("-- Global body --");
-	
-	// Use the computed global_frame for proper stack allocation
-	asmEmit("    addi sp, sp, -%d", global_frame);
-	asmEmit("    sd   ra, %d(sp)", global_frame - 8);   
-	asmEmit("    sd   s0, %d(sp)", global_frame - 16);  
-	asmEmit("    addi s0, sp, %d", global_frame);
+        // Pass 1: Emit all the function/constructor/method bodies by walking through the IR code
+        int in_func = 0;
+        for(int i = 0; i < IR_idx; i++){
+                const char* op = IR[i].op;
+                if(strcmp(op, "func") == 0 || strcmp(op, "constr") == 0 || strcmp(op, "method") == 0){
+                        in_func = 1;
+                }
+                if(in_func){
+                        current_ir_idx = i; //tell getReg which instruction we are at
+                        genQuad(&IR[i]);
+                }
+                if(strcmp(op, "endfunc") == 0 || strcmp(op, "end_constr") == 0 || strcmp(op, "end_method") == 0){
+                        in_func = 0;
+                }
+        }
 
-	initRegs();
-	int global_deep_offset = getDeepNextOffset(global_scope);
-	if(global_scope) {
+        // Global body label
+        asmBlank();
+        asmEmit("global_body:");
+        asmComment("-- Global body --");
+
+        // Use the computed global_frame for proper stack allocation
+        asmEmit("    addi sp, sp, -%d", global_frame);
+        asmEmit("    sd   ra, %d(sp)", global_frame - 8);
+        asmEmit("    sd   s0, %d(sp)", global_frame - 16);
+        asmEmit("    addi s0, sp, %d", global_frame);
+
+        initRegs();
+        int global_deep_offset = getDeepNextOffset(global_scope);
+        if(global_scope) {
     for(int b = 0; b < HASH_SIZE; b++) {
         for(Symbol* s = global_scope->buckets[b]; s; s = s->next) {
             if(s->kind == KIND_ARRAY) {
@@ -3711,47 +3729,47 @@ void generateASM(void)
         }
     }
 }
-	global_deep_offset += 64;	// Add a safe gap between the named variables and temp variables
-	temp_base_raw = global_deep_offset;
-	temp_next_raw = global_deep_offset;
-	temp_slot_count = 0;
-	//initTempAllocator(global_scope);
+        global_deep_offset += 64;       // Add a safe gap between the named variables and temp variables
+        temp_base_raw = global_deep_offset;
+        temp_next_raw = global_deep_offset;
+        temp_slot_count = 0;
+        //initTempAllocator(global_scope);
 
-	// Pass 2: emit only global-scope quads that is outside any function or method(class')
-	in_func = 0;
-	for(int i = 0; i < IR_idx; i++){
-		const char* op = IR[i].op;
-		if(strcmp(op, "func") == 0 || strcmp(op, "constr") == 0 || strcmp(op, "method") == 0) {
-			in_func = 1;
-		}
-		if(!in_func){
-			current_ir_idx = i; //tell getReg which instruction we are at
-			genQuad(&IR[i]);
-		}
-		if(strcmp(op, "endfunc") == 0 || strcmp(op, "end_constr") == 0 || strcmp(op, "end_method") == 0){
-			in_func = 0;
-		}
-	}
+        // Pass 2: emit only global-scope quads that is outside any function or method(class')
+        in_func = 0;
+        for(int i = 0; i < IR_idx; i++){
+                const char* op = IR[i].op;
+                if(strcmp(op, "func") == 0 || strcmp(op, "constr") == 0 || strcmp(op, "method") == 0) {
+                        in_func = 1;
+                }
+                if(!in_func){
+                        current_ir_idx = i; //tell getReg which instruction we are at
+                        genQuad(&IR[i]);
+                }
+                if(strcmp(op, "endfunc") == 0 || strcmp(op, "end_constr") == 0 || strcmp(op, "end_method") == 0){
+                        in_func = 0;
+                }
+        }
 
-	// Emit a program exit at the end of the .text section so that simulator does not fall off the end of main and crash. The service for the exit program ecall is 10.
-	asmBlank();
+        // Emit a program exit at the end of the .text section so that simulator does not fall off the end of main and crash. The service for the exit program ecall is 10.
+        asmBlank();
 
-	asmComment("-- global scope epilogue --");
-	// Restore from the computed frame that was actually allocated
-	asmEmit("    ld   ra, %d(sp)", global_frame - 8);   // CHANGE: lw -> ld
-	asmEmit("    ld   s0, %d(sp)", global_frame - 16);  // CHANGE: lw -> ld
+        asmComment("-- global scope epilogue --");
+        // Restore from the computed frame that was actually allocated
+        asmEmit("    ld   ra, %d(sp)", global_frame - 8);   // CHANGE: lw -> ld
+        asmEmit("    ld   s0, %d(sp)", global_frame - 16);  // CHANGE: lw -> ld
 
-	asmEmit("    addi sp, sp, %d", global_frame);
-	asmEmit("    ret");  // Return to main instead of calling exit directly
+        asmEmit("    addi sp, sp, %d", global_frame);
+        asmEmit("    ret");  // Return to main instead of calling exit directly
 
-	//print stats of register allocation
-	// fprintf(out(), "\n");
-	// fprintf(out(), "#--- Register Allocation Statistics -----\n");
-	// fprintf(out(), "# Strategy: %s\n", use_optimized_regalloc?"OPTIMIZED (next use aware)" : "BASIC (first dirty VAR)");
-	// fprintf(out(), "# Loads (lw/li): %d\n", count_loads);
-	// fprintf(out(), "# Stores (sw) : %d\n", count_stores);
-	// fprintf(out(), "# Total : %d\n", count_loads+count_stores);
-	// fprintf(out(), "# --------------------------------------\n");
+        //print stats of register allocation
+        // fprintf(out(), "\n");
+        // fprintf(out(), "#--- Register Allocation Statistics -----\n");
+        // fprintf(out(), "# Strategy: %s\n", use_optimized_regalloc?"OPTIMIZED (next use aware)" : "BASIC (first dirty VAR)");
+        // fprintf(out(), "# Loads (lw/li): %d\n", count_loads);
+        // fprintf(out(), "# Stores (sw) : %d\n", count_stores);
+        // fprintf(out(), "# Total : %d\n", count_loads+count_stores);
+        // fprintf(out(), "# --------------------------------------\n");
 }
 
 int getLoadCounts(void){return count_loads;}
