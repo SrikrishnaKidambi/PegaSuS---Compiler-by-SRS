@@ -318,11 +318,11 @@ void rehash_symbol(SymTable* tbl, Symbol* sym, const char* old_name){
 }
 
 int is_already_mangled(const char* name){
-    const char* p = strchr(name, '_');
+    const char* p = strrchr(name, '_');  // ← strrchr not strchr
     if(!p) return 0;
     p++;  // skip the _
-    // check if remaining chars are all valid type codes (i,f,c,s,b,v,e,o,u)
-    if(*p == '\0') return 0;
+    // zero-param mangled name like "insertion_sort_" — trailing _ alone is valid
+    if(*p == '\0') return 1;
     while(*p){
         if(!strchr("ifcsbveou", *p)) return 0;
         p++;
