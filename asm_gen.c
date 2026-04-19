@@ -1095,11 +1095,18 @@ if(strcmp(q->op, "push_ptr") == 0){
     }
     
     const char* r_obj = getReg("_obj_ptr_tmp");
+    
     if(strcmp(q->arg1, "this") == 0){
-        asmEmit("    ld  %s, -24(s0)", r_obj);  // Load 64-bit pointer
+        asmEmit("    ld  %s, -24(s0)", r_obj);
         count_loads++;
     }
-    else{
+    else if(obj_sym && obj_sym->scope_level == 0){
+        // ← THIS CASE WAS MISSING — global object needs la+ld
+        asmEmit("    la   t0, %s", obj_sym->name);
+        asmEmit("    ld   %s, 0(t0)", r_obj);
+        count_loads += 2;
+    }
+    else {
         asmEmit("    ld  %s, %d(s0)", r_obj, getVarOffset(q->arg1));
         count_loads++;
     }

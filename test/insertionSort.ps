@@ -1,0 +1,26 @@
+int 1seq arr = {5, 3, 8, 1, 2};
+int n = 5;
+
+void _func insertion_sort(){
+    for(int i = 1; i < n; i = i + 1){
+        int key = arr[i];
+	int j = i - 1;
+        for(; j > 0; j = j - 1){
+            int aj = arr[j];
+            if(aj > key){
+                arr[j + 1] = aj;
+            }
+            else{
+                j = 0;
+            }
+        }
+        arr[j + 1] = key;
+    }
+}
+
+void _func main(){
+    insertion_sort();
+    for(int i = 0; i < n; i = i + 1){
+        show(arr[i]);
+    }
+}

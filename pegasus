@@ -28,10 +28,13 @@ while [[ $# -gt 0 ]]; do
 			# -o<name> (no space): like -ofoo
 			OUTPUT_NAME="${1:2}"
 			;;
-		-S)
+		--stop)
 			# Stop after producing assembly, don't compile further
-			# Note: -S=<category> is a stats flag for pegasus-cc, handled below
 			STOP_AT_ASM=true
+			;;
+		-S)
+			# Print ALL stats — forwarded to pegasus-cc
+			PEGASUS_CC_FLAGS+=("$1")
 			;;
 		-S=regAlloc)
 			# Stats flag: print register allocation stats — forwarded to pegasus-cc
@@ -44,7 +47,7 @@ while [[ $# -gt 0 ]]; do
 		-S=*)
 			# Unknown stats sub-category — warn but forward anyway so pegasus-cc
 			# can emit its own warning with full context
-			echo "pegasus: warning: unknown stats category '${1#-S=}', use -S=regAlloc or -S=instrSel" >&2
+			echo "pegasus: warning: unknown stats category '${1#-S=}', use -S, -S=regAlloc or -S=instrSel" >&2
 			PEGASUS_CC_FLAGS+=("$1")
 			;;
 		--noalloc)
@@ -76,7 +79,8 @@ while [[ $# -gt 0 ]]; do
 			echo ""
 			echo "Options:"
 			echo "  -o <file>       Writes output to <file>, defaults to a.out"
-			echo "  -S              Stop after generating assembly file"
+			echo "  --stop          Stop after generating assembly file"
+			echo "  -S              Print all stats"
 			echo "  -S=regAlloc     Print register allocation stats"
 			echo "  -S=instrSel     Print instruction selection stats"
 			echo "  --noalloc       Use basic register allocation (disable optimized)"
