@@ -60,14 +60,16 @@ L0:
         slti t2, t1, 3
         beqz   t2, L1
         sw   t2, -104(s0)
-    # <<
+    li t2, 4
+        mul  t3, t1, t2
     # array access []
-        la   t2, arr
-        lw   t3, -108(s0)
-        add  t4, t2, t3
-        lw   t4, 0(t4)
-        mv     a1, t4
+        la   t4, arr
+        add  t5, t4, t3
+        lw   t5, 0(t5)
+        sw   t3, -108(s0)
+        mv     a1, t5
     # spill all registers
+        sw   t5, -112(s0)
         la a0, .fmt_int
         call printf
         lw   t1, -36(s0)
@@ -75,6 +77,7 @@ L0:
         mv   t1, t2
     # spill all registers
         sw   t1, -36(s0)
+        sw   t2, -116(s0)
         j      L0
     # spill all registers
 

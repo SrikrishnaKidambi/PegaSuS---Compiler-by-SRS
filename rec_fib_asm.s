@@ -2,9 +2,7 @@
 
     # -- Global Scalar Variables --
         .align 2
-    a:    .word  5
-        .align 2
-    res:    .word  0
+    ans:    .word  0
 
     # -- global arrays --
 
@@ -35,12 +33,12 @@ main:
         ret
 
 
-fact_i:
+fib_i:
     # -- prologue --
-        addi   sp, sp, -224
-        sd     ra, 216(sp)
-        sd     s0, 208(sp)
-        addi   s0, sp, 224
+        addi   sp, sp, -256
+        sd     ra, 248(sp)
+        sd     s0, 240(sp)
+        addi   s0, sp, 256
         sw   a0, -24(s0)
     # --initialize local arrays --
     # --initialize local scalars --
@@ -56,7 +54,7 @@ fact_i:
         sw   t3, -92(s0)
     # spill all registers
         li     a0, 1
-        j      Lepi_fact_i
+        j      Lepi_fib_i
     # spill all registers
         j      L1
     # spill all registers
@@ -65,53 +63,75 @@ L0:
     # spill all registers
 
 L1:
+    # ==
+        lw   t1, -24(s0)
+    li t2, 1
+        sub  t3, t1, t2
+        seqz t3, t3
+        beqz   t3, L2
+        sw   t3, -96(s0)
+        mv     a0, t2
+    # spill all registers
+        j      Lepi_fib_i
+    # spill all registers
+        j      L3
+    # spill all registers
+
+L2:
+    # spill all registers
+
+L3:
         lw   t1, -24(s0)
         addi t2, t1, -1
         mv     a0, t2
     # spill all registers
-        sw   t2, -96(s0)
-        call   fact_i
-        sw     a0, -100(s0)
+        sw   t2, -100(s0)
+        call   fib_i
+        sw     a0, -104(s0)
         lw   t1, -24(s0)
-        lw   t2, -100(s0)
-        mul  t3, t1, t2
+        addi t2, t1, -2
+        mv     a0, t2
+    # spill all registers
+        sw   t2, -108(s0)
+        call   fib_i
+        sw     a0, -112(s0)
+        lw   t1, -104(s0)
+        lw   t2, -112(s0)
+        add  t3, t1, t2
         mv     a0, t3
     # spill all registers
-        sw   t3, -104(s0)
-        j      Lepi_fact_i
-Lepi_fact_i:
+        sw   t3, -116(s0)
+        j      Lepi_fib_i
+Lepi_fib_i:
     # -- epilogue --
-        ld     ra, 216(sp)
-        ld     s0, 208(sp)
-        addi   sp, sp, 224
+        ld     ra, 248(sp)
+        ld     s0, 240(sp)
+        addi   sp, sp, 256
         ret
     # -- epilogue end --
 
 
 global_body:
     # -- Global body --
-        addi sp, sp, -224
-        sd   ra, 216(sp)
-        sd   s0, 208(sp)
-        addi s0, sp, 224
-        li   t1, 5
-        mv     a0, t1
+        addi sp, sp, -256
+        sd   ra, 248(sp)
+        sd   s0, 240(sp)
+        addi s0, sp, 256
+        li     a0, 5
     # spill all registers
-        la   t0, a
-        sw   t1, 0(t0)
-        call   fact_i
-        sw     a0, -96(s0)
-        lw   t1, -96(s0)
+        call   fib_i
+        sw     a0, -92(s0)
+        lw   t1, -92(s0)
     # spill all registers
-        la   t0, res
+        la   t0, ans
         sw   t1, 0(t0)
-        la     t0, res
+        la     t0, ans
         lw     a1, 0(t0)
         la a0, .fmt_int
         call printf
 
     # -- global scope epilogue --
-        ld   ra, 216(sp)
-        ld   s0, 208(sp)
-        addi sp, sp, 224
+        ld   ra, 248(sp)
+        ld   s0, 240(sp)
+        addi sp, sp, 256
         ret
