@@ -7,6 +7,20 @@
 #include <stdarg.h>
 #include <ctype.h>
 
+#define MAX_FLOAT_LITERALS 64
+static struct { char label[32]; char value[32]; } float_lit_table[MAX_FLOAT_LITERALS];
+static int float_lit_count = 0;
+
+static const char* registerFloatLiteral(const char* val){
+    for(int i = 0; i < float_lit_count; i++)
+        if(strcmp(float_lit_table[i].value, val) == 0)
+            return float_lit_table[i].label;
+    if(float_lit_count >= MAX_FLOAT_LITERALS) return ".fconst_0";
+    int idx = float_lit_count++;
+    snprintf(float_lit_table[idx].label, 32, ".fconst_%d", idx);
+    strncpy(float_lit_table[idx].value, val, 31);
+    return float_lit_table[idx].label;
+}
 //Register allocation
 
 //A register descriptor table is maintained:
@@ -447,7 +461,19 @@ str_lit_table[str_lit_count - 1].content);
 }
 }
 }
-
+static void scanFloatLiterals(void){
+    for(int i = 0; i < IR_idx; i++){
+        const Quad* q = &IR[i];
+        const char* fields[3] = {q->arg1, q->arg2, q->result};
+        for(int f = 0; f < 3; f++){
+            const char* field = fields[f];
+            if(!field || field[0] == '\0') continue;
+            if(isConstant(field) && strchr(field, '.') != NULL){
+                registerFloatLiteral(field);
+            }
+        }
+    }
+}
 // genDataSection - Emits the .data section completely emitting the labels for all the global scalar variabls, global arrays, and string literals by scanning IR quads
 void genDataSection(void)
 {
@@ -529,6 +555,12 @@ asmEmit(".fmt_scan_int:    .asciz  \"%%d\"");
 asmEmit(".fmt_scan_float:    .asciz  \"%%f\\n\"");
 asmEmit(".fmt_scan_str:    .asciz  \"%%s\\n\"");
 asmBlank();
+
+// Float literals
+for(int i = 0; i < float_lit_count; i++){
+    asmEmit("    .align 2");
+    asmEmit("%s:    .float %s", float_lit_table[i].label, float_lit_table[i].value);
+}
 }
 
 
@@ -547,7 +579,7 @@ static void emitLocalArrayInits(SymTable* scope) {
 
                 for (int i = 0; i < s->attr.array.init_count; i++) {
                     const char* val = s->attr.array.init_values[i];
-                    int byte_off = base_off + i * elem_size;
+                    int byte_off = base_off - i * elem_size;
                     if (s->datatype == DT_STRING){
                             const char* lbl=registerStringLiteral(val);
                             if(!lbl) lbl="str_0";
@@ -857,7 +889,7 @@ void genArrayAccess(const Quad* q) {
    
     // Compute effective address
     const char* r_ea = getReg(q->result);
-    asmEmit("    add  %s, %s, %s", r_ea, r_base, r_off);
+    asmEmit("    sub  %s, %s, %s", r_ea, r_base, r_off);
    
     // Load the value
     asmEmit("    lw   %s, 0(%s)", r_ea, r_ea);
@@ -1577,37 +1609,30 @@ return -1;
 }
 
 //spillOne is the function that spills the register at index i.
-
 static void spillOne(int i){
-    if(reg_contents[i][0]=='\0') return; // already free, nothing to spill
+    if(reg_contents[i][0] == '\0') return;
 
     if(reg_dirty[i]){
         const char* occupant = reg_contents[i];
         OperandType ot = getOperandType(occupant);
 
-        if(ot == OT_VAR || ot == OT_TEMP){
+        if(ot == OT_VAR){
+            // existing global/local store logic — unchanged
             Symbol* spill_sym = lookupForCodeGen(occupant);
-            int is_ptr = spill_sym && (spill_sym->kind == KIND_OBJECT ||
-                                       spill_sym->datatype == DT_STRING);
             if(spill_sym && spill_sym->scope_level == 0){
                 asmEmit("    la   t0, %s", spill_sym->name);
-                if(is_ptr)
-                    asmEmit("    sd   %s, 0(t0)", reg_name[i]);
-                else
-                    asmEmit("    sw   %s, 0(t0)", reg_name[i]);
+                asmEmit("    sw   %s, 0(t0)", reg_name[i]);
             } else {
-                // compute frame_off here before using it
-                int frame_off = getVarOffset(occupant);
-                if(is_ptr)
-                    asmEmit("    sd   %s, %d(s0)", reg_name[i], frame_off);
-                else
-                    asmEmit("    sw   %s, %d(s0)", reg_name[i], frame_off);
+                asmEmit("    sw   %s, %d(s0)", reg_name[i], getVarOffset(occupant));
             }
             count_stores++;
+        } else if(ot == OT_TEMP){
+            // ← ADD THIS: spill dirty temps to their frame slot
+            int frame_off = getTempFrameOffset(occupant);
+            asmEmit("    sw   %s, %d(s0)", reg_name[i], frame_off);
+            count_stores++;
         }
-    }  // <-- this closing brace was missing, causing all subsequent functions
-       //     to be parsed as nested inside spillOne, giving the
-       //     "invalid storage class" errors for getMode, emitArithWithMode, etc.
+    }
 
     reg_contents[i][0] = '\0';
     reg_dirty[i] = 0;
@@ -1747,11 +1772,6 @@ for(int i=0;i<NUM_REGS;i++){
 if(reg_contents[i][0] == '\0') continue;
 
 //dead temporary - just discard, no store needed
-if(isTemp(reg_contents[i])){
-reg_contents[i][0] = '\0';
-reg_dirty[i] = 0;
-continue;
-}
 
 //live variables spillOne handles the dirty
 spillOne(i);
@@ -1781,14 +1801,21 @@ if(already >= 0) {
 const char* reg = getReg(operand);
 
 if(operand[0] == '\''){
-//char literal - use ascii value to retrieve/extract it.
-char ch = operand[1];
-asmEmit("li %s, %d",reg,(int)ch);
-count_loads++;
+    char ch = operand[1];
+    asmEmit("    li   %s, %d", reg, (int)ch);
+    count_loads++;
+}
+else if(strchr(operand, '.') != NULL){
+    // Float literal — register it as a named label in .data
+    const char* lbl = registerStringLiteral(operand); // reuse string table for label name
+    if(!lbl) lbl = "fconst_0";
+    asmEmit("    la  t0, %%hi(%s)", lbl);
+    asmEmit("    flw  %s, %%lo(%s)(t0)", reg, lbl);
+    count_loads++;
 }
 else{
-asmEmit("li %s, %s",reg,operand);
-count_loads++;
+    asmEmit("    li   %s, %s", reg, operand);
+    count_loads++;
 }
 reg_dirty[findRegFor(operand)] = 0;
 return reg;
@@ -1950,191 +1977,293 @@ return MODE_REG;
 }
 return MODE_MEM;
 }
-
 static void emitArithWithMode(const Quad* q, OperandMode m1, OperandMode m2){
-// const char* dst = getReg(q->result);
-instr_sel_total_arith++;
-// if addition operation and one of the operands is a constant, hence use addi
-if(strcmp(q->op, "+") == 0 && m2 == MODE_IMM){
-instr_sel_total_arith++;
-const char* r1 = load(q->arg1);
-const char* dst = getReg(q->result);
-asmEmit("    addi %s, %s, %s", dst, r1, q->arg2);
-//freeReg(q->arg1);
-//store(q->result, dst);
-markDirty(dst);
-return;
-}
+    instr_sel_total_arith++;
 
-// Now if the argument 1 has constant value
-if(strcmp(q->op, "+") == 0 && m1 == MODE_IMM){
-instr_sel_total_arith++;
-const char* r2 = load(q->arg2);
-const char* dst = getReg(q->result);
-asmEmit("    addi %s, %s, %s", dst, r2, q->arg1);
-// freeReg(q->arg2);
-// store(q->result, dst);
-markDirty(dst);
-return;
-}
+    // Check if this is a float operation
+    int is_float = 0;
+    Symbol* s1 = lookupForCodeGen(q->arg1);
+    Symbol* s2 = lookupForCodeGen(q->arg2);
+    Symbol* sr = lookupForCodeGen(q->result);
+    if((s1 && s1->datatype == DT_FLOAT) ||
+       (s2 && s2->datatype == DT_FLOAT) ||
+       (sr && sr->datatype == DT_FLOAT) ||
+       (q->arg1[0] && strchr(q->arg1, '.') != NULL) ||
+       (q->arg2[0] && strchr(q->arg2, '.') != NULL)){
+        is_float = 1;
+    }
 
-// if the argument 2 is constant the operation is subtraction
-if(strcmp(q->op, "-") == 0 && m2 == MODE_IMM){
-instr_sel_total_arith++;
-const char* r1 = load(q->arg1);
-long imm = strtol(q->arg2, NULL, 10);
-const char* dst = getReg(q->result);
-asmEmit("    addi %s, %s, %ld", dst, r1, -imm);
-// freeReg(q->arg1);
-// store(q->result, dst);
-markDirty(dst);
-return;
-}
+    if(is_float){
+        const char* fr1 = "ft0";
+        const char* fr2 = "ft1";
+        const char* frd = "ft2";
 
-// For any general expressions
-const char* r1 = load(q->arg1);
-const char* r2 = load(q->arg2);
-const char* dst = getReg(q->result);
+        // Load arg1 into ft0
+        if(q->arg1[0] && strchr(q->arg1, '.') != NULL){
+            // float literal like 5.5
+            const char* lbl = registerFloatLiteral(q->arg1);
+            asmEmit("    la   t0, %s", lbl);
+            asmEmit("    flw  %s, 0(t0)", fr1);
+        } else if(s1 && s1->scope_level == 0){
+            asmEmit("    la   t0, %s", s1->name);
+            asmEmit("    flw  %s, 0(t0)", fr1);
+        } else if(s1){
+            asmEmit("    flw  %s, %d(s0)", fr1, getVarOffset(q->arg1));
+        }
+        count_loads++;
 
-if(strcmp(q->op, "+") == 0){
-asmEmit("    add  %s, %s, %s", dst, r1, r2);
-}
-if(strcmp(q->op, "-") == 0){
-asmEmit("    sub  %s, %s, %s", dst, r1, r2);
-}
-if(strcmp(q->op, "*") == 0){
-asmEmit("    mul  %s, %s, %s", dst, r1, r2);
-}
-if(strcmp(q->op, "/") == 0){
-asmEmit("    div  %s, %s, %s", dst, r1, r2);
-}
-if(strcmp(q->op, "%") == 0){
-asmEmit("    rem  %s, %s, %s", dst, r1, r2);
-}
-// freeReg(q->arg1);
-// freeReg(q->arg2);
-markDirty(dst);
-}
+        // Load arg2 into ft1
+        if(q->arg2[0] && strchr(q->arg2, '.') != NULL){
+            // float literal like 7.5
+            const char* lbl = registerFloatLiteral(q->arg2);
+            asmEmit("    la   t0, %s", lbl);
+            asmEmit("    flw  %s, 0(t0)", fr2);
+        } else if(s2 && s2->scope_level == 0){
+            asmEmit("    la   t0, %s", s2->name);
+            asmEmit("    flw  %s, 0(t0)", fr2);
+        } else if(s2){
+            asmEmit("    flw  %s, %d(s0)", fr2, getVarOffset(q->arg2));
+        }
+        count_loads++;
 
+        // Emit the float operation into ft2
+        if(strcmp(q->op, "+") == 0){
+            asmEmit("    fadd.s %s, %s, %s", frd, fr1, fr2);
+        } else if(strcmp(q->op, "-") == 0){
+            asmEmit("    fsub.s %s, %s, %s", frd, fr1, fr2);
+        } else if(strcmp(q->op, "*") == 0){
+            asmEmit("    fmul.s %s, %s, %s", frd, fr1, fr2);
+        } else if(strcmp(q->op, "/") == 0){
+            asmEmit("    fdiv.s %s, %s, %s", frd, fr1, fr2);
+        } else {
+            asmComment("unknown float op — skipped");
+            return;
+        }
+
+        // Store ft2 into result
+        if(sr && sr->scope_level == 0){
+            asmEmit("    la   t0, %s", sr->name);
+            asmEmit("    fsw  %s, 0(t0)", frd);
+        } else if(sr){
+            asmEmit("    fsw  %s, %d(s0)", frd, getVarOffset(q->result));
+        }
+	else if(isTemp(q->result)){
+            int frame_off = getTempFrameOffset(q->result);
+            asmEmit("    fsw  %s, %d(s0)", frd, frame_off);
+        }
+        count_stores++;
+        return;
+    }
+
+    // --- Integer path below, unchanged ---
+
+    // addi optimization: arg2 is immediate
+    if(strcmp(q->op, "+") == 0 && m2 == MODE_IMM){
+        instr_sel_total_arith++;
+        const char* r1 = load(q->arg1);
+        const char* dst = getReg(q->result);
+        asmEmit("    addi %s, %s, %s", dst, r1, q->arg2);
+        markDirty(dst);
+        return;
+    }
+
+    // addi optimization: arg1 is immediate
+    if(strcmp(q->op, "+") == 0 && m1 == MODE_IMM){
+        instr_sel_total_arith++;
+        const char* r2 = load(q->arg2);
+        const char* dst = getReg(q->result);
+        asmEmit("    addi %s, %s, %s", dst, r2, q->arg1);
+        markDirty(dst);
+        return;
+    }
+
+    // addi optimization: subtraction with immediate arg2
+    if(strcmp(q->op, "-") == 0 && m2 == MODE_IMM){
+        instr_sel_total_arith++;
+        const char* r1 = load(q->arg1);
+        long imm = strtol(q->arg2, NULL, 10);
+        const char* dst = getReg(q->result);
+        asmEmit("    addi %s, %s, %ld", dst, r1, -imm);
+        markDirty(dst);
+        return;
+    }
+
+    // General integer expressions
+    const char* r1 = load(q->arg1);
+    const char* r2 = load(q->arg2);
+    const char* dst = getReg(q->result);
+
+    if(strcmp(q->op, "+") == 0){
+        asmEmit("    add  %s, %s, %s", dst, r1, r2);
+    }
+    if(strcmp(q->op, "-") == 0){
+        asmEmit("    sub  %s, %s, %s", dst, r1, r2);
+    }
+    if(strcmp(q->op, "*") == 0){
+        asmEmit("    mul  %s, %s, %s", dst, r1, r2);
+    }
+    if(strcmp(q->op, "/") == 0){
+        asmEmit("    div  %s, %s, %s", dst, r1, r2);
+    }
+    if(strcmp(q->op, "%") == 0){
+        asmEmit("    rem  %s, %s, %s", dst, r1, r2);
+    }
+    markDirty(dst);
+}
 static void emitAssignWithMode(const Quad* q, OperandMode m1){
-// charactr literal
-if(q->arg1[0] == '\'' && q->arg1[2] == '\''){
-const char* dst = getReg(q->result);
-asmEmit("    li   %s, %d", dst, (int)q->arg1[1]);
-count_loads++;
-markDirty(dst);
-// store(q->result, dst);
-return;
-}
+    // char literal
+    if(q->arg1[0] == '\'' && q->arg1[2] == '\''){
+        const char* dst = getReg(q->result);
+        asmEmit("    li   %s, %d", dst, (int)q->arg1[1]);
+        count_loads++;
+        markDirty(dst);
+        return;
+    }
 
-// string literal
-if(q->arg1[0] == '"'){
-const char* lbl = getStringLabel(q->arg1);
-const char* dst = getReg(q->result);
-if(lbl){
-asmEmit("    la   %s, %s", dst, lbl);
-count_loads++;
-}
-markDirty(dst);
-// store(q->result, dst);
-return;
-}
+    // string literal
+    if(q->arg1[0] == '"'){
+        const char* lbl = getStringLabel(q->arg1);
+        const char* dst = getReg(q->result);
+        if(lbl){
+            asmEmit("    la   %s, %s", dst, lbl);
+            count_loads++;
+        }
+        markDirty(dst);
+        return;
+    }
 
-switch(m1){
-case MODE_IMM:
-// If a constant then just li is sufficient
-{
-const char* dst = getReg(q->result);
-asmEmit("    li   %s, %s", dst, q->arg1);
-count_loads++;
-// store(q->result, dst);
-markDirty(dst);
-}
-break;
-case MODE_REG:
-{
-   int src_idx = findRegFor(q->arg1);
-   if(src_idx < 0){
-       /* src was evicted between getMode() and here — treat as MEM */
-       const char* r = load(q->arg1);
-       const char* dst = getReg(q->result);
-       src_idx = findRegFor(q->arg1);
-       if(src_idx >= 0 && strcmp(reg_name[src_idx], dst) != 0)
-           asmEmit("    mv   %s, %s", dst, reg_name[src_idx]);
-       markDirty(dst);
-       break;
-   }
-   instr_sel_reg_reuse++;
-   int dst_idx = findRegFor(q->result);
-   if(dst_idx >= 0){
-       /* result already has a register */
-       if(dst_idx != src_idx){
-           asmEmit("    mv   %s, %s", reg_name[dst_idx], reg_name[src_idx]);
-           markDirty(reg_name[dst_idx]);
-       }
-       /* else same register, nothing to do */
-   }
-   else{
-       /* result needs a fresh register — must NOT rename src_idx
-          because the temp name (q->arg1) may still be referenced
-          by subsequent IR instructions as an operand              */
-       const char* dst = getReg(q->result);
-       /* getReg may have evicted src — recheck */
-       src_idx = findRegFor(q->arg1);
-       if(src_idx >= 0){
-           asmEmit("    mv   %s, %s", dst, reg_name[src_idx]);
-       }
-       else{
-           /* src was evicted during getReg, reload from memory */
-           Symbol* sym = lookupForCodeGen(q->arg1);
-           if(sym && sym->scope_level == 0){
-               asmEmit("    la   t0, %s", sym->name);
-               asmEmit("    lw   %s, 0(t0)", dst);
-           }
-           else if(isTemp(q->arg1)){
-               asmEmit("    lw   %s, %d(s0)", dst, getVarOffset(q->arg1));
-           }
-           else{
-               asmEmit("    lw   %s, %s", dst, getVarAddress(q->arg1));
-           }
-           count_loads++;
-       }
-       markDirty(dst);
-   }
-}
-break;
-case MODE_MEM:
-// Variable is in memory so use mv lw and then mv
-{
-const char* dst = getReg(q->result);
-Symbol* sym = lookupForCodeGen(q->arg1);
-if(sym && sym->scope_level == 0){
-    asmEmit("    la   t0, %s", sym->name);
-    asmEmit("    lw   %s, 0(t0)", dst);
-    instr_sel_lwmv_fused++;          // fused: la+lw replaces load()+mv
-}
-else if(sym){
-    asmEmit("    lw   %s, %s", dst, getVarAddress(q->arg1));
-    instr_sel_lwmv_fused++;          // fused: lw directly into dst
-}
-else if(isTemp(q->arg1)){
-    asmEmit("    lw   %s, %d(s0)", dst, getTempFrameOffset(q->arg1));
-    instr_sel_lwmv_fused++;          // fused: lw directly into dst
-}
-else{
-    // genuine fallback — not a fusion, still needs mv
-    const char* r = load(q->arg1);
-    if(strcmp(r, dst) != 0)
-        asmEmit("    mv   %s, %s", dst, r);
-}
-count_loads++;
-markDirty(dst);
-}
-break;
-default:
-genAssign(q);
-break;
-}
+    // float literal constant (e.g. 5.5, 7.5)
+    if(isConstant(q->arg1) && strchr(q->arg1, '.') != NULL){
+        const char* lbl = registerFloatLiteral(q->arg1);
+        Symbol* sr = lookupForCodeGen(q->result);
+        asmEmit("    la   t0, %s", lbl);
+        asmEmit("    flw  ft0, 0(t0)");
+        count_loads++;
+        if(sr && sr->scope_level == 0){
+            asmEmit("    la   t0, %s", sr->name);
+            asmEmit("    fsw  ft0, 0(t0)");
+        } else if(sr){
+            asmEmit("    fsw  ft0, %d(s0)", getVarOffset(q->result));
+        }
+        count_stores++;
+        return;
+    }
+
+    switch(m1){
+    case MODE_IMM:
+        {
+            const char* dst = getReg(q->result);
+            asmEmit("    li   %s, %s", dst, q->arg1);
+            count_loads++;
+            markDirty(dst);
+        }
+        break;
+
+    case MODE_REG:
+        {
+            int src_idx = findRegFor(q->arg1);
+            if(src_idx < 0){
+                const char* r = load(q->arg1);
+                const char* dst = getReg(q->result);
+                src_idx = findRegFor(q->arg1);
+                if(src_idx >= 0 && strcmp(reg_name[src_idx], dst) != 0)
+                    asmEmit("    mv   %s, %s", dst, reg_name[src_idx]);
+                markDirty(dst);
+                break;
+            }
+            instr_sel_reg_reuse++;
+            int dst_idx = findRegFor(q->result);
+            if(dst_idx >= 0){
+                if(dst_idx != src_idx){
+                    asmEmit("    mv   %s, %s", reg_name[dst_idx], reg_name[src_idx]);
+                    markDirty(reg_name[dst_idx]);
+                }
+            }
+            else{
+                const char* dst = getReg(q->result);
+                src_idx = findRegFor(q->arg1);
+                if(src_idx >= 0){
+                    asmEmit("    mv   %s, %s", dst, reg_name[src_idx]);
+                }
+                else{
+                    Symbol* sym = lookupForCodeGen(q->arg1);
+                    if(sym && sym->scope_level == 0){
+                        asmEmit("    la   t0, %s", sym->name);
+                        asmEmit("    lw   %s, 0(t0)", dst);
+                    }
+                    else if(isTemp(q->arg1)){
+                        asmEmit("    lw   %s, %d(s0)", dst, getVarOffset(q->arg1));
+                    }
+                    else{
+                        asmEmit("    lw   %s, %s", dst, getVarAddress(q->arg1));
+                    }
+                    count_loads++;
+                }
+                markDirty(dst);
+            }
+        }
+        break;
+    case MODE_MEM:
+        {
+            const char* dst = getReg(q->result);
+            Symbol* sym = lookupForCodeGen(q->arg1);
+            Symbol* sr  = lookupForCodeGen(q->result);
+            int dest_is_float = (sr && sr->datatype == DT_FLOAT);
+
+            if((sym && sym->datatype == DT_FLOAT) || dest_is_float){
+                // float path — use flw/fsw
+                if(sym && sym->scope_level == 0){
+                    asmEmit("    la   t0, %s", sym->name);
+                    asmEmit("    flw  ft0, 0(t0)");
+                } else if(sym){
+                    asmEmit("    flw  ft0, %d(s0)", getVarOffset(q->arg1));
+                } else if(isTemp(q->arg1)){
+                    // temp holding float result from arithmetic
+                    asmEmit("    flw  ft0, %d(s0)", getTempFrameOffset(q->arg1));
+                }
+                count_loads++;
+                if(sr && sr->scope_level == 0){
+                    asmEmit("    la   t0, %s", sr->name);
+                    asmEmit("    fsw  ft0, 0(t0)");
+                } else if(sr){
+                    asmEmit("    fsw  ft0, %d(s0)", getVarOffset(q->result));
+                }
+                count_stores++;
+            }
+            else if(sym && sym->scope_level == 0){
+                asmEmit("    la   t0, %s", sym->name);
+                asmEmit("    lw   %s, 0(t0)", dst);
+                instr_sel_lwmv_fused++;
+                count_loads++;
+                markDirty(dst);
+            }
+            else if(sym){
+                asmEmit("    lw   %s, %s", dst, getVarAddress(q->arg1));
+                instr_sel_lwmv_fused++;
+                count_loads++;
+                markDirty(dst);
+            }
+            else if(isTemp(q->arg1)){
+                asmEmit("    lw   %s, %d(s0)", dst, getTempFrameOffset(q->arg1));
+                instr_sel_lwmv_fused++;
+                count_loads++;
+                markDirty(dst);
+            }
+            else{
+                const char* r = load(q->arg1);
+                if(strcmp(r, dst) != 0)
+                    asmEmit("    mv   %s, %s", dst, r);
+                count_loads++;
+                markDirty(dst);
+            }
+        }
+        break;
+
+
+    default:
+        genAssign(q);
+        break;
+    }
 }
 
 // This function is called for all quads in the generated IR code and then based on the operator present in the Quad corresponding function handler is called
@@ -2413,6 +2542,7 @@ else if(strcmp(q->op, "ifFalse") == 0){
 OperandMode m1 = getMode(q->arg1);
 if(m1 == MODE_REG) instr_sel_reg_reuse++;
 const char* cond_reg = (m1 == MODE_REG) ? reg_name[findRegFor(q->arg1)] : load(q->arg1);
+spillAllRegs();
 asmEmit("    beqz   %s, %s", cond_reg, q->result);
 freeReg(q->arg1);
 }
@@ -2601,6 +2731,17 @@ if(fscope) setCurrentFuncScope(fscope);
 
 //initTempAllocator(func_scope);
 int deep_off = getDeepNextOffset(fscope);
+if(fscope) {
+    for(int b = 0; b < HASH_SIZE; b++) {
+        for(Symbol* s = fscope->buckets[b]; s; s = s->next) {
+            if(s->kind == KIND_ARRAY) {
+                int arr_end = s->offset + s->attr.array.dim1 * datatype_size(s->datatype);
+                if(arr_end > deep_off) deep_off = arr_end;
+            }
+        }
+    }
+}
+
 deep_off += 64;
 temp_base_raw = deep_off;
 temp_next_raw = deep_off;
@@ -2714,12 +2855,22 @@ setCurrentFuncScope(csym->attr.ctor.scope);
 }
 //initTempAllocator(csym ? csym->attr.ctor.scope : NULL);
 
-int deep_off = getDeepNextOffset(csym ? csym->attr.ctor.scope : NULL);
+SymTable* cscope_tmp = csym ? csym->attr.ctor.scope : NULL;
+int deep_off = getDeepNextOffset(cscope_tmp);
+if(cscope_tmp) {
+    for(int b = 0; b < HASH_SIZE; b++) {
+        for(Symbol* s = cscope_tmp->buckets[b]; s; s = s->next) {
+            if(s->kind == KIND_ARRAY) {
+                int arr_end = s->offset + s->attr.array.dim1 * datatype_size(s->datatype);
+                if(arr_end > deep_off) deep_off = arr_end;
+            }
+        }
+    }
+}
 deep_off += 64;
 temp_base_raw = deep_off;
 temp_next_raw = deep_off;
 temp_slot_count = 0;
-
 // Constructor params start at a1 (a0 holds 'this').
 // Store at -(20 + sym->offset)(s0) to match getVarOffset formula.
 if(csym && csym->attr.ctor.param_list){
@@ -2789,7 +2940,18 @@ count_stores++;
 if(msym && msym->attr.method.scope){
 setCurrentFuncScope(msym->attr.method.scope);
 }
-int deep_off = getDeepNextOffset(msym ? msym->attr.method.scope : NULL);
+SymTable* mscope_tmp = msym ? msym->attr.method.scope : NULL;
+int deep_off = getDeepNextOffset(mscope_tmp);
+if(mscope_tmp) {
+    for(int b = 0; b < HASH_SIZE; b++) {
+        for(Symbol* s = mscope_tmp->buckets[b]; s; s = s->next) {
+            if(s->kind == KIND_ARRAY) {
+                int arr_end = s->offset + s->attr.array.dim1 * datatype_size(s->datatype);
+                if(arr_end > deep_off) deep_off = arr_end;
+            }
+        }
+    }
+}
 deep_off += 64;
 temp_base_raw = deep_off;
 temp_next_raw = deep_off;
@@ -2826,6 +2988,7 @@ current_frame_size = frame_size;
 // Handles the exit of the function
 void genFunctionEpilogue(const Quad* q){
 if(strcmp(q->op, "return") == 0){
+	spillAllRegs();
 // Load the return value to a0
 if(q->arg1[0] != '\0'){
 if(isStringLiteral(q->arg1)){
@@ -3020,6 +3183,7 @@ int is_str_literal = isStringLiteral(q->arg1);
 			}
 			count_loads++;
 			asmEmit("    fcvt.d.s fa0, fa0");
+			asmEmit("    fmv.x.d  a1, fa0");
 			asmEmit("    la     a0, .fmt_float");
 			count_loads++;
 			asmEmit("    call   printf");
@@ -3205,6 +3369,7 @@ void generateASM(void)
 
 	// generating .data section with format of strings specified for outputting the strings or taking input
 	// String literals are defined here using the format specifiers using the .asciz directive for internally generating a NULL-terminated string.
+	scanFloatLiterals();
 	genDataSection();
 
 	// Generating .text section
@@ -3263,6 +3428,16 @@ void generateASM(void)
 
 	initRegs();
 	int global_deep_offset = getDeepNextOffset(global_scope);
+	if(global_scope) {
+    for(int b = 0; b < HASH_SIZE; b++) {
+        for(Symbol* s = global_scope->buckets[b]; s; s = s->next) {
+            if(s->kind == KIND_ARRAY) {
+                int arr_end = s->offset + s->attr.array.dim1 * datatype_size(s->datatype);
+                if(arr_end > global_deep_offset) global_deep_offset = arr_end;
+            }
+        }
+    }
+}
 	global_deep_offset += 64;	// Add a safe gap between the named variables and temp variables
 	temp_base_raw = global_deep_offset;
 	temp_next_raw = global_deep_offset;
