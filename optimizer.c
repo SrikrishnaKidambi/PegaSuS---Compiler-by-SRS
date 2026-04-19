@@ -303,6 +303,15 @@ int dead_code_elimination(void)
                     if(strcmp(used[j],OPT_IR[i].arg2)==0){found=1;break;}
                 if(!found) strcpy(used[used_cnt++],OPT_IR[i].arg2);
             }
+
+	    if (strcmp(OPT_IR[i].op, "out") == 0 || strcmp(OPT_IR[i].op, "in") == 0) {
+		    if (OPT_IR[i].result[0]) {
+			int found = 0;
+			for (int j = 0; j < used_cnt; j++)
+				if (strcmp(used[j], OPT_IR[i].result) == 0) { found = 1; break; }
+			if (!found) strcpy(used[used_cnt++], OPT_IR[i].result);
+		    }
+	    }
            
             if(IS_SIDEEFFECT(OPT_IR[i].op)){
                 if(OPT_IR[i].result[0]){
@@ -674,7 +683,9 @@ int constant_propagation(void){
     for(int i = 0; i < tmp_n; i++){
         Quad q = tmp[i];
         int changed = 0;
-
+	if(strcmp(q.op, "func") == 0 || strcmp(q.op, "endfunc") == 0 || strcmp(q.op, "method") == 0 || strcmp(q.op, "constr") == 0 || strcmp(q.op, "end_constr") == 0){
+		const_map_init();
+	}
         if(is_arith_quad(q.op)){
 
             // Special case — [] op: only propagate into arg2, never arg1
@@ -916,6 +927,9 @@ int common_subexpression_elimination(void){
     for(int i = 0; i < tmp_n; i++){
         Quad q = tmp[i];
         int changed = 0;
+	if(strcmp(q.op, "func") == 0 || strcmp(q.op, "endfunc") == 0 || strcmp(q.op, "method") == 0 || strcmp(q.op, "constr") == 0 || strcmp(q.op, "end_constr") == 0){
+		cse_map_init();
+	}
 
         if(is_cse_candidate(q.op)){
             char orig_op[20], orig_a1[20], orig_a2[20];
@@ -1158,6 +1172,10 @@ int copy_propagation(int opt_level){
 			continue;
 		}
 
+		if (strcmp(q->op, "func") == 0 || strcmp(q->op, "endfunc") == 0 || strcmp(q->op, "method") == 0 || strcmp(q->op, "constr") == 0 || strcmp(q->op, "end_constr") == 0) {
+		    ct_clear();
+		    continue;
+		}
 		// Check if either arg1 or arg2 of the current quad is having some copy source and if yes the function returns the copy source. 
 		// If the returned copy source is same as the original variable name then no substitution is needed.
 		if(q->arg1[0]){
