@@ -1225,8 +1225,13 @@ if(strcmp(q->op, "push_ptr") == 0){
         }
     }
     else if(is_storing_ptr){
-        // Loading a pointer value (object or string)
-        if(val_sym && val_sym->scope_level == 0){
+        int src_reg = findRegFor(q->result);
+        if(src_reg >= 0){
+            if(strcmp(reg_name[src_reg], r_val) != 0)
+                asmEmit("    mv   %s, %s", r_val, reg_name[src_reg]);
+            instr_sel_reg_reuse++;
+        }
+        else if(val_sym && val_sym->scope_level == 0){
             asmEmit("    la   t0, %s", val_sym->name);
             asmEmit("    ld   %s, 0(t0)", r_val);
             count_loads += 2;
@@ -1236,12 +1241,25 @@ if(strcmp(q->op, "push_ptr") == 0){
             count_loads++;
         }
     }
+    //check register file first:
     else {
         // Loading a scalar value (int, char, bool)
-        if(val_sym && val_sym->scope_level == 0){
+        int src_reg = findRegFor(q->result);
+        if(src_reg >= 0){
+            // Value is already in a register — use mv
+            if(strcmp(reg_name[src_reg], r_val) != 0){
+                asmEmit("    mv   %s, %s", r_val, reg_name[src_reg]);
+            }
+            instr_sel_reg_reuse++;
+        }
+        else if(val_sym && val_sym->scope_level == 0){
             asmEmit("    la   t0, %s", val_sym->name);
             asmEmit("    lw   %s, 0(t0)", r_val);
             count_loads += 2;
+        }
+        else if(isConstant(q->result)){
+            asmEmit("    li   %s, %s", r_val, q->result);
+            count_loads++;
         }
         else {
             asmEmit("    lw   %s, %d(s0)", r_val, getVarOffset(q->result));
@@ -1825,9 +1843,14 @@ if(reg_contents[i][0] == '\0') continue;
 
 //dead temporary - just discard, no store needed
 if(isTemp(reg_contents[i])){
-reg_contents[i][0] = '\0';
-reg_dirty[i] = 0;
-continue;
+    if(reg_dirty[i]){
+        int frame_off = getTempFrameOffset(reg_contents[i]);
+        asmEmit("    sw   %s, %d(s0)", reg_name[i], frame_off);
+        count_stores++;
+    }
+    reg_contents[i][0] = '\0';
+    reg_dirty[i] = 0;
+    continue;
 }
 
 //live variables spillOne handles the dirty
@@ -2954,8 +2977,9 @@ ParamNode* p = csym->attr.ctor.param_list;
 int i = 1;   // a1, a2, ... (a0 is 'this')
 while(p && i < MAX_ARG_REGS){
 Symbol* param_sym = cscope ? lookup_local(cscope, p->name) : NULL;
+// Reserve offset 0 for 'this'; params start at offset 4
 int sym_off = param_sym ? param_sym->offset : ((i - 1) * 4);
-int frame_off = -(24 + sym_off);
+int frame_off = -(24 + sym_off);   // +4 to skip the 'this' slot
 int is_ptr = param_sym && (param_sym->datatype == DT_STRING || param_sym->kind == KIND_OBJECT);
 if(is_ptr){
     asmEmit("    sd %s, %d(s0)", arg_regs[i], frame_off);

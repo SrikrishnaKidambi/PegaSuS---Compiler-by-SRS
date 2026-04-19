@@ -308,7 +308,7 @@ extern SymTable* entity_scopes[MAX_ENTITIES];
 extern int entity_scope_count;
 
 extern DataType  current_decl_type;
-                                    
+extern int parse_error_count;     
 
 extern const char* dt_names[];
 #endif /* SYMTAB_H */
