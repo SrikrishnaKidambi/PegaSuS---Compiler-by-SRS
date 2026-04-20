@@ -273,13 +273,14 @@ int dead_code_elimination(void)
 
     // this functon  returns 1 if op is a side-effect operation 
     #define IS_SIDEEFFECT(op) \
-        (strcmp(op,"call")==0   || strcmp(op,"return")==0  || \
-         strcmp(op,"ifFalse")==0|| strcmp(op,"goto")==0    || \
-         strcmp(op,"label")==0  || strcmp(op,"out")==0     || \
-         strcmp(op,"in")==0     || strcmp(op,"param")==0   || \
-         strcmp(op,"arg")==0    || strcmp(op,"func")==0    || \
-         strcmp(op,"endfunc")==0|| strcmp(op,"entity")==0  || \
-         strcmp(op,"end_entity")==0)
+    (strcmp(op,"call")==0   || strcmp(op,"return")==0  || \
+     strcmp(op,"ifFalse")==0|| strcmp(op,"goto")==0    || \
+     strcmp(op,"label")==0  || strcmp(op,"out")==0     || \
+     strcmp(op,"in")==0     || strcmp(op,"param")==0   || \
+     strcmp(op,"arg")==0    || strcmp(op,"func")==0    || \
+     strcmp(op,"endfunc")==0|| strcmp(op,"entity")==0  || \
+     strcmp(op,"end_entity")==0 || strcmp(op,"[]=")== 0 || \
+     strcmp(op,"array_init")==0 || strcmp(op,"[]") == 0)
 
     do {
         removed_this_round = 0;
@@ -1171,7 +1172,11 @@ int copy_propagation(int opt_level){
 		if(is_structural_op(q->op)){
 			continue;
 		}
-
+		// if((strcmp(OPT_IR[i].op, "[]") == 0 || 
+		//     strcmp(OPT_IR[i].op, "[]=") == 0) &&
+		//     strcmp(OPT_IR[i].arg2, name) == 0){
+		//     continue; 
+		// }
 		if (strcmp(q->op, "func") == 0 || strcmp(q->op, "endfunc") == 0 || strcmp(q->op, "method") == 0 || strcmp(q->op, "constr") == 0 || strcmp(q->op, "end_constr") == 0) {
 		    ct_clear();
 		    continue;
@@ -1179,18 +1184,24 @@ int copy_propagation(int opt_level){
 		// Check if either arg1 or arg2 of the current quad is having some copy source and if yes the function returns the copy source. 
 		// If the returned copy source is same as the original variable name then no substitution is needed.
 		if(q->arg1[0]){
-			const char* sub = ct_lookup(q->arg1);
-			if(strcmp(sub, q->arg1) != 0){
-				strncpy(q->arg1, sub, 19);
-				subs++;
-			}
+		    const char* sub = ct_lookup(q->arg1);
+		    if(strcmp(sub, q->arg1) != 0){
+		        strncpy(q->arg1, sub, 19);
+		        subs++;
+		    }
 		}
 		if(q->arg2[0]){
-			const char* sub = ct_lookup(q->arg2);
-			if(strcmp(sub, q->arg2) != 0){
-				strncpy(q->arg2, sub, 19);
-				subs++;
-			}
+		    // Don't substitute array byte-offset — it must stay as the
+		    // temp produced by the * (multiply) quad, not a raw index
+		    int is_arr_op = (strcmp(q->op, "[]") == 0 || 
+		                     strcmp(q->op, "[]=") == 0);
+		    if(!is_arr_op){
+		        const char* sub = ct_lookup(q->arg2);
+		        if(strcmp(sub, q->arg2) != 0){
+		            strncpy(q->arg2, sub, 19);
+		            subs++;
+		        }
+		    }
 		}
 
 		// Checks if the current quad is a copy or not and if yes

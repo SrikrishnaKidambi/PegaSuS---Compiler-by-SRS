@@ -101,6 +101,7 @@ void genObjectOps(const Quad* q);      /* new / call_constr /
                                           call_method / get_field /
                                           set_field / push_ptr    */
 void genEntityBlock(const Quad* q);    /* entity / end_entity     */
+void genArrayStore(const Quad* q); 
 
 // Symbol-Table Helpers for Code Generation
 

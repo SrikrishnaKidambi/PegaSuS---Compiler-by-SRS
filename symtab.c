@@ -48,9 +48,8 @@ int datatype_size(DataType dt) {
         case DT_FLOAT:  return 4;
         case DT_CHAR:   return 1;
         case DT_STRING: return 8;
-        case DT_BOOL:   return 1;
+        case DT_BOOL:   return 4;   // ← Change from 1 to 4
         case DT_VOID:   return 0;
-        //case DT_ENTITY: return 8;
         default:        return 0;
     }
 }

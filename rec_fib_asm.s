@@ -52,7 +52,10 @@ fib_i:
         seqz t3, t3
         beqz   t3, L0
         sw   t3, -92(s0)
+<<<<<<< HEAD
+=======
     # spill all registers
+>>>>>>> f9d51562640d1bef6bdc31f5d7fc75b6c7ff4305
         li     a0, 1
         j      Lepi_fib_i
     # spill all registers
@@ -70,8 +73,12 @@ L1:
         seqz t3, t3
         beqz   t3, L2
         sw   t3, -96(s0)
+<<<<<<< HEAD
+        li     a0, 1
+=======
         mv     a0, t2
     # spill all registers
+>>>>>>> f9d51562640d1bef6bdc31f5d7fc75b6c7ff4305
         j      Lepi_fib_i
     # spill all registers
         j      L3
@@ -85,13 +92,26 @@ L3:
         addi t2, t1, -1
         mv     a0, t2
     # spill all registers
+<<<<<<< HEAD
+        call   fib_i
+        sw     a0, -100(s0)
+=======
         sw   t2, -100(s0)
         call   fib_i
         sw     a0, -104(s0)
+>>>>>>> f9d51562640d1bef6bdc31f5d7fc75b6c7ff4305
         lw   t1, -24(s0)
         addi t2, t1, -2
         mv     a0, t2
     # spill all registers
+<<<<<<< HEAD
+        call   fib_i
+        sw     a0, -104(s0)
+        lw   t1, -100(s0)
+        lw   t2, -104(s0)
+        add  t3, t1, t2
+        mv     a0, t3
+=======
         sw   t2, -108(s0)
         call   fib_i
         sw     a0, -112(s0)
@@ -101,6 +121,7 @@ L3:
         mv     a0, t3
     # spill all registers
         sw   t3, -116(s0)
+>>>>>>> f9d51562640d1bef6bdc31f5d7fc75b6c7ff4305
         j      Lepi_fib_i
 Lepi_fib_i:
     # -- epilogue --
