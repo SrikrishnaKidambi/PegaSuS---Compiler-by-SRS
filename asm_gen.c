@@ -1849,6 +1849,61 @@ for(int i=0;i<NUM_REGS;i++){
 if(reg_contents[i][0] == '\0') continue;
 
 //dead temporary - just discard, no store needed
+if(isTemp(reg_contents[i])){
+    if(reg_dirty[i]){
+        int frame_off = getTempFrameOffset(reg_contents[i]);
+        // Check if this temp holds a pointer
+        int tmp_is_ptr = 0;
+        for(int j = 0; j < IR_idx && !tmp_is_ptr; j++){
+            if(strcmp(IR[j].result, reg_contents[i]) == 0){
+                if(strcmp(IR[j].op, "get_field") == 0){
+                    for(int b = 0; b < HASH_SIZE && !tmp_is_ptr; b++){
+                        for(Symbol* s = global_scope->buckets[b];
+                            s && !tmp_is_ptr; s = s->next){
+                            if(s->kind == KIND_ENTITY){
+                                SymTable* es = s->attr.entity.scope;
+                                if(es){
+                                    Symbol* f = lookup_local(es, IR[j].arg2);
+                                    if(f && (f->datatype == DT_STRING ||
+                                             f->kind == KIND_OBJECT))
+                                        tmp_is_ptr = 1;
+                                }
+                            }
+                        }
+                    }
+                } else if(strcmp(IR[j].op, "call_method") == 0){
+                    for(int b = 0; b < HASH_SIZE && !tmp_is_ptr; b++){
+                        for(Symbol* s = global_scope->buckets[b];
+                            s && !tmp_is_ptr; s = s->next){
+                            if(s->kind == KIND_ENTITY){
+                                SymTable* es = s->attr.entity.scope;
+                                if(es){
+                                    Symbol* m = lookup_local(es, IR[j].arg1);
+                                    if(m && m->kind == KIND_METHOD &&
+                                       (m->attr.method.return_type == DT_STRING ||
+                                        m->attr.method.return_type == DT_ENTITY))
+                                        tmp_is_ptr = 1;
+                                }
+                            }
+                        }
+                    }
+                }
+                break;
+            }
+        }
+        if(tmp_is_ptr){
+            // allocate an 8-byte slot for pointer temps
+            int frame_off8 = getTempFrameOffset(reg_contents[i]);
+            asmEmit("    sd   %s, %d(s0)", reg_name[i], frame_off8);
+        } else {
+            asmEmit("    sw   %s, %d(s0)", reg_name[i], frame_off);
+        }
+        count_stores++;
+    }
+    reg_contents[i][0] = '\0';
+    reg_dirty[i] = 0;
+    continue;
+}
 
 //live variables spillOne handles the dirty
 spillOne(i);
