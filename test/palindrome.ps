@@ -1,0 +1,33 @@
+int 1seq arr = {2,3,4,4,3,2};
+int 1seq arr1 = {1,2,4,5,6,7};
+int n = 6;
+
+show("The first array is: ");
+int flag = 0;
+for(int i=0;i<n/2;i = i + 1){
+	if(!(arr[i] == arr[n-i-1])){
+		flag = 1;
+		break;
+	}
+}
+if(flag == 1){
+	show("Not a palindraome");
+}
+else{
+	show("It is a palindrome");
+}
+
+show("The second array is: ");
+flag = 0;
+for(int i=0;i<n/2;i = i + 1){
+        if(!(arr1[i] == arr1[n-i-1])){
+                flag = 1;
+                break;
+        }
+}
+if(flag == 1){
+        show("Not a palindraome");
+}
+else{
+        show("It is a palindrome");
+}
