@@ -285,14 +285,17 @@ if(sym->is_initialized && sym->init_value[0] != '\0'){
 }
 break;
 case DT_BOOL:
-if(sym->is_initialized && sym->init_value[0] != '\0'){
-int val = (strcmp(sym->init_value, "true") == 0 || strcmp(sym->init_value, "1") == 0) ? 1: 0;
-asmEmit("%s:    .byte  %d", sym->name, val);
-}
-else{
-asmEmit("%s:    .byte  0", sym->name);
-}
-break;
+    emitAlign(4);  // Align to 4 bytes
+    if(sym->is_initialized && sym->init_value[0] != '\0'){
+        int val = (strcmp(sym->init_value, "true") == 0 || 
+                   strcmp(sym->init_value, "True") == 0 ||
+                   strcmp(sym->init_value, "1") == 0) ? 1 : 0;
+        asmEmit("%s:    .word  %d", sym->name, val);
+    }
+    else{
+        asmEmit("%s:    .word  0", sym->name);
+    }
+    break;
 case DT_CHAR:
 if(sym->is_initialized && sym->init_value[0] != '\0'){
 const char* v = sym->init_value;
@@ -602,6 +605,7 @@ static void emitLocalArrayInits(SymTable* scope) {
     for (SymTable* child = scope->first_child; child; child = child->next_sibling)
         emitLocalArrayInits(child);
 }
+
 // Add this function RIGHT AFTER emitLocalArrayInits() closes
 static void emitLocalScalarInits(SymTable* scope) {
     if (!scope) return;
@@ -889,7 +893,7 @@ void genArrayAccess(const Quad* q) {
 
     // Compute effective address
     const char* r_ea = getReg(q->result);
-    asmEmit("    sub  %s, %s, %s", r_ea, r_base, r_off);
+    asmEmit("    add  %s, %s, %s", r_ea, r_base, r_off);
 
     // Load the value
     asmEmit("    lw   %s, 0(%s)", r_ea, r_ea);
@@ -2528,6 +2532,29 @@ static void emitShiftWithMode(const Quad* q, OperandMode m1, OperandMode m2){
     }
     markDirty(dst);
 }
+// This function is is used to assign a value to some arr[i] 
+void genArrayStore(const Quad* q){
+    asmComment("array store []=");
+    const char* r_base = getReg("_arr_base_tmp");
+    Symbol* asym = lookupForCodeGen(q->arg1);
+    if(asym && asym->scope_level == 0){
+        asmEmit("    la   %s, %s", r_base, q->arg1);
+    } else if(asym) {
+        int base_offset = getVarOffset(q->arg1);
+        asmEmit("    addi %s, s0, %d", r_base, base_offset);
+    } else {
+        asmEmit("    la   %s, %s", r_base, q->arg1);
+    }
+    count_loads++;
+    const char* r_off = load(q->arg2);
+    const char* r_val = load(q->result);
+    const char* r_ea  = getReg("_arr_ea_tmp");
+    asmEmit("    add  %s, %s, %s", r_ea, r_base, r_off);
+    asmEmit("    sw   %s, 0(%s)", r_val, r_ea);
+    count_stores++;
+    freeReg("_arr_base_tmp");
+    freeReg("_arr_ea_tmp");
+}
 
 // This function is called for all quads in the generated IR code and then based on the operator present in the Quad corresponding function handler is called
 void genQuad(const Quad* q){
@@ -2578,10 +2605,14 @@ strcmp(op, "==") == 0){
 genRelational(q);
 return;
 }
-if(strcmp(op, "[]") == 0){
-genArrayAccess(q);
-return;
-}
+    if(strcmp(op, "[]") == 0){
+        genArrayAccess(q);
+        return;
+    }
+    if(strcmp(op, "[]=") == 0){         
+        genArrayStore(q);
+        return;
+    }
 if(strcmp(op, "ifFalse") == 0 || strcmp(op, "goto") == 0 ||
 strcmp(op, "label") == 0){
 genIfGoto(q);
@@ -2728,7 +2759,10 @@ else if(strcmp(op, "end_constr") == 0){
 genFunctionEpilogue(q); // reuses the shared epilogue
 return;
 }
-
+else if(strcmp(op, "[]=") == 0){
+    genArrayStore(q);
+    return;
+}
 // starting the method of the constrctor
 else if(strcmp(op, "method") == 0){
 genMethodPrologue(q);
@@ -2953,7 +2987,7 @@ pending_arg_count = 0;
 //resetTempSlots();
 //temp_slot_count = 0;
 //next_temp_offset = 0;
-int temp_spill_area = (IR_idx * 4 < 512) ? (IR_idx * 4 + 64) : 512;
+int temp_spill_area = 256;  // fixed reasonable cap
 temp_spill_area = (temp_spill_area + 15) & ~15;
 
 const char* fname = q->arg1;
@@ -3089,7 +3123,7 @@ static void genConstructorPrologue(const Quad* q){
 initRegs();
 pending_arg_count = 0;
 //resetTempSlots();
-int temp_spill_area = (IR_idx * 4 < 2048) ? (IR_idx * 4 + 64) : 2048;
+int temp_spill_area = 256;
 temp_spill_area = (temp_spill_area + 15) & ~15;
 
 const char* cname = q->arg1;
@@ -3432,7 +3466,14 @@ int is_str_literal = isStringLiteral(q->arg1);
         // For string address load the base address of the string using the name of the string label (defined in .data section). "la" is the type of instruction used
         // If it is a string pointer load it using "lw" with base address from the starting pointer of stack frame and offset computed from the symbol table
 
-
+        // if the output to be done is a character literal
+		if(q->arg1[0] == '\'' && q->arg1[2] == '\''){
+			spillAllRegs();
+			asmEmit("    li   a0, %d", (int)(unsigned char)q->arg1[1]);
+			count_loads++;
+			asmEmit("    call putchar");
+			return;
+		}
 // if the argument is a string literal
         if(isStringLiteral(q->arg1)){
                         const char* lbl = getStringLabel(q->arg1);
@@ -3448,14 +3489,7 @@ int is_str_literal = isStringLiteral(q->arg1);
                         return;
                 }
 
-        // if the output to be done is a character literal
-                if(q->arg1[0] == '\'' && q->arg1[2] == '\''){
-                        spillAllRegs();
-                        asmEmit("    li   a0, %d", (int)(unsigned char)q->arg1[1]);
-                        count_loads++;
-                        asmEmit("    call putchar");
-                        return;
-                }
+        
 
                 // if the argument is an integer constant
                 if(isConstant(q->arg1)){
@@ -3493,18 +3527,30 @@ int is_str_literal = isStringLiteral(q->arg1);
                                 int src = findRegFor(q->arg1);
                                 asmEmit("    mv     a0, %s", reg_name[src]);
                 instr_sel_reg_reuse++;
-                                spillAllRegs();
-                        }
-                        else{
-                                // MODE_MEM — spill then load directly into a0 (lw+mv fusion)
-                                spillAllRegs();
-                                asmEmit("    lw     a0, %d(s0)", getVarOffset(q->arg1));
-                                count_loads++;
-                                instr_sel_lwmv_fused++;
-                        }
-                        asmEmit("    call puts");
-                        return;
-                }
+				spillAllRegs();
+			}
+			else{
+				// MODE_MEM — spill then load directly into a0 (lw+mv fusion)
+				spillAllRegs();
+				asmEmit("    lw     a0, %d(s0)", getVarOffset(q->arg1));
+				count_loads++;
+				instr_sel_lwmv_fused++;
+			}
+			asmEmit("    call puts");
+			return;
+		}
+        // In genIO, when handling bool output:
+        // if(sym && sym->datatype == DT_BOOL){
+        //     if(sym->scope_level == 0){
+        //         asmEmit("    la     t0, %s", sym->name);
+        //         asmEmit("    lw     a1, 0(t0)");  // Use lw, not lb
+        //     } else {
+        //         asmEmit("    lw     a1, %d(s0)", getVarOffset(q->arg1));
+        //     }
+        //     asmEmit("    la     a0, .fmt_int");
+        //     asmEmit("    call   printf");
+        //     return;
+        // }
 
         // If the operand is a float
                 if(sym && sym->datatype == DT_FLOAT){

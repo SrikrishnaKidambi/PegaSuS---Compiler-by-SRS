@@ -1,16 +1,8 @@
     .data
 
     # -- Global Scalar Variables --
-        .align 2
-    n:    .word  5
 
     # -- global arrays --
-        .align 2
-    arr:    .word  5
-           .word  3
-           .word  8
-           .word  1
-           .word  2
 
     # -- string literals --
 
@@ -41,49 +33,68 @@ main:
 
 main_:
     # -- prologue --
-        addi   sp, sp, -208
-        sd     ra, 200(sp)
-        sd     s0, 192(sp)
-        addi   s0, sp, 208
+        addi   sp, sp, -336
+        sd     ra, 328(sp)
+        sd     s0, 320(sp)
+        addi   s0, sp, 336
     # --initialize local arrays --
     # --initialize local scalars --
+    # init local scalar i at offset -24
     # -- prologue end --
 
-    li t1, 2
-    li t2, 4
-        mul  t3, t1, t2
-    # array store []=
-        la   t4, arr
-        add  t5, t4, t3
-        sw   t2, 0(t5)
-    li t4, 0
-        mul  t5, t4, t2
-    # array access []
-        la   t6, arr
-        add  s1, t6, t5
-        lw   s1, 0(s1)
-        sw   t5, -112(s0)
-        mv     a1, s1
+        li   t1, 0
     # spill all registers
+        sw   t1, -24(s0)
+
+L0:
+    # <
+        lw   t1, -24(s0)
+        slti t2, t1, 5
+    # spill all registers
+        sw   t2, -92(s0)
+        beqz   t2, L1
+    # ==
+        lw   t1, -24(s0)
+        li   t2, 2
+        sub  t3, t1, t2
+        seqz t3, t3
+    # spill all registers
+        sw   t3, -96(s0)
+        beqz   t3, L2
+        lw   t1, -24(s0)
+        addi t2, t1, 1
+        mv   t1, t2
+    # spill all registers
+        sw   t1, -24(s0)
+        sw   t2, -100(s0)
+        j      L0
+    # spill all registers
+        j      L3
+    # spill all registers
+
+L2:
+    # spill all registers
+
+L3:
+    # spill all registers
+        lw     a1, -24(s0)
         la a0, .fmt_int
         call printf
-    li t1, 2
-    li t2, 4
-        mul  t3, t1, t2
-    # array access []
-        la   t4, arr
-        add  t5, t4, t3
-        lw   t5, 0(t5)
-        sw   t3, -116(s0)
-        mv     a1, t5
+        lw   t1, -24(s0)
+        addi t2, t1, 1
+        mv   t1, t2
     # spill all registers
-        la a0, .fmt_int
-        call printf
+        sw   t1, -24(s0)
+        sw   t2, -100(s0)
+        j      L0
+    # spill all registers
+
+L1:
 Lepi_main_:
     # -- epilogue --
-        ld     ra, 200(sp)
-        ld     s0, 192(sp)
-        addi   sp, sp, 208
+        ld     ra, 328(sp)
+        ld     s0, 320(sp)
+        addi   sp, sp, 336
         ret
     # -- epilogue end --
 
@@ -94,13 +105,9 @@ global_body:
         sd   ra, 216(sp)
         sd   s0, 208(sp)
         addi s0, sp, 224
-    # array_init
-        li   t1, 5
     # spill all registers
-        la   t0, n
-        sw   t1, 0(t0)
         call   main_
-        sw     a0, -112(s0)
+        sw     a0, -92(s0)
 
     # -- global scope epilogue --
         ld   ra, 216(sp)

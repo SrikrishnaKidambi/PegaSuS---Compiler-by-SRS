@@ -40,6 +40,8 @@ STRING_CONST \"([^\\\"]|\\.)*\"
 "public"    { return PUBLIC; }
 "private"   { return PRIVATE; }
 "this"      { return THIS; }
+"break"		{ return BREAK; }
+"continue"	{ return CONTINUE; }
 
 "=="        { return EQ; }
 ">"         { return GT; }
