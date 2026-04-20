@@ -1,0 +1,20 @@
+int 2seq mat1 = {{1,0,0}, {0,1,0}, {0,0,1}};
+int 2seq mat2 = {{1,2,3}, {4,5,6}, {7,8,9}};
+
+int 2seq matmul = {{0,0,0},{0,0,0},{0,0,0}};
+
+for(int i = 0; i < 3; i += 1){
+	for(int j = 0; j < 3; j += 1){
+		for(int k = 0; k < 3; k += 1){
+			matmul[i][j] = matmul[i][j] + (mat1[i][k] * mat2[k][j]);
+		}
+	}
+}
+
+show("Printing the result\n");
+for(int i = 0; i < 3; i += 1){
+	for(int j = 0; j < 3; j += 1){
+		show(matmul[i][j]);
+	}
+}
+show("\nDone with printing the result");
