@@ -45,9 +45,9 @@ Patient_sii:
         addi s0, sp, 320
     # save 'this' pointer
         sd   a0, -24(s0)
-        sd a1, -40(s0)
-        sw   a2, -48(s0)
-        sw   a3, -52(s0)
+        sd a1, -32(s0)
+        sw   a2, -40(s0)
+        sw   a3, -44(s0)
     # -- initialize local arrays --
     # -- constructor prologue end --
 
@@ -56,15 +56,15 @@ Patient_sii:
     # days
     # set_field
         ld  t1, -24(s0)
-        ld   t2, -40(s0)
+        ld   t2, -32(s0)
         sd   t2, 0(t1)
     # set_field
         ld  t1, -24(s0)
-        lw   t2, -48(s0)
+        lw   t2, -40(s0)
         sw   t2, 8(t1)
     # set_field
         ld  t1, -24(s0)
-        lw   t2, -52(s0)
+        lw   t2, -44(s0)
         sw   t2, 12(t1)
 Lepi_Patient_sii:
     # -- epilogue --
@@ -96,6 +96,11 @@ total_fee_:
         mul  t5, t1, t3
         mv   t6, t5
         mv     a0, t6
+    # spill all registers
+        sw   t1, -32(s0)
+        sw   t3, -36(s0)
+        sw   t5, -108(s0)
+        sw   t6, -40(s0)
         j      Lepi_total_fee_
 Lepi_total_fee_:
     # -- epilogue --
@@ -120,6 +125,7 @@ getName_:
         ld  t1, -24(s0)
         ld  t2, 0(t1)
         mv     a0, t2
+    # spill all registers
         j      Lepi_getName_
 Lepi_getName_:
     # -- epilogue --

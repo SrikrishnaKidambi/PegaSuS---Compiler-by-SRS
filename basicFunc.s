@@ -41,10 +41,10 @@ main:
 
 add_ii:
     # -- prologue --
-        addi   sp, sp, -192
-        sd     ra, 184(sp)
-        sd     s0, 176(sp)
-        addi   s0, sp, 192
+        addi   sp, sp, -208
+        sd     ra, 200(sp)
+        sd     s0, 192(sp)
+        addi   s0, sp, 208
         sw   a0, -24(s0)
         sw   a1, -28(s0)
     # --initialize local arrays --
@@ -60,12 +60,14 @@ add_ii:
         lw   t2, -28(s0)
         add  t3, t1, t2
         mv     a0, t3
+    # spill all registers
+        sw   t3, -96(s0)
         j      Lepi_add_ii
 Lepi_add_ii:
     # -- epilogue --
-        ld     ra, 184(sp)
-        ld     s0, 176(sp)
-        addi   sp, sp, 192
+        ld     ra, 200(sp)
+        ld     s0, 192(sp)
+        addi   sp, sp, 208
         ret
     # -- epilogue end --
 
@@ -76,16 +78,26 @@ global_body:
         sd   ra, 200(sp)
         sd   s0, 192(sp)
         addi s0, sp, 208
-        li     a0, 1
-        li     a1, 2
+        li   t1, 1
+        li   t2, 2
+        mv     a0, t1
+        mv     a1, t2
     # spill all registers
+        la   t0, a
+        sw   t1, 0(t0)
+        la   t0, b
+        sw   t2, 0(t0)
         call   add_ii
         sw     a0, -100(s0)
+        lw   t1, -100(s0)
     # spill all registers
+        la   t0, result
+        sw   t1, 0(t0)
         la   a0, str_1
         call puts
     # spill all registers
-        lw     a1, -100(s0)
+        la     t0, result
+        lw     a1, 0(t0)
         la a0, .fmt_int
         call printf
 

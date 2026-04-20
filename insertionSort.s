@@ -41,10 +41,10 @@ main:
 
 insertion_sort_:
     # -- prologue --
-        addi   sp, sp, -400
-        sd     ra, 392(sp)
-        sd     s0, 384(sp)
-        addi   s0, sp, 400
+        addi   sp, sp, -336
+        sd     ra, 328(sp)
+        sd     s0, 320(sp)
+        addi   s0, sp, 336
     # --initialize local arrays --
     # --initialize local scalars --
     # init local scalar i at offset -48
@@ -62,57 +62,70 @@ L0:
         la   t0, n
         lw   t2, 0(t0)
         slt  t3, t1, t2
-        beqz   t3, L1
-        sw   t3, -124(s0)
-    li t3, 4
-        mul  t4, t1, t3
-    # array access []
-        la   t5, arr
-        add  t6, t5, t4
-        lw   t6, 0(t6)
-        sw   t4, -128(s0)
-        mv   t4, t6
-        addi t5, t1, -1
-        mv   s1, t5
     # spill all registers
-        sw   t4, -52(s0)
-        sw   s1, -56(s0)
+        sw   t3, -124(s0)
+        beqz   t3, L1
+        lw   t1, -48(s0)
+        li   t2, 4
+        mul  t3, t1, t2
+    # array access []
+        la   t4, arr
+        add  t5, t4, t3
+        lw   t5, 0(t5)
+        sw   t3, -128(s0)
+        mv   t3, t5
+        addi t4, t1, -1
+        mv   t6, t4
+    # spill all registers
+        sw   t3, -52(s0)
+        sw   t4, -132(s0)
+        sw   t5, -136(s0)
+        sw   t6, -56(s0)
 
 L2:
     # >
         lw   t1, -56(s0)
-    li t2, 0
+        li   t2, 0
         slt  t3, t2, t1
     # ==
         sub  t4, t1, t2
         seqz t4, t4
     # ||
         or   t5, t3, t4
+    # spill all registers
+        sw   t3, -140(s0)
+        sw   t4, -144(s0)
+        sw   t5, -148(s0)
         beqz   t5, L3
-        sw   t5, -132(s0)
-    li t5, 4
-        mul  t6, t1, t5
+        lw   t1, -56(s0)
+        li   t2, 4
+        mul  t3, t1, t2
+    # array access []
+        la   t4, arr
+        add  t5, t4, t3
+        lw   t5, 0(t5)
+        sw   t3, -152(s0)
+    # <
+        lw   t3, -52(s0)
+        slt  t4, t5, t3
+        mul  t6, t1, t2
     # array access []
         la   s1, arr
         add  s2, s1, t6
         lw   s2, 0(s2)
-        sw   t6, -136(s0)
-    # <
-        lw   t6, -52(s0)
-        slt  s1, s2, t6
-        mul  s3, t1, t5
-    # array access []
-        la   s4, arr
-        add  s5, s4, s3
-        lw   s5, 0(s5)
-        sw   s3, -140(s0)
+        sw   t6, -156(s0)
     # ==
-        sub  s3, s5, t6
-        seqz s3, s3
+        sub  t6, s2, t3
+        seqz t6, t6
     # ||
-        or   s4, s1, s3
-        beqz   s4, L4
-        sw   s4, -144(s0)
+        or   s1, t4, t6
+    # spill all registers
+        sw   t4, -160(s0)
+        sw   t5, -164(s0)
+        sw   t6, -168(s0)
+        sw   s1, -172(s0)
+        sw   s2, -176(s0)
+        beqz   s1, L4
     # spill all registers
         j      L3
     # spill all registers
@@ -125,13 +138,13 @@ L4:
 L5:
         lw   t1, -56(s0)
         addi t2, t1, 1
-    li t3, 4
+        li   t3, 4
         mul  t4, t1, t3
     # array access []
         la   t5, arr
         add  t6, t5, t4
         lw   t6, 0(t6)
-        sw   t4, -148(s0)
+        sw   t4, -180(s0)
         mul  t4, t2, t3
     # array store []=
         la   t5, arr
@@ -141,13 +154,17 @@ L5:
         mv   t1, t5
     # spill all registers
         sw   t1, -56(s0)
+        sw   t2, -184(s0)
+        sw   t4, -188(s0)
+        sw   t5, -192(s0)
+        sw   t6, -196(s0)
         j      L2
     # spill all registers
 
 L3:
         lw   t1, -56(s0)
         addi t2, t1, 1
-    li t3, 4
+        li   t3, 4
         mul  t4, t2, t3
     # array store []=
         la   t5, arr
@@ -158,26 +175,29 @@ L3:
         addi s1, t5, 1
         mv   t5, s1
     # spill all registers
+        sw   t2, -200(s0)
+        sw   t4, -204(s0)
         sw   t5, -48(s0)
+        sw   s1, -208(s0)
         j      L0
     # spill all registers
 
 L1:
 Lepi_insertion_sort_:
     # -- epilogue --
-        ld     ra, 392(sp)
-        ld     s0, 384(sp)
-        addi   sp, sp, 400
+        ld     ra, 328(sp)
+        ld     s0, 320(sp)
+        addi   sp, sp, 336
         ret
     # -- epilogue end --
 
 
 main_:
     # -- prologue --
-        addi   sp, sp, -400
-        sd     ra, 392(sp)
-        sd     s0, 384(sp)
-        addi   s0, sp, 400
+        addi   sp, sp, -336
+        sd     ra, 328(sp)
+        sd     s0, 320(sp)
+        addi   s0, sp, 336
     # --initialize local arrays --
     # --initialize local scalars --
     # init local scalar i at offset -48
@@ -196,17 +216,20 @@ L6:
         la   t0, n
         lw   t2, 0(t0)
         slt  t3, t1, t2
-        beqz   t3, L7
-        sw   t3, -120(s0)
-    li t3, 4
-        mul  t4, t1, t3
-    # array access []
-        la   t5, arr
-        add  t6, t5, t4
-        lw   t6, 0(t6)
-        sw   t4, -124(s0)
-        mv     a1, t6
     # spill all registers
+        sw   t3, -120(s0)
+        beqz   t3, L7
+        lw   t1, -48(s0)
+        li   t2, 4
+        mul  t3, t1, t2
+    # array access []
+        la   t4, arr
+        add  t5, t4, t3
+        lw   t5, 0(t5)
+        sw   t3, -124(s0)
+        mv     a1, t5
+    # spill all registers
+        sw   t5, -128(s0)
         la a0, .fmt_int
         call printf
         lw   t1, -48(s0)
@@ -214,15 +237,16 @@ L6:
         mv   t1, t2
     # spill all registers
         sw   t1, -48(s0)
+        sw   t2, -132(s0)
         j      L6
     # spill all registers
 
 L7:
 Lepi_main_:
     # -- epilogue --
-        ld     ra, 392(sp)
-        ld     s0, 384(sp)
-        addi   sp, sp, 400
+        ld     ra, 328(sp)
+        ld     s0, 320(sp)
+        addi   sp, sp, 336
         ret
     # -- epilogue end --
 

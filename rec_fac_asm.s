@@ -54,6 +54,10 @@ fact_i:
         seqz t3, t3
         beqz   t3, L0
         sw   t3, -92(s0)
+<<<<<<< HEAD
+=======
+    # spill all registers
+>>>>>>> f9d51562640d1bef6bdc31f5d7fc75b6c7ff4305
         li     a0, 1
         j      Lepi_fact_i
     # spill all registers
@@ -68,12 +72,21 @@ L1:
         addi t2, t1, -1
         mv     a0, t2
     # spill all registers
+        sw   t2, -96(s0)
         call   fact_i
+<<<<<<< HEAD
         sw     a0, -96(s0)
         lw   t1, -24(s0)
         lw   t2, -96(s0)
+=======
+        sw     a0, -100(s0)
+        lw   t1, -24(s0)
+        lw   t2, -100(s0)
+>>>>>>> f9d51562640d1bef6bdc31f5d7fc75b6c7ff4305
         mul  t3, t1, t2
         mv     a0, t3
+    # spill all registers
+        sw   t3, -104(s0)
         j      Lepi_fact_i
 Lepi_fact_i:
     # -- epilogue --

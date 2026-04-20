@@ -55,14 +55,19 @@ L0:
         beqz   t2, L1
     # ==
         lw   t1, -24(s0)
-        li   t2, 3
+        li   t2, 2
         sub  t3, t1, t2
         seqz t3, t3
     # spill all registers
         sw   t3, -96(s0)
         beqz   t3, L2
+        lw   t1, -24(s0)
+        addi t2, t1, 1
+        mv   t1, t2
     # spill all registers
-        j      L1
+        sw   t1, -24(s0)
+        sw   t2, -100(s0)
+        j      L0
     # spill all registers
         j      L3
     # spill all registers
