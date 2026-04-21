@@ -536,6 +536,21 @@ emitGlobalArray(sym);
 asmBlank();
 asmComment("-- string literals --");
 
+asmComment("-- snapshot variable name strings --");
+for(int i = 0; i < IR_idx; i++){
+    if(strcmp(IR[i].op, "snapshot_begin") == 0){
+        char buf[256];
+        strncpy(buf, IR[i].arg1, 255);
+        char* tok = strtok(buf, ",");
+        int idx = 0;
+        while(tok){
+            while(*tok == ' ') tok++;
+            asmEmit("__snap_str_%d:    .asciz \"%s\"", idx, tok);
+            tok = strtok(NULL, ",");
+            idx++;
+        }
+    }
+}
 scanStringLiterals();
 asmBlank();
 
@@ -2556,6 +2571,74 @@ void genArrayStore(const Quad* q){
     freeReg("_arr_ea_tmp");
 }
 
+// Parses comma-separated var list from q->arg1 and emits
+// a call to __snapshot_track for each variable address
+void genSnapshotBegin(const Quad* q){
+    asmComment("snapshot_begin");
+    // Push the variable count and addresses to runtime
+    // Parse q->arg1 which is "var1,var2,var3"
+    char buf[256];
+    strncpy(buf, q->arg1, 255);
+    char* tok = strtok(buf, ",");
+    int count = 0;
+    char vars[32][64];
+    while(tok && count < 32){
+        while(*tok == ' ') tok++;
+        strncpy(vars[count++], tok, 63);
+        tok = strtok(NULL, ",");
+    }
+
+    // emit: __snapshot_init(n_vars)
+    spillAllRegs();
+    asmEmit("    li   a0, %d", count);
+    asmEmit("    call __snapshot_init");
+
+    // For each variable emit: __snapshot_register_var(&var, "varname")
+    for(int i = 0; i < count; i++){
+        Symbol* sym = lookupForCodeGen(vars[i]);
+        spillAllRegs();
+        // Load address of variable into a0
+        if(sym && sym->scope_level == 0){
+            asmEmit("    la   a0, %s", sym->name);
+        } else if(sym){
+            asmEmit("    addi a0, s0, %d", getVarOffset(vars[i]));
+        } else {
+            asmComment("snapshot: variable not found");
+            continue;
+        }
+        // Load name string into a1 — register as string literal
+        asmEmit("    la   a1, __snap_str_%d", i);
+        asmEmit("    call __snapshot_register_var");
+    }
+}
+
+void genSnapshotEnd(const Quad* q){
+    (void)q;
+    asmComment("snapshot_end");
+    spillAllRegs();
+    asmEmit("    call __snapshot_cleanup");
+}
+
+void genRewind(const Quad* q){
+    asmComment("rewind");
+    spillAllRegs();
+    // n is in q->arg1
+    if(isConstant(q->arg1)){
+        asmEmit("    li   a0, %s", q->arg1);
+    } else {
+        Symbol* sym = lookupForCodeGen(q->arg1);
+        if(sym && sym->scope_level == 0){
+            asmEmit("    la   t0, %s", sym->name);
+            asmEmit("    lw   a0, 0(t0)");
+        } else {
+            asmEmit("    lw   a0, %d(s0)", getVarOffset(q->arg1));
+        }
+    }
+    asmEmit("    call __snapshot_rewind");
+}
+
+
+
 // This function is called for all quads in the generated IR code and then based on the operator present in the Quad corresponding function handler is called
 void genQuad(const Quad* q){
 const char* op = q->op;
@@ -2569,6 +2652,8 @@ if(use_template_matching){
 // Get the modes of the operand
 OperandMode m1 = getMode(q->arg1);
 OperandMode m2 = getMode(q->arg2);
+
+
 
 if(strcmp(op, "+") == 0 || strcmp(op, "-") == 0 ||
 strcmp(op, "*") == 0 || strcmp(op, "/") == 0 ||
@@ -2662,6 +2747,25 @@ if(strcmp(op, "new") == 0 || strcmp(op, "call_constr") == 0
 genObjectOps(q);
 return;
 }
+if(strcmp(op, "snapshot_begin") == 0){
+    genSnapshotBegin(q);
+    return;
+}
+if(strcmp(op, "snapshot_end") == 0){
+    genSnapshotEnd(q);
+    return;
+}
+if(strcmp(op, "rewind") == 0){
+    genRewind(q);
+    return;
+}
+
+if(strcmp(op, "snapshot_capture") == 0){
+    spillAllRegs();
+    asmEmit("    call __snapshot_capture");
+    return;
+}
+
 asmComment(op);
 return;
 }
@@ -2740,6 +2844,24 @@ else if(strcmp(op, "new") == 0 || strcmp(op, "call_constr") == 0
 genObjectOps(q);
 return;
 
+}
+
+else if(strcmp(op, "snapshot_begin") == 0){
+    genSnapshotBegin(q);
+    return;
+}
+else if(strcmp(op, "snapshot_end") == 0){
+    genSnapshotEnd(q);
+    return;
+}
+else if(strcmp(op, "rewind") == 0){
+    genRewind(q);
+    return;
+}
+else if(strcmp(op, "snapshot_capture") == 0){
+    spillAllRegs();
+    asmEmit("    call __snapshot_capture");
+    return;
 }
 
 // entity block

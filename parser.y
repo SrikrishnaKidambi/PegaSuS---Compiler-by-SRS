@@ -133,6 +133,7 @@ static int for_cnt = 0;
         AccessMod access;
     }
 
+    %token SNAPSHOT REWIND
     %token INT FP CHR STRING BOOL VOID
     %token IF ELIF ELSE FOR TRUE FALSE FEED SHOW RETURN
     %token BREAK CONTINUE
@@ -153,6 +154,7 @@ static int for_cnt = 0;
     %type <sval>   for_cond_opt     
     %type <sval>   for_inc_opt      
     %type <sval>   for_init_opt
+    %type <sval> snapshot_var_list
 
     %right ASSIGN ADD_ASSIGN SUB_ASSIGN
     %left  OR
@@ -187,6 +189,8 @@ static int for_cnt = 0;
         | return_stmt
         | break_stmt
         | continue_stmt
+        | snapshot_stmt
+        | rewind_stmt
         | object_decl
         | block
         | error SEMICOLON
@@ -1977,6 +1981,63 @@ static int for_cnt = 0;
                 emit("goto", "", "", loopCondStack[loopTop]);
             }
         }
+    ;
+
+    snapshot_stmt
+    : SNAPSHOT LT snapshot_var_list GT
+        {
+            emit("snapshot_begin", $3, "", "");
+            /* emit one snapshot_track per variable so optimizer
+               treats each as live and never folds/propagates them */
+            char buf[256];
+            strncpy(buf, $3, 255);
+            char* tok = strtok(buf, ",");
+            while(tok) {
+                while(*tok == ' ') tok++;
+                emit("snapshot_track", tok, "", "");
+                tok = strtok(NULL, ",");
+            }
+            free($3);
+        }
+      LBRACE
+        {
+            SymTable* bs = create_scope(SCOPE_BLOCK, "snapshot_block", current_scope);
+            current_scope = bs;
+        }
+      snapshot_stmt_list RBRACE
+        {
+            emit("snapshot_end", "", "", "");
+            print_table(current_scope);
+            current_scope = current_scope->parent;
+        }
+    ;
+    
+    snapshot_stmt_list
+        : snapshot_stmt_list statement
+            { emit("snapshot_capture", "", "", ""); }
+        | statement
+            { emit("snapshot_capture", "", "", ""); }
+        ;
+
+    rewind_stmt
+        : REWIND LPAREN expression RPAREN SEMICOLON
+            {
+                emit("rewind", $3, "", "");
+            }
+        ;
+    
+    snapshot_var_list
+        : snapshot_var_list COMMA IDENTIFIER
+            {
+                char* buf = malloc(strlen($1) + strlen($3) + 2);
+                sprintf(buf, "%s,%s", $1, $3);
+                free($1);
+                $$ = buf;
+            }
+        | IDENTIFIER
+            {
+                $$ = strdup($1);
+            }
     ;
 
     for_stmt
