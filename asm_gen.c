@@ -480,105 +480,105 @@ static void scanFloatLiterals(void){
 // genDataSection - Emits the .data section completely emitting the labels for all the global scalar variabls, global arrays, and string literals by scanning IR quads
 void genDataSection(void)
 {
-asmEmit(".data");
-asmBlank();
+    asmEmit(".data");
+    asmBlank();
 
-// Collect all global symbols to that first we can emit global scalars
-if(!global_scope){
-asmBlank();
-return;
-}
+    if(!global_scope){
+        asmBlank();
+        return;
+    }
 
-asmComment("-- Global Scalar Variables --");
+    /* 1 — global scalar variables */
+    asmComment("-- Global Scalar Variables --");
+    for(int b = 0; b < HASH_SIZE; b++){
+        for(Symbol* sym = global_scope->buckets[b]; sym; sym = sym->next){
+            if(sym->kind == KIND_FUNCTION   ||
+               sym->kind == KIND_METHOD     ||
+               sym->kind == KIND_CONSTRUCTOR||
+               sym->kind == KIND_ENTITY     ||
+               sym->kind == KIND_OBJECT     ||
+               sym->kind == KIND_FOR        ||
+               sym->kind == KIND_IF         ||
+               sym->kind == KIND_ELIF       ||
+               sym->kind == KIND_ELSE       ||
+               sym->kind == KIND_ARRAY) continue;
 
-for(int b = 0; b < HASH_SIZE; b++){
-for(Symbol* sym = global_scope->buckets[b]; sym; sym=sym->next){
-//
-if (sym->kind == KIND_FUNCTION   ||
-sym->kind == KIND_METHOD     ||
-sym->kind == KIND_CONSTRUCTOR||
-sym->kind == KIND_ENTITY     ||
-sym->kind == KIND_OBJECT     ||
-sym->kind == KIND_FOR        ||
-sym->kind == KIND_IF         ||
-sym->kind == KIND_ELIF       ||
-sym->kind == KIND_ELSE) {
-continue;
-}
-
-// skip arrays also
-if(sym->kind == KIND_ARRAY){
-continue;
-}
-
-// Emit scalar variable
-if(sym->datatype == DT_STRING){
-emitGlobalString(sym);
-}
-else{
-emitGlobalScalar(sym);
-}
-}
-}
-
-asmBlank();
-asmComment("-- global arrays --");
-
-for(int b = 0; b < HASH_SIZE; b++){
-for(Symbol* sym = global_scope->buckets[b]; sym; sym = sym->next){
-if(sym->kind != KIND_ARRAY){
-continue;
-}
-emitGlobalArray(sym);
-}
-}
-
-asmBlank();
-asmComment("-- string literals --");
-
-asmComment("-- snapshot variable name strings --");
-for(int i = 0; i < IR_idx; i++){
-    if(strcmp(IR[i].op, "snapshot_begin") == 0){
-        char buf[256];
-        strncpy(buf, IR[i].arg1, 255);
-        char* tok = strtok(buf, ",");
-        int idx = 0;
-        while(tok){
-            while(*tok == ' ') tok++;
-            asmEmit("__snap_str_%d:    .asciz \"%s\"", idx, tok);
-            tok = strtok(NULL, ",");
-            idx++;
+            if(sym->datatype == DT_STRING)
+                emitGlobalString(sym);
+            else
+                emitGlobalScalar(sym);
         }
     }
-}
-scanStringLiterals();
-asmBlank();
 
-asmComment("-- global objects (pointer slots) --");
-for(int b = 0; b < HASH_SIZE; b++){
-    for(Symbol* sym = global_scope->buckets[b]; sym; sym = sym->next){
-        if(sym->kind != KIND_OBJECT) continue;
-        asmEmit("    .align 3");           // 8-byte alignment
-        asmEmit("%s:    .dword 0", sym->name);  // 8-byte zero slot
+    /* 2 — global arrays (exactly once) */
+    asmBlank();
+    asmComment("-- global arrays --");
+    for(int b = 0; b < HASH_SIZE; b++){
+        for(Symbol* sym = global_scope->buckets[b]; sym; sym = sym->next){
+            if(sym->kind == KIND_ARRAY)
+                emitGlobalArray(sym);
+        }
     }
-}
-// for handling prininting the type of content
-asmComment("-- I/O format strings --");
-asmEmit(".fmt_int:    .asciz  \"%%d\\n\"");
-asmEmit(".fmt_uint:    .asciz  \"%%u\\n\"");
-asmEmit(".fmt_float:    .asciz  \"%%f\\n\"");
-asmEmit(".fmt_str:    .asciz  \"%%s\\n\"");
-asmEmit(".fmt_char:    .asciz  \"%%c\\n\"");
-asmEmit(".fmt_scan_int:    .asciz  \"%%d\"");
-asmEmit(".fmt_scan_float:    .asciz  \"%%f\\n\"");
-asmEmit(".fmt_scan_str:    .asciz  \"%%s\\n\"");
-asmBlank();
 
-// Float literals
-for(int i = 0; i < float_lit_count; i++){
-    asmEmit("    .align 2");
-    asmEmit("%s:    .float %s", float_lit_table[i].label, float_lit_table[i].value);
-}
+    /* 3 — string literals from IR (exactly once) */
+    asmBlank();
+    asmComment("-- string literals --");
+    scanStringLiterals();
+
+    /* 4 — snapshot variable name strings (new feature) */
+    asmComment("-- snapshot variable name strings --");
+    for(int i = 0; i < IR_idx; i++){
+        if(strcmp(IR[i].op, "snapshot_begin") == 0){
+            char buf[256];
+            strncpy(buf, IR[i].arg1, 255);
+            char* tok = strtok(buf, ",");
+            int idx = 0;
+            while(tok){
+                while(*tok == ' ') tok++;
+                asmEmit("__snap_str_%d:    .asciz \"%s\"", idx, tok);
+                tok = strtok(NULL, ",");
+                idx++;
+            }
+        }
+    }
+
+    /* 5 — global objects pointer slots (exactly once) */
+    asmBlank();
+    asmComment("-- global objects (pointer slots) --");
+    for(int b = 0; b < HASH_SIZE; b++){
+        for(Symbol* sym = global_scope->buckets[b]; sym; sym = sym->next){
+            if(sym->kind != KIND_OBJECT) continue;
+            asmEmit("    .align 3");
+            asmEmit("%s:    .dword 0", sym->name);
+        }
+    }
+
+    /* 6 — I/O format strings */
+    asmBlank();
+    asmComment("-- I/O format strings --");
+    asmEmit(".fmt_int:        .asciz  \"%%d\\n\"");
+    asmEmit(".fmt_uint:       .asciz  \"%%u\\n\"");
+    asmEmit(".fmt_float:      .asciz  \"%%f\\n\"");
+    asmEmit(".fmt_str:        .asciz  \"%%s\\n\"");
+    asmEmit(".fmt_char:       .asciz  \"%%c\\n\"");
+    asmEmit(".fmt_scan_int:   .asciz  \"%%d\"");
+    asmEmit(".fmt_scan_float: .asciz  \"%%f\\n\"");
+    asmEmit(".fmt_scan_str:   .asciz  \"%%s\\n\"");
+    asmEmit(".fmt_int_bare:   .asciz  \"%%d\"");
+
+    /* 7 — linefreq report strings */
+    asmBlank();
+    asmComment("-- linefreq report strings --");
+    asmEmit(".lf_prefix:    .asciz  \"Blocks Spanning line numbers \"");
+    asmEmit(".lf_sep:       .asciz  \"-\"");
+    asmEmit(".lf_mid:       .asciz  \": Executed \"");
+    asmEmit(".lf_suffix:    .asciz  \" times\\n\"");
+
+    /* 8 — float literals */
+    for(int i = 0; i < float_lit_count; i++){
+        asmEmit("    .align 2");
+        asmEmit("%s:    .float %s", float_lit_table[i].label, float_lit_table[i].value);
+    }
 }
 
 
@@ -2722,6 +2722,77 @@ strcmp(op, "out") == 0){
 genIO(q);
 return;
 }
+// linefreq opcodes
+if(strcmp(op, "linefreq_inc") == 0){
+    asmComment("linefreq_inc");
+    Symbol* csym = lookupForCodeGen(q->arg1);
+    if(csym && csym->scope_level == 0){
+        /* global counter */
+        asmEmit("    la   t0, %s", csym->name);
+        asmEmit("    lw   t1, 0(t0)");
+        asmEmit("    addi t1, t1, 1");
+        asmEmit("    sw   t1, 0(t0)");
+    } else {
+        /* local counter */
+        int off = getVarOffset(q->arg1);
+        asmEmit("    lw   t0, %d(s0)", off);
+        asmEmit("    addi t0, t0, 1");
+        asmEmit("    sw   t0, %d(s0)", off);
+    }
+    count_loads++;
+    count_stores++;
+    return;
+}
+if(strcmp(op, "linefreq_report") == 0){
+    asmComment("linefreq_report");
+    spillAllRegs();
+
+    /* printf("Block "); */
+    asmEmit("    la     a0, .lf_prefix");
+    asmEmit("    call   printf");
+
+    /* printf("%d", start_line) */
+    asmEmit("    la     a0, .fmt_int_bare");   /* see note below */
+    asmEmit("    li     a1, %s", q->arg2);
+    asmEmit("    call   printf");
+
+    /* printf("-"); */
+    asmEmit("    la     a0, .lf_sep");
+    asmEmit("    call   printf");
+
+    /* printf("%d", end_line) */
+    asmEmit("    la     a0, .fmt_int_bare");
+    asmEmit("    li     a1, %s", q->result);
+    asmEmit("    call   printf");
+
+    /* printf(": Executed "); */
+    asmEmit("    la     a0, .lf_mid");
+    asmEmit("    call   printf");
+
+    /* printf("%d\n", counter_value) */
+    Symbol* csym = lookupForCodeGen(q->arg1);
+    if(csym && csym->scope_level == 0){
+        asmEmit("    la     t0, %s", csym->name);
+        asmEmit("    lw     a1, 0(t0)");
+    } else {
+        asmEmit("    lw     a1, %d(s0)", getVarOffset(q->arg1));
+    }
+    asmEmit("    la     a0, .fmt_int");   /* %d\n */
+    asmEmit("    call   printf");
+
+    /* printf(" times\n"); */
+    asmEmit("    la     a0, .lf_suffix");
+    asmEmit("    call   printf");
+
+    count_loads++;
+    return;
+}
+
+if(strcmp(op, "entity") == 0 ||
+strcmp(op, "end_entity") == 0){
+return;
+}
+
 if(strcmp(op, "entity") == 0 ||
 strcmp(op, "end_entity") == 0){
 return;
@@ -2845,6 +2916,44 @@ genObjectOps(q);
 return;
 
 }
+// linefreq opcodes (non-template path mirrors template path exactly)
+else if(strcmp(op, "linefreq_inc") == 0){
+    asmComment("linefreq_inc");
+    int off = getVarOffset(q->arg1);
+    asmEmit("    lw   t0, %d(s0)", off);
+    asmEmit("    addi t0, t0, 1");
+    asmEmit("    sw   t0, %d(s0)", off);
+    count_loads++;
+    count_stores++;
+    return;
+}
+else if(strcmp(op, "linefreq_report") == 0){
+    asmComment("linefreq_report");
+    spillAllRegs();
+    asmEmit("    la   a0, .lf_prefix");
+    asmEmit("    li   a7, 4");
+    asmEmit("    ecall");
+    asmEmit("    li   a0, %s", q->arg2);
+    asmEmit("    li   a7, 1");
+    asmEmit("    ecall");
+    asmEmit("    la   a0, .lf_sep");
+    asmEmit("    li   a7, 4");
+    asmEmit("    ecall");
+    asmEmit("    li   a0, %s", q->result);
+    asmEmit("    li   a7, 1");
+    asmEmit("    ecall");
+    asmEmit("    la   a0, .lf_mid");
+    asmEmit("    li   a7, 4");
+    asmEmit("    ecall");
+    asmEmit("    lw   a0, %d(s0)", getVarOffset(q->arg1));
+    asmEmit("    li   a7, 1");
+    asmEmit("    ecall");
+    asmEmit("    la   a0, .lf_suffix");
+    asmEmit("    li   a7, 4");
+    asmEmit("    ecall");
+    count_loads++;
+    return;
+}
 
 else if(strcmp(op, "snapshot_begin") == 0){
     genSnapshotBegin(q);
@@ -2919,22 +3028,22 @@ if (end == addr_str || (*end != '(' && *end != '\0')) {
 }
 */
 static int getVarOffset(const char* var_name){
-if(!var_name || var_name[0] == '\0'){
-return 0;
-}
-if(strcmp(var_name, "this") == 0){
-return -24;
-}
-Symbol* sym = lookupForCodeGen(var_name);
-if(sym){
-// Global variables: caller uses la+lw, offset not meaningful
-if(sym->scope_level == 0){
-return 0;
-}
-// All locals and params: s0-8=ra, s0-16=s0saved, s0-20 onward = data
-// sym->offset is the raw symtab counter (0, 4, 8, ...)
-return -(24 + sym->offset);
-}
+    if(!var_name || var_name[0] == '\0'){
+        return 0;
+    }
+    if(strcmp(var_name, "this") == 0){
+        return -24;
+    }
+    Symbol* sym = lookupForCodeGen(var_name);
+    if(sym){
+    // Global variables: caller uses la+lw, offset not meaningful
+    if(sym->scope_level == 0){
+        return 0;
+    }
+    // All locals and params: s0-8=ra, s0-16=s0saved, s0-20 onward = data
+    // sym->offset is the raw symtab counter (0, 4, 8, ...)
+        return -(24 + sym->offset);
+    }
 
     if(isTemp(var_name)){
         return getTempFrameOffset(var_name);
@@ -3874,10 +3983,10 @@ void generateASM(void)
         //reset counters before generating
         count_loads=0;
         count_stores = 0;
-    instr_sel_opt_hits = 0;
-    instr_sel_total_arith = 0;
+        instr_sel_opt_hits = 0;
+        instr_sel_total_arith = 0;
         instr_sel_lwmv_fused = 0;
-    instr_sel_reg_reuse = 0;
+        instr_sel_reg_reuse = 0;
         initRegs();
 
 
