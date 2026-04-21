@@ -149,18 +149,42 @@ if $STOP_AT_ASM; then
 	echo "pegasus: assembly written to '$FINAL_ASM'"
 	exit 0
 fi
-# Assemble and link
-run_cmd riscv64-linux-gnu-gcc -static \
-	"${EXTRA_GCC_FLAGS[@]}" \
-	"$ASM_FILE" \
-	-o "$OUTPUT_NAME"
-# Clean up temp assembly unless asked to keep it
+
+# Compile snapshot runtime for RISC-V
+SNAPSHOT_RUNTIME_O="/tmp/snapshot_runtime_$$.o"
+if [[ -f "$SCRIPT_DIR/snapshot_runtime.c" ]]; then
+	run_cmd riscv64-linux-gnu-gcc -static -c \
+		"$SCRIPT_DIR/snapshot_runtime.c" \
+		-o "$SNAPSHOT_RUNTIME_O"
+else
+	echo "pegasus: warning: snapshot_runtime.c not found, snapshot features disabled" >&2
+	SNAPSHOT_RUNTIME_O=""
+fi
+
+# Assemble and link with snapshot runtime if available
+if [[ -n "$SNAPSHOT_RUNTIME_O" ]]; then
+	run_cmd riscv64-linux-gnu-gcc -static \
+		"${EXTRA_GCC_FLAGS[@]}" \
+		"$ASM_FILE" \
+		"$SNAPSHOT_RUNTIME_O" \
+		-o "$OUTPUT_NAME"
+else
+	run_cmd riscv64-linux-gnu-gcc -static \
+		"${EXTRA_GCC_FLAGS[@]}" \
+		"$ASM_FILE" \
+		-o "$OUTPUT_NAME"
+fi
+
+# Clean up temp assembly and snapshot runtime object
 if $KEEP_ASM; then
 	cp "$ASM_FILE" "${BASENAME_NOEXT}.s"
 	echo "pegasus: assembly saved to '${BASENAME_NOEXT}.s'"
 fi
 rm -f "$ASM_FILE"
+[[ -n "$SNAPSHOT_RUNTIME_O" ]] && rm -f "$SNAPSHOT_RUNTIME_O"
+
 echo "pegasus: compiled '$SOURCE_FILE' -> '$OUTPUT_NAME'"
+
 # Run using QEMU emulator
 if $RUN_AFTER; then
 	echo "pegasus: running '$OUTPUT_NAME' via qemu-riscv64..."

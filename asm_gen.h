@@ -116,5 +116,10 @@ int isConstant(const char* operand);
 int isTemp(const char* operand);
 void markDirty(const char* regname);
 
+//snapshot debugging feature
+void genSnapshotBegin(const Quad* q);
+void genSnapshotEnd(const Quad* q);
+void genRewind(const Quad* q);
+
 extern int use_optimized_regalloc;
 #endif /* ASM_GEN_H */

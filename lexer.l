@@ -44,6 +44,8 @@ STRING_CONST \"([^\\\"]|\\.)*\"
 "continue"	{ return CONTINUE; }
 "extends"   { return EXTENDS; }
 "@linefreq"	{ return LINEFREQ; }
+"@Snapshot"   { return SNAPSHOT; }
+"rewind"      { return REWIND; }
 
 "=="        { return EQ; }
 ">"         { return GT; }

@@ -217,6 +217,13 @@ int constant_folding(void)
 
     for(int i = 0; i < tmp_n; i++){
         const Quad* s = &tmp[i];
+
+
+		/* skip folding snapshot-tracked variables */
+    	if(s->result[0] != '\0' && is_snapshot_tracked(s->result)){
+    	    OPT_IR[OPT_IR_idx++] = *s;
+    	    continue;
+    	}
         Quad out;
         memset(&out, 0, sizeof(out));
         int fired = 0;
@@ -333,7 +340,13 @@ int dead_code_elimination(void)
             const char* res = OPT_IR[i].result;
             const char* op  = OPT_IR[i].op;
 
+			/* never eliminate snapshot-tracked variables */
+			if(res[0] != '\0' && is_snapshot_tracked(res)){
+    		    scratch[scratch_idx++] = OPT_IR[i];
+    		    continue;
+    		}
             // always force push the side -effects op's into the final ir table
+
             if(IS_SIDEEFFECT(op)){
                 scratch[scratch_idx++]=OPT_IR[i];
                 continue;
@@ -671,6 +684,15 @@ int is_arith_quad(const char* op){
         strcmp(op, ">>") == 0
     );
 }
+
+int is_snapshot_tracked(const char* name) {
+    for(int i = 0; i < OPT_IR_idx; i++) {
+        if(strcmp(OPT_IR[i].op, "snapshot_track") == 0 &&
+           strcmp(OPT_IR[i].arg1, name) == 0)
+            return 1;
+    }
+    return 0;
+}
 //the major function that is exposed
 int constant_propagation(void){
     Quad tmp[IR_SIZE];
@@ -687,6 +709,10 @@ int constant_propagation(void){
     for(int i = 0; i < tmp_n; i++){
         Quad q = tmp[i];
         int changed = 0;
+		if(q.result[0] != '\0' && is_snapshot_tracked(q.result)){
+    	    OPT_IR[OPT_IR_idx++] = q;
+    	    continue;
+    	}
 	if(strcmp(q.op, "func") == 0 || strcmp(q.op, "endfunc") == 0 || strcmp(q.op, "method") == 0 || strcmp(q.op, "constr") == 0 || strcmp(q.op, "end_constr") == 0){
 		const_map_init();
 	}
@@ -1172,6 +1198,10 @@ int copy_propagation(int opt_level){
 	for(int i = 0; i < OPT_IR_idx; i++){
 		Quad* q = &OPT_IR[i];
 		// Skip if the current quad's operator is some structural operator
+		if(q->result[0] != '\0' && is_snapshot_tracked(q->result)){
+    	    OPT_IR[OPT_IR_idx++] = *q;
+    	    continue;
+    	}
 		if(is_structural_op(q->op)){
 			continue;
 		}
