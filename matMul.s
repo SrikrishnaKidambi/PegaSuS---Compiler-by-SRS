@@ -4,6 +4,13 @@
         .align 2
     _lf_counter_0:    .word  0
 
+    # -- string literals --
+    # -- snapshot variable name strings --
+    str_0:    .asciz "Printing the result\n"
+    str_1:    .asciz "\nDone with printing the result"
+
+    # -- global objects (pointer slots) --
+
     # -- global arrays --
         .align 2
     matmul:    .word  0
@@ -37,8 +44,6 @@
            .word  0
 
     # -- string literals --
-    str_0:    .asciz "Printing the result\n"
-    str_1:    .asciz "\nDone with printing the result"
 
     # -- global objects (pointer slots) --
     # -- I/O format strings --
@@ -53,7 +58,7 @@
     .fmt_int_bare:    .asciz  "%d"
 
     # -- linefreq report strings --
-    .lf_prefix:    .asciz  "Blocks Spanning "
+    .lf_prefix:    .asciz  "Blocks Spanning line numbers "
     .lf_sep:       .asciz  "-"
     .lf_mid:       .asciz  ": Executed "
     .lf_suffix:    .asciz  " times\n"

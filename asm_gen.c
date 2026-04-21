@@ -483,133 +483,98 @@ void genDataSection(void)
     asmEmit(".data");
     asmBlank();
 
-    // Collect all global symbols to that first we can emit global scalars
     if(!global_scope){
         asmBlank();
         return;
     }
 
+    /* 1 — global scalar variables */
     asmComment("-- Global Scalar Variables --");
-
-for(int b = 0; b < HASH_SIZE; b++){
-    for(Symbol* sym = global_scope->buckets[b]; sym; sym=sym->next){
-        //
-        if (sym->kind == KIND_FUNCTION   ||
-        sym->kind == KIND_METHOD     ||
-        sym->kind == KIND_CONSTRUCTOR||
-        sym->kind == KIND_ENTITY     ||
-        sym->kind == KIND_OBJECT     ||
-        sym->kind == KIND_FOR        ||
-        sym->kind == KIND_IF         ||
-        sym->kind == KIND_ELIF       ||
-        sym->kind == KIND_ELSE) {
-            continue;
-        }
-
-        // skip arrays also
-        if(sym->kind == KIND_ARRAY){
-            continue;
-        }
-
-// Emit scalar variable
-if(sym->datatype == DT_STRING){
-emitGlobalString(sym);
-}
-else{
-emitGlobalScalar(sym);
-}
-}
-}
-
-asmBlank();
-asmComment("-- global arrays --");
-
-for(int b = 0; b < HASH_SIZE; b++){
-for(Symbol* sym = global_scope->buckets[b]; sym; sym = sym->next){
-if(sym->kind != KIND_ARRAY){
-continue;
-}
-emitGlobalArray(sym);
-}
-}
-
-asmBlank();
-asmComment("-- string literals --");
-
-asmComment("-- snapshot variable name strings --");
-for(int i = 0; i < IR_idx; i++){
-    if(strcmp(IR[i].op, "snapshot_begin") == 0){
-        char buf[256];
-        strncpy(buf, IR[i].arg1, 255);
-        char* tok = strtok(buf, ",");
-        int idx = 0;
-        while(tok){
-            while(*tok == ' ') tok++;
-            asmEmit("__snap_str_%d:    .asciz \"%s\"", idx, tok);
-            tok = strtok(NULL, ",");
-            idx++;
-        }
-    }
-}
-scanStringLiterals();
-asmBlank();
-
-asmComment("-- global objects (pointer slots) --");
-for(int b = 0; b < HASH_SIZE; b++){
-    for(Symbol* sym = global_scope->buckets[b]; sym; sym = sym->next){
-        if(sym->kind != KIND_OBJECT) continue;
-        asmEmit("    .align 3");           // 8-byte alignment
-        asmEmit("%s:    .dword 0", sym->name);  // 8-byte zero slot
-    }
-}
-
-    asmBlank();
-    asmComment("-- global arrays --");
-
     for(int b = 0; b < HASH_SIZE; b++){
         for(Symbol* sym = global_scope->buckets[b]; sym; sym = sym->next){
-            if(sym->kind != KIND_ARRAY){
-                continue;
-            }
-            emitGlobalArray(sym);
+            if(sym->kind == KIND_FUNCTION   ||
+               sym->kind == KIND_METHOD     ||
+               sym->kind == KIND_CONSTRUCTOR||
+               sym->kind == KIND_ENTITY     ||
+               sym->kind == KIND_OBJECT     ||
+               sym->kind == KIND_FOR        ||
+               sym->kind == KIND_IF         ||
+               sym->kind == KIND_ELIF       ||
+               sym->kind == KIND_ELSE       ||
+               sym->kind == KIND_ARRAY) continue;
+
+            if(sym->datatype == DT_STRING)
+                emitGlobalString(sym);
+            else
+                emitGlobalScalar(sym);
         }
     }
 
+    /* 2 — global arrays (exactly once) */
+    asmBlank();
+    asmComment("-- global arrays --");
+    for(int b = 0; b < HASH_SIZE; b++){
+        for(Symbol* sym = global_scope->buckets[b]; sym; sym = sym->next){
+            if(sym->kind == KIND_ARRAY)
+                emitGlobalArray(sym);
+        }
+    }
+
+    /* 3 — string literals from IR (exactly once) */
     asmBlank();
     asmComment("-- string literals --");
-
     scanStringLiterals();
-    asmBlank();
 
+    /* 4 — snapshot variable name strings (new feature) */
+    asmComment("-- snapshot variable name strings --");
+    for(int i = 0; i < IR_idx; i++){
+        if(strcmp(IR[i].op, "snapshot_begin") == 0){
+            char buf[256];
+            strncpy(buf, IR[i].arg1, 255);
+            char* tok = strtok(buf, ",");
+            int idx = 0;
+            while(tok){
+                while(*tok == ' ') tok++;
+                asmEmit("__snap_str_%d:    .asciz \"%s\"", idx, tok);
+                tok = strtok(NULL, ",");
+                idx++;
+            }
+        }
+    }
+
+    /* 5 — global objects pointer slots (exactly once) */
+    asmBlank();
     asmComment("-- global objects (pointer slots) --");
     for(int b = 0; b < HASH_SIZE; b++){
         for(Symbol* sym = global_scope->buckets[b]; sym; sym = sym->next){
             if(sym->kind != KIND_OBJECT) continue;
-            asmEmit("    .align 3");           // 8-byte alignment
-            asmEmit("%s:    .dword 0", sym->name);  // 8-byte zero slot
+            asmEmit("    .align 3");
+            asmEmit("%s:    .dword 0", sym->name);
         }
     }
-    // for handling prininting the type of content
-    asmComment("-- I/O format strings --");
-    asmEmit(".fmt_int:    .asciz  \"%%d\\n\"");
-    asmEmit(".fmt_uint:    .asciz  \"%%u\\n\"");
-    asmEmit(".fmt_float:    .asciz  \"%%f\\n\"");
-    asmEmit(".fmt_str:    .asciz  \"%%s\\n\"");
-    asmEmit(".fmt_char:    .asciz  \"%%c\\n\"");
-    asmEmit(".fmt_scan_int:    .asciz  \"%%d\"");
-    asmEmit(".fmt_scan_float:    .asciz  \"%%f\\n\"");
-    asmEmit(".fmt_scan_str:    .asciz  \"%%s\\n\"");
-    asmEmit(".fmt_int_bare:    .asciz  \"%%d\"");
-    asmBlank();
 
-    // linefreq report strings 
+    /* 6 — I/O format strings */
+    asmBlank();
+    asmComment("-- I/O format strings --");
+    asmEmit(".fmt_int:        .asciz  \"%%d\\n\"");
+    asmEmit(".fmt_uint:       .asciz  \"%%u\\n\"");
+    asmEmit(".fmt_float:      .asciz  \"%%f\\n\"");
+    asmEmit(".fmt_str:        .asciz  \"%%s\\n\"");
+    asmEmit(".fmt_char:       .asciz  \"%%c\\n\"");
+    asmEmit(".fmt_scan_int:   .asciz  \"%%d\"");
+    asmEmit(".fmt_scan_float: .asciz  \"%%f\\n\"");
+    asmEmit(".fmt_scan_str:   .asciz  \"%%s\\n\"");
+    asmEmit(".fmt_int_bare:   .asciz  \"%%d\"");
+
+    /* 7 — linefreq report strings */
+    asmBlank();
     asmComment("-- linefreq report strings --");
     asmEmit(".lf_prefix:    .asciz  \"Blocks Spanning line numbers \"");
     asmEmit(".lf_sep:       .asciz  \"-\"");
     asmEmit(".lf_mid:       .asciz  \": Executed \"");
     asmEmit(".lf_suffix:    .asciz  \" times\\n\"");
 
-    // Float literals
+    /* 8 — float literals */
     for(int i = 0; i < float_lit_count; i++){
         asmEmit("    .align 2");
         asmEmit("%s:    .float %s", float_lit_table[i].label, float_lit_table[i].value);
