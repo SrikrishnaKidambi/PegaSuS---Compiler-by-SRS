@@ -23,6 +23,19 @@
     } Quad;
     #define QUAD_DEFINED
     #endif*/
+    
+    static int lf_cnt = 0;	// counter for emitting the couter variables uniquely identified by the number of counters emitted till now
+    
+    // struct for storing the per block information so that report phase knows the start and end lines of each block and counter corresponding to that block
+    typedef struct{
+	int id;
+	int start_line;
+	int end_line;
+	char counter_name[64];
+    } LineFreqBlock;
+
+    static LineFreqBlock lf_blocks[1024];
+    static int lf_block_count = 0;
 
     Quad IR[10000];
     int IR_idx = 0;
@@ -136,7 +149,7 @@ static int for_cnt = 0;
     %token INT FP CHR STRING BOOL VOID
     %token IF ELIF ELSE FOR TRUE FALSE FEED SHOW RETURN
     %token BREAK CONTINUE
-    %token SEQ1 SEQ2 FUNC ENTITY NEW PUBLIC PRIVATE THIS DOT EXTENDS
+    %token SEQ1 SEQ2 FUNC ENTITY NEW PUBLIC PRIVATE THIS DOT EXTENDS LINEFREQ
     %token LPAREN RPAREN LBRACE RBRACE LBRACKET RBRACKET SEMICOLON COMMA
     %token <sval> IDENTIFIER STRING_LITERAL
     %token <ival> INT_LITERAL
@@ -189,6 +202,7 @@ static int for_cnt = 0;
         | continue_stmt
         | object_decl
         | block
+	| linefreq_stmt
         | error SEMICOLON
             {
                 printf("Invalid statement at line %d\n", yylineno);
@@ -196,9 +210,48 @@ static int for_cnt = 0;
             }
         ;
 
+    linefreq_stmt
+        : LINEFREQ LBRACE
+            {
+                int lf_id    = lf_cnt++;
+                int start_ln = yylineno;
 
-      entity_decl
-: ENTITY IDENTIFIER EXTENDS IDENTIFIER
+                char cname[64];
+                snprintf(cname, 64, "_lf_counter_%d", lf_id);
+
+                lf_blocks[lf_block_count].id         = lf_id;
+                lf_blocks[lf_block_count].start_line = start_ln;
+                lf_blocks[lf_block_count].end_line   = -1;
+                strncpy(lf_blocks[lf_block_count].counter_name, cname, 63);
+                lf_block_count++;
+
+                Symbol* csym = insert_symbol(global_scope, cname,
+                             KIND_VAR, DT_INT, yylineno);
+                if (csym) {
+                    csym->is_initialized = 1;
+                    strncpy(csym->init_value, "0", 63);  /* asm_gen's emitLocalScalarInits will zero it once at prologue */
+                }
+
+                /* Increment fires BEFORE stmt_list — correct IR ordering */
+                emit("linefreq_inc", cname, "", "");
+
+                /* Now open the block scope */
+                SymTable* lfs = create_scope(SCOPE_BLOCK, cname, current_scope);
+                current_scope = lfs;
+            }
+        stmt_list RBRACE
+            {
+                int idx = lf_block_count - 1;
+                lf_blocks[idx].end_line = yylineno;
+
+                //print_table(current_scope);
+                current_scope = current_scope->parent;
+            }
+        ;
+
+
+    entity_decl
+        : ENTITY IDENTIFIER EXTENDS IDENTIFIER
         {
             /* Verify parent exists */
             Symbol* parent_sym = lookup(global_scope, $4);
@@ -2142,6 +2195,19 @@ static int for_cnt = 0;
                 parse_error_count++;
     }
 
+    /* Add this function at the bottom of parser.y */
+    void emit_linefreq_reports(void) {
+        for (int i = 0; i < lf_block_count; i++) {
+            char start_str[16], end_str[16];
+            snprintf(start_str, 16, "%d", lf_blocks[i].start_line);
+            snprintf(end_str,   16, "%d", lf_blocks[i].end_line);
+            emit("linefreq_report",
+                lf_blocks[i].counter_name,
+                start_str,
+                end_str);
+        }
+    }
+
     int main(int argc, char* argv[]) {
         global_scope  = create_scope(SCOPE_GLOBAL, "global", NULL);
         current_scope = global_scope;
@@ -2179,7 +2245,7 @@ static int for_cnt = 0;
 
         yyin = stdin;
         yyparse();
-	
+        emit_linefreq_reports();
 	// check if there are any errors and if yes then return
 	if (parse_error_count > 0) {
 		fprintf(stderr, "\n%d error(s) found. Aborting compilation.\n", parse_error_count);

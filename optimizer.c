@@ -280,8 +280,9 @@ int dead_code_elimination(void)
      strcmp(op,"arg")==0    || strcmp(op,"func")==0    || \
      strcmp(op,"endfunc")==0|| strcmp(op,"entity")==0  || \
      strcmp(op,"end_entity")==0 || strcmp(op,"[]=")== 0 || \
-     strcmp(op,"array_init")==0 || strcmp(op,"[]") == 0)
-
+     strcmp(op,"array_init")==0 || strcmp(op,"[]") == 0) || \
+	 strcmp(op,"linefreq_inc")==0 || strcmp(op,"linefreq_report")==0
+	
     do {
         removed_this_round = 0;
 
@@ -378,7 +379,9 @@ static int is_sideeffect_op(const char* op){
             strcmp(op,"in")==0      || strcmp(op,"param")==0   ||
             strcmp(op,"arg")==0     || strcmp(op,"func")==0    ||
             strcmp(op,"endfunc")==0 || strcmp(op,"entity")==0  ||
-            strcmp(op,"end_entity")==0);
+            strcmp(op,"end_entity")==0                         ||
+            strcmp(op,"linefreq_inc")==0                       || 
+            strcmp(op,"linefreq_report")==0);                      
 }
 
 // returns 1 if name is in the written[] set 
