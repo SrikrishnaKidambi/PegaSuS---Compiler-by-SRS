@@ -43,6 +43,8 @@ STRING_CONST \"([^\\\"]|\\.)*\"
 "break"		{ return BREAK; }
 "continue"	{ return CONTINUE; }
 "extends"   { return EXTENDS; }
+"@Snapshot"   { return SNAPSHOT; }
+"rewind"      { return REWIND; }
 
 "=="        { return EQ; }
 ">"         { return GT; }
