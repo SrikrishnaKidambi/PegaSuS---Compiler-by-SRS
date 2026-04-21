@@ -16,6 +16,10 @@
            .word  3
            .word  9
            .word  2
+        .align 2
+    L:    .space 40   # array [10] elem_size=4
+        .align 2
+    R:    .space 40   # array [10] elem_size=4
 
     # -- string literals --
     str_0:    .asciz "\n"
@@ -51,44 +55,44 @@ merge_iii:
         sd     ra, 344(sp)
         sd     s0, 336(sp)
         addi   s0, sp, 352
-        sw   a0, -68(s0)
-        sw   a1, -72(s0)
-        sw   a2, -76(s0)
+        sw   a0, -148(s0)
+        sw   a1, -152(s0)
+        sw   a2, -156(s0)
     # --initialize local arrays --
     # --initialize local scalars --
-    # init local scalar n1 at offset -80
-    # init local scalar n2 at offset -84
+    # init local scalar n1 at offset -160
+    # init local scalar n2 at offset -164
     # -- prologue end --
 
     # l
     # m
     # r
-        lw   t1, -72(s0)
-        lw   t2, -68(s0)
+        lw   t1, -152(s0)
+        lw   t2, -148(s0)
         sub  t3, t1, t2
         addi t4, t3, 1
         mv   t5, t4
-        lw   t6, -76(s0)
+        lw   t6, -156(s0)
         sub  s1, t6, t1
         mv   s2, s1
         li   s3, 0
     # spill all registers
         sw   t3, -244(s0)
         sw   t4, -248(s0)
-        sw   t5, -80(s0)
+        sw   t5, -160(s0)
         sw   s1, -252(s0)
-        sw   s2, -84(s0)
+        sw   s2, -164(s0)
         sw   s3, -168(s0)
 
 L0:
     # <
         lw   t1, -168(s0)
-        lw   t2, -80(s0)
+        lw   t2, -160(s0)
         slt  t3, t1, t2
     # spill all registers
         sw   t3, -256(s0)
         beqz   t3, L1
-        lw   t1, -68(s0)
+        lw   t1, -148(s0)
         lw   t2, -168(s0)
         add  t3, t1, t2
         li   t4, 4
@@ -100,7 +104,7 @@ L0:
         sw   t5, -260(s0)
         mul  t5, t2, t4
     # array store []=
-        addi t6, s0, -88
+        la   t6, L
         add  s2, t6, t5
         sw   s1, 0(s2)
         addi t6, t2, 1
@@ -122,12 +126,12 @@ L1:
 L2:
     # <
         lw   t1, -172(s0)
-        lw   t2, -84(s0)
+        lw   t2, -164(s0)
         slt  t3, t1, t2
     # spill all registers
         sw   t3, -280(s0)
         beqz   t3, L3
-        lw   t1, -72(s0)
+        lw   t1, -152(s0)
         addi t2, t1, 1
         lw   t3, -172(s0)
         add  t4, t2, t3
@@ -140,7 +144,7 @@ L2:
         sw   t6, -284(s0)
         mul  t6, t3, t5
     # array store []=
-        addi s1, s0, -128
+        la   s1, R
         add  s3, s1, t6
         sw   s2, 0(s3)
         addi s1, t3, 1
@@ -158,7 +162,7 @@ L2:
 L3:
         li   t1, 0
         li   t2, 0
-        lw   t3, -68(s0)
+        lw   t3, -148(s0)
     # spill all registers
         sw   t1, -168(s0)
         sw   t2, -172(s0)
@@ -167,11 +171,11 @@ L3:
 L4:
     # <
         lw   t1, -168(s0)
-        lw   t2, -80(s0)
+        lw   t2, -160(s0)
         slt  t3, t1, t2
     # <
         lw   t4, -172(s0)
-        lw   t5, -84(s0)
+        lw   t5, -164(s0)
         slt  t6, t4, t5
     # &&
         and  s1, t3, t6
@@ -184,14 +188,14 @@ L4:
         li   t2, 4
         mul  t3, t1, t2
     # array access []
-        addi t4, s0, -88
+        la   t4, L
         add  t5, t4, t3
         lw   t5, 0(t5)
         sw   t3, -320(s0)
         lw   t3, -172(s0)
         mul  t4, t3, t2
     # array access []
-        addi t6, s0, -128
+        la   t6, R
         add  s1, t6, t4
         lw   s1, 0(s1)
         sw   t4, -324(s0)
@@ -199,13 +203,13 @@ L4:
         slt  t4, t5, s1
         mul  t6, t1, t2
     # array access []
-        addi s2, s0, -88
+        la   s2, L
         add  s3, s2, t6
         lw   s3, 0(s3)
         sw   t6, -328(s0)
         mul  t6, t3, t2
     # array access []
-        addi s2, s0, -128
+        la   s2, R
         add  s4, s2, t6
         lw   s4, 0(s4)
         sw   t6, -332(s0)
@@ -227,7 +231,7 @@ L4:
         li   t2, 4
         mul  t3, t1, t2
     # array access []
-        addi t4, s0, -88
+        la   t4, L
         add  t5, t4, t3
         lw   t5, 0(t5)
         sw   t3, -364(s0)
@@ -252,7 +256,7 @@ L6:
         li   t2, 4
         mul  t3, t1, t2
     # array access []
-        addi t4, s0, -128
+        la   t4, R
         add  t5, t4, t3
         lw   t5, 0(t5)
         sw   t3, -380(s0)
@@ -286,7 +290,7 @@ L5:
 L8:
     # <
         lw   t1, -168(s0)
-        lw   t2, -80(s0)
+        lw   t2, -160(s0)
         slt  t3, t1, t2
     # spill all registers
         sw   t3, -400(s0)
@@ -295,7 +299,7 @@ L8:
         li   t2, 4
         mul  t3, t1, t2
     # array access []
-        addi t4, s0, -88
+        la   t4, L
         add  t5, t4, t3
         lw   t5, 0(t5)
         sw   t3, -404(s0)
@@ -325,7 +329,7 @@ L9:
 L10:
     # <
         lw   t1, -172(s0)
-        lw   t2, -84(s0)
+        lw   t2, -164(s0)
         slt  t3, t1, t2
     # spill all registers
         sw   t3, -424(s0)
@@ -334,7 +338,7 @@ L10:
         li   t2, 4
         mul  t3, t1, t2
     # array access []
-        addi t4, s0, -128
+        la   t4, R
         add  t5, t4, t3
         lw   t5, 0(t5)
         sw   t3, -428(s0)
@@ -374,24 +378,24 @@ mergeSort_ii:
         sd     ra, 328(sp)
         sd     s0, 320(sp)
         addi   s0, sp, 336
-        sw   a0, -68(s0)
-        sw   a1, -72(s0)
+        sw   a0, -148(s0)
+        sw   a1, -152(s0)
     # --initialize local arrays --
     # --initialize local scalars --
-    # init local scalar m at offset -76
+    # init local scalar m at offset -156
     # -- prologue end --
 
     # l
     # r
     # <
-        lw   t1, -68(s0)
-        lw   t2, -72(s0)
+        lw   t1, -148(s0)
+        lw   t2, -152(s0)
         slt  t3, t1, t2
     # spill all registers
-        sw   t3, -144(s0)
+        sw   t3, -224(s0)
         beqz   t3, L12
-        lw   t1, -72(s0)
-        lw   t2, -68(s0)
+        lw   t1, -152(s0)
+        lw   t2, -148(s0)
         sub  t3, t1, t2
         li   t4, 2
         div  t5, t3, t4
@@ -400,26 +404,26 @@ mergeSort_ii:
         mv     a0, t2
         mv     a1, s1
     # spill all registers
-        sw   t3, -148(s0)
-        sw   t5, -152(s0)
-        sw   t6, -156(s0)
-        sw   s1, -76(s0)
+        sw   t3, -228(s0)
+        sw   t5, -232(s0)
+        sw   t6, -236(s0)
+        sw   s1, -156(s0)
         call   mergeSort_ii
-        sw     a0, -160(s0)
-        lw   t1, -76(s0)
+        sw     a0, -240(s0)
+        lw   t1, -156(s0)
         addi t2, t1, 1
         mv     a0, t2
     # spill all registers
-        sw   t2, -164(s0)
-        lw     a1, -72(s0)
+        sw   t2, -244(s0)
+        lw     a1, -152(s0)
         call   mergeSort_ii
-        sw     a0, -168(s0)
+        sw     a0, -248(s0)
     # spill all registers
-        lw     a0, -68(s0)
-        lw     a1, -76(s0)
-        lw     a2, -72(s0)
+        lw     a0, -148(s0)
+        lw     a1, -156(s0)
+        lw     a2, -152(s0)
         call   merge_iii
-        sw     a0, -172(s0)
+        sw     a0, -252(s0)
     # spill all registers
         j      L13
     # spill all registers
@@ -453,44 +457,44 @@ main_:
         li     a0, 0
         mv     a1, t2
     # spill all registers
-        sw   t2, -136(s0)
+        sw   t2, -216(s0)
         call   mergeSort_ii
-        sw     a0, -140(s0)
+        sw     a0, -220(s0)
         li   t1, 0
     # spill all registers
-        sw   t1, -68(s0)
+        sw   t1, -148(s0)
 
 L14:
     # <
-        lw   t1, -68(s0)
+        lw   t1, -148(s0)
         la   t0, n
         lw   t2, 0(t0)
         slt  t3, t1, t2
     # spill all registers
-        sw   t3, -144(s0)
+        sw   t3, -224(s0)
         beqz   t3, L15
-        lw   t1, -68(s0)
+        lw   t1, -148(s0)
         li   t2, 4
         mul  t3, t1, t2
     # array access []
         la   t4, arr
         add  t5, t4, t3
         lw   t5, 0(t5)
-        sw   t3, -148(s0)
+        sw   t3, -228(s0)
         mv     a1, t5
     # spill all registers
-        sw   t5, -152(s0)
+        sw   t5, -232(s0)
         la a0, .fmt_int
         call printf
     # spill all registers
         la   a0, str_0
         call puts
-        lw   t1, -68(s0)
+        lw   t1, -148(s0)
         addi t2, t1, 1
         mv   t1, t2
     # spill all registers
-        sw   t1, -68(s0)
-        sw   t2, -156(s0)
+        sw   t1, -148(s0)
+        sw   t2, -236(s0)
         j      L14
     # spill all registers
 
