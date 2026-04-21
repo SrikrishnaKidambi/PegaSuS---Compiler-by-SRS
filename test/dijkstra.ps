@@ -1,14 +1,15 @@
+//dijkstra for directed graphs
+
+// Number of nodes
 int n = 5;
 int INF = 9999;
+
+// Adjacency matrix (0 means no edge)
+int 2seq graph = {{0, 10, 3, 0, 0},{0, 0, 1, 2, 0},{0, 4, 0, 8, 2},{0, 0, 0, 0, 7},{0, 0, 0, 9, 0}};
+
+// Distance array and visited array
 int 1seq dist[5];
 bool 1seq visited[5];
-int 1seq graph = {
-    0, 10, 3, 0, 0,
-    0, 0, 1, 2, 0,
-    0, 4, 0, 8, 2,
-    0, 0, 0, 0, 7,
-    0, 0, 0, 9, 0
-};
 
 void _func dijkstra(int src){
     int i;
@@ -27,6 +28,7 @@ void _func dijkstra(int src){
     for(count = 0; count < n - 1; count = count + 1){
         minDist = INF;
         u = -1;
+        
         for(v = 0; v < n; v = v + 1){
             if(visited[v] == False){
                 if(dist[v] < minDist){
@@ -40,10 +42,11 @@ void _func dijkstra(int src){
             count = n - 1;
         } else {
             visited[u] = True;
+            
             for(v = 0; v < n; v = v + 1){
-                weight = graph[u * n + v];
+                weight = graph[u][v];
                 if(visited[v] == False){
-                    if(weight != 0){
+                    if(!(weight == 0)){
                         if(dist[u] + weight < dist[v]){
                             dist[v] = dist[u] + weight;
                         }

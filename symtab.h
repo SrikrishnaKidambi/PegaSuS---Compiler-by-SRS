@@ -311,4 +311,5 @@ extern DataType  current_decl_type;
 extern int parse_error_count;     
 
 extern const char* dt_names[];
+unsigned int hash_fn_pub(const char* name);
 #endif /* SYMTAB_H */

@@ -1,0 +1,30 @@
+Entity Animal {
+    public int age;
+    public string name;
+
+    public int _func getAge(int x) {
+        return x;
+    }
+
+    public string _func speak(string m) {
+         return m;
+    }
+}
+
+Entity Dog extends Animal {
+	Dog(){
+	}
+    public int speed;
+
+    public int _func getSpeed(int y) {
+        return 2*y;
+    }
+}
+
+Dog d = new Dog();
+int age1 = d.getAge(5);
+int spd = d.getSpeed(10);
+string res=d.speak("Rocky");
+show(age1);
+show(spd);
+show(res);

@@ -536,6 +536,15 @@ static void emit_range(FILE* out, int from, int to) {
             consumed[i] = 1;
             continue;
         }
+	if (strcmp(q->op, "entity_extends") == 0) {
+            fprintf(out, "\n");
+            write_indent(out);
+            /* arg1 = child name, arg2 = parent name */
+            fprintf(out, "class %s(%s):\n", a1, a2);
+            indent_level++;
+            consumed[i] = 1;
+            continue;
+        }
 
         if (strcmp(q->op, "constr") == 0) {
             fprintf(out, "\n");

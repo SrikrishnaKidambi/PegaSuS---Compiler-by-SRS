@@ -80,35 +80,36 @@ extern int yydebug;
     PRIVATE = 281,                 /* PRIVATE  */
     THIS = 282,                    /* THIS  */
     DOT = 283,                     /* DOT  */
-    LPAREN = 284,                  /* LPAREN  */
-    RPAREN = 285,                  /* RPAREN  */
-    LBRACE = 286,                  /* LBRACE  */
-    RBRACE = 287,                  /* RBRACE  */
-    LBRACKET = 288,                /* LBRACKET  */
-    RBRACKET = 289,                /* RBRACKET  */
-    SEMICOLON = 290,               /* SEMICOLON  */
-    COMMA = 291,                   /* COMMA  */
-    IDENTIFIER = 292,              /* IDENTIFIER  */
-    STRING_LITERAL = 293,          /* STRING_LITERAL  */
-    INT_LITERAL = 294,             /* INT_LITERAL  */
-    FLOAT_LITERAL = 295,           /* FLOAT_LITERAL  */
-    CHAR_LITERAL = 296,            /* CHAR_LITERAL  */
-    ASSIGN = 297,                  /* ASSIGN  */
-    ADD_ASSIGN = 298,              /* ADD_ASSIGN  */
-    SUB_ASSIGN = 299,              /* SUB_ASSIGN  */
-    OR = 300,                      /* OR  */
-    AND = 301,                     /* AND  */
-    BITOR = 302,                   /* BITOR  */
-    BITAND = 303,                  /* BITAND  */
-    EQ = 304,                      /* EQ  */
-    GT = 305,                      /* GT  */
-    LT = 306,                      /* LT  */
-    PLUS = 307,                    /* PLUS  */
-    MINUS = 308,                   /* MINUS  */
-    MUL = 309,                     /* MUL  */
-    DIV = 310,                     /* DIV  */
-    MOD = 311,                     /* MOD  */
-    NOT = 312                      /* NOT  */
+    EXTENDS = 284,                 /* EXTENDS  */
+    LPAREN = 285,                  /* LPAREN  */
+    RPAREN = 286,                  /* RPAREN  */
+    LBRACE = 287,                  /* LBRACE  */
+    RBRACE = 288,                  /* RBRACE  */
+    LBRACKET = 289,                /* LBRACKET  */
+    RBRACKET = 290,                /* RBRACKET  */
+    SEMICOLON = 291,               /* SEMICOLON  */
+    COMMA = 292,                   /* COMMA  */
+    IDENTIFIER = 293,              /* IDENTIFIER  */
+    STRING_LITERAL = 294,          /* STRING_LITERAL  */
+    INT_LITERAL = 295,             /* INT_LITERAL  */
+    FLOAT_LITERAL = 296,           /* FLOAT_LITERAL  */
+    CHAR_LITERAL = 297,            /* CHAR_LITERAL  */
+    ASSIGN = 298,                  /* ASSIGN  */
+    ADD_ASSIGN = 299,              /* ADD_ASSIGN  */
+    SUB_ASSIGN = 300,              /* SUB_ASSIGN  */
+    OR = 301,                      /* OR  */
+    AND = 302,                     /* AND  */
+    BITOR = 303,                   /* BITOR  */
+    BITAND = 304,                  /* BITAND  */
+    EQ = 305,                      /* EQ  */
+    GT = 306,                      /* GT  */
+    LT = 307,                      /* LT  */
+    PLUS = 308,                    /* PLUS  */
+    MINUS = 309,                   /* MINUS  */
+    MUL = 310,                     /* MUL  */
+    DIV = 311,                     /* DIV  */
+    MOD = 312,                     /* MOD  */
+    NOT = 313                      /* NOT  */
   };
   typedef enum yytokentype yytoken_kind_t;
 #endif
@@ -143,35 +144,36 @@ extern int yydebug;
 #define PRIVATE 281
 #define THIS 282
 #define DOT 283
-#define LPAREN 284
-#define RPAREN 285
-#define LBRACE 286
-#define RBRACE 287
-#define LBRACKET 288
-#define RBRACKET 289
-#define SEMICOLON 290
-#define COMMA 291
-#define IDENTIFIER 292
-#define STRING_LITERAL 293
-#define INT_LITERAL 294
-#define FLOAT_LITERAL 295
-#define CHAR_LITERAL 296
-#define ASSIGN 297
-#define ADD_ASSIGN 298
-#define SUB_ASSIGN 299
-#define OR 300
-#define AND 301
-#define BITOR 302
-#define BITAND 303
-#define EQ 304
-#define GT 305
-#define LT 306
-#define PLUS 307
-#define MINUS 308
-#define MUL 309
-#define DIV 310
-#define MOD 311
-#define NOT 312
+#define EXTENDS 284
+#define LPAREN 285
+#define RPAREN 286
+#define LBRACE 287
+#define RBRACE 288
+#define LBRACKET 289
+#define RBRACKET 290
+#define SEMICOLON 291
+#define COMMA 292
+#define IDENTIFIER 293
+#define STRING_LITERAL 294
+#define INT_LITERAL 295
+#define FLOAT_LITERAL 296
+#define CHAR_LITERAL 297
+#define ASSIGN 298
+#define ADD_ASSIGN 299
+#define SUB_ASSIGN 300
+#define OR 301
+#define AND 302
+#define BITOR 303
+#define BITAND 304
+#define EQ 305
+#define GT 306
+#define LT 307
+#define PLUS 308
+#define MINUS 309
+#define MUL 310
+#define DIV 311
+#define MOD 312
+#define NOT 313
 
 /* Value type.  */
 #if ! defined YYSTYPE && ! defined YYSTYPE_IS_DECLARED
@@ -187,7 +189,7 @@ union YYSTYPE
         AccessMod access;
     
 
-#line 191 "y.tab.h"
+#line 193 "y.tab.h"
 
 };
 typedef union YYSTYPE YYSTYPE;
