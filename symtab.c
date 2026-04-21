@@ -23,8 +23,7 @@ SymTable* find_entity_scope(const char* entity_name){
 	}
 	return NULL;
 }
-
-static unsigned int hash_fn(const char* s) {
+unsigned int hash_fn_pub(const char* s) {
     unsigned int h = 5381;
     while (*s)
         h = ((h << 5) + h) + (unsigned char)(*s++);
@@ -191,34 +190,25 @@ void check_field_access(char* obj_name, char* field_name, int lineno) {
         return;
     }
 
-    // 4. find field inside class
-    NameNode* f = cls->attr.entity.fields_list;
+    // 4. find field — walk inheritance chain
     Symbol* field_sym = NULL;
-
-    while (f) {
-        if (strcmp(f->name, field_name) == 0) {
-            field_sym = lookup(cls->attr.entity.scope, field_name);
+    Symbol* search_cls = cls;
+    while (search_cls && !field_sym) {
+        SymTable* esc = find_entity_scope(search_cls->attr.entity.class_name);
+        if (esc) field_sym = lookup_local(esc, field_name);
+        if (!field_sym && search_cls->attr.entity.parent_class[0]) {
+            search_cls = lookup(global_scope, search_cls->attr.entity.parent_class);
+        } else {
             break;
         }
-        f = f->next;
     }
 
     if (!field_sym || field_sym->kind != KIND_FIELD) {
         snprintf(msg, sizeof(msg),
-                 "line %d: Field '%s' not found in class '%s'",
+                 "line %d: Field '%s' not found in class '%s' or its parents",
                  lineno, field_name, class_name);
         semantic_error(msg);
         return;
-    }
-
-    // 5. check private access
-    if (field_sym->attr.field.access == ACC_PRIVATE) {
-        if (strcmp(current_scope->name, class_name) != 0) {
-            snprintf(msg, sizeof(msg),
-                     "line %d: Private field '%s' of class '%s' is not accessible",
-                     lineno, field_name, class_name);
-            semantic_error(msg);
-        }
     }
 }
 
@@ -247,16 +237,27 @@ void check_method_access(char* obj_name, char* method_name, int lineno) {
     }
 
     // 4. find method inside class
-    Symbol* method_sym = lookup_local(cls->attr.entity.scope, method_name);
+     // AFTER:
+    // 4. find method — walk inheritance chain
+    Symbol* method_sym = NULL;
+    Symbol* search_cls = cls;
+    while (search_cls && !method_sym) {
+        SymTable* esc = find_entity_scope(search_cls->attr.entity.class_name);
+        if (esc) method_sym = lookup_local(esc, method_name);
+        if (!method_sym && search_cls->attr.entity.parent_class[0]) {
+            search_cls = lookup(global_scope, search_cls->attr.entity.parent_class);
+        } else {
+            break;
+        }
+    }
 
     if (!method_sym || method_sym->kind != KIND_METHOD) {
         snprintf(msg, sizeof(msg),
-                 "line %d: Method '%s' not found in class '%s'",
+                 "line %d: Method '%s' not found in class '%s' or its parents",
                  lineno, method_name, class_name);
         semantic_error(msg);
         return;
     }
-
     // 5. check private access
     if (method_sym->attr.method.access == ACC_PRIVATE) {
         if (strcmp(current_scope->name, class_name) != 0) {
@@ -308,7 +309,7 @@ void overloaded_ctor_name(char* out,const char* name,ParamNode* param_list){
 }
 void rehash_symbol(SymTable* tbl, Symbol* sym, const char* old_name){
     //Remove from old bucket
-    unsigned int old_h = hash_fn(old_name);
+    unsigned int old_h = hash_fn_pub(old_name);
     Symbol** pp = &tbl->buckets[old_h];
     while(*pp && *pp != sym){
         pp = &(*pp)->next;
@@ -317,7 +318,7 @@ void rehash_symbol(SymTable* tbl, Symbol* sym, const char* old_name){
         *pp = sym->next;
 
     //Insert into new bucket
-    unsigned int new_h = hash_fn(sym->name);
+    unsigned int new_h = hash_fn_pub(sym->name);
     sym->next = tbl->buckets[new_h];
     tbl->buckets[new_h] = sym;
 }
@@ -417,7 +418,7 @@ Symbol* insert_symbol(SymTable* tbl, const char* name,
 
     // Compute which bucket this name belongs to.
     // Insert at the FRONT of the bucket's linked list (O(1)).
-    unsigned int h  = hash_fn(name);
+    unsigned int h  = hash_fn_pub(name);
     sym->next       = tbl->buckets[h];  // new node points to old head
     tbl->buckets[h] = sym;              // new node becomes new head
     tbl->symbol_count++;
@@ -435,7 +436,7 @@ Symbol* insert_symbol(SymTable* tbl, const char* name,
 
 
 Symbol* lookup_local(SymTable* tbl, const char* name) {
-    unsigned int h = hash_fn(name);
+    unsigned int h = hash_fn_pub(name);
     for (Symbol* s = tbl->buckets[h]; s; s = s->next)
         if (strcmp(s->name, name) == 0) return s;
     return NULL;

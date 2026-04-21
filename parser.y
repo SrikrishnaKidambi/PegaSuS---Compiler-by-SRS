@@ -136,7 +136,7 @@ static int for_cnt = 0;
     %token INT FP CHR STRING BOOL VOID
     %token IF ELIF ELSE FOR TRUE FALSE FEED SHOW RETURN
     %token BREAK CONTINUE
-    %token SEQ1 SEQ2 FUNC ENTITY NEW PUBLIC PRIVATE THIS DOT
+    %token SEQ1 SEQ2 FUNC ENTITY NEW PUBLIC PRIVATE THIS DOT EXTENDS
     %token LPAREN RPAREN LBRACE RBRACE LBRACKET RBRACKET SEMICOLON COMMA
     %token <sval> IDENTIFIER STRING_LITERAL
     %token <ival> INT_LITERAL
@@ -196,8 +196,83 @@ static int for_cnt = 0;
             }
         ;
 
-    entity_decl
-        : ENTITY IDENTIFIER
+
+      entity_decl
+: ENTITY IDENTIFIER EXTENDS IDENTIFIER
+        {
+            /* Verify parent exists */
+            Symbol* parent_sym = lookup(global_scope, $4);
+            if (!parent_sym || parent_sym->kind != KIND_ENTITY) {
+                char buf[256];
+                snprintf(buf, sizeof(buf),
+                    "line %d: Parent entity '%s' not found", yylineno, $4);
+                semantic_error(buf);
+            }
+
+            /* Insert child entity symbol */
+            Symbol* sym = insert_symbol(global_scope, $2,
+                                        KIND_ENTITY, DT_ENTITY, yylineno);
+            if (sym) {
+                strncpy(sym->attr.entity.class_name, $2, 63);
+                sym->attr.entity.fields_list       = NULL;
+                sym->attr.entity.methods_list      = NULL;
+                sym->attr.entity.constructors_list = NULL;
+                sym->attr.entity.class_size        = 0;
+                strncpy(sym->attr.entity.parent_class, $4, 63);  /* record parent */
+
+                /* Pre-populate inherited field/method name lists from parent */
+                if (parent_sym && parent_sym->kind == KIND_ENTITY) {
+                    for (NameNode* n = parent_sym->attr.entity.fields_list; n; n = n->next)
+                        add_name(&sym->attr.entity.fields_list, n->name);
+                    for (NameNode* n = parent_sym->attr.entity.methods_list; n; n = n->next)
+                        add_name(&sym->attr.entity.methods_list, n->name);
+                }
+            }
+
+            emit("entity_extends", $2, $4, "");
+
+            SymTable* es = create_scope(SCOPE_ENTITY, $2, current_scope);
+            register_entity_scope(es);
+            if (sym) sym->attr.entity.scope = es;
+            current_scope = es;
+
+            /* Copy inherited symbols into child scope so lookups work */
+            if (parent_sym && parent_sym->kind == KIND_ENTITY) {
+                SymTable* psc = find_entity_scope($4);
+                if (psc) {
+                    for (int b = 0; b < HASH_SIZE; b++) {
+                        for (Symbol* ps = psc->buckets[b]; ps; ps = ps->next) {
+                            if (!lookup_local(es, ps->name)) {
+                                Symbol* cp = calloc(1, sizeof(Symbol));
+                                *cp = *ps;
+                                cp->next = NULL;
+                                unsigned int h = hash_fn_pub(ps->name);
+                                cp->next = es->buckets[h];
+                                es->buckets[h] = cp;
+                                es->symbol_count++;
+                                if (ps->kind == KIND_FIELD)
+                                    es->next_offset += ps->size;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    LBRACE entity_body RBRACE
+        {
+            int class_sz = current_scope->next_offset;
+            Symbol* sym = lookup(current_scope->parent, current_scope->name);
+            if (sym && sym->kind == KIND_ENTITY) {
+                sym->attr.entity.class_size = class_sz;
+                sym->size = class_sz;
+                current_scope->parent->next_offset = sym->offset + class_sz;
+            }
+            print_table(current_scope);
+            current_scope = current_scope->parent;
+            emit("end_entity", $2, "", "");
+        }
+
+        |  ENTITY IDENTIFIER
             {
                 Symbol* sym = insert_symbol(global_scope, $2,
                                             KIND_ENTITY, DT_ENTITY, yylineno);
@@ -644,18 +719,32 @@ static int for_cnt = 0;
                     fprintf(stderr, "ERROR line %d: '%s' is not an object.\n", yylineno, $4);
 			parse_error_count++;
                 } else {
-                    SymTable* ent_scope = find_entity_scope(obj_sym->attr.object.entity_name);
+                       SymTable* ent_scope = find_entity_scope(obj_sym->attr.object.entity_name);
                     if(!ent_scope){
                         fprintf(stderr, "ERROR line %d: entity '%s' scope not found.\n",
                                 yylineno, obj_sym->attr.object.entity_name);
-			parse_error_count++;
+                        parse_error_count++;
                     } else {
-                        Symbol* method_sym = lookup_local(ent_scope, mangled_call);
+                        /* Walk inheritance chain to resolve method */
+                        Symbol* method_sym = NULL;
+                        const char* search_name = obj_sym->attr.object.entity_name;
+                        while (search_name && search_name[0] && !method_sym) {
+                            SymTable* sc = find_entity_scope(search_name);
+                            if (sc) method_sym = lookup_local(sc, mangled_call);
+                            if (!method_sym) {
+                                Symbol* cls_s = lookup(global_scope, search_name);
+                                if (cls_s && cls_s->kind == KIND_ENTITY
+                                        && cls_s->attr.entity.parent_class[0])
+                                    search_name = cls_s->attr.entity.parent_class;
+                                else break;
+                            }
+                        }
                         if(!method_sym || method_sym->kind != KIND_METHOD){
-                            fprintf(stderr, "ERROR line %d: Method '%s' not found in '%s'.\n",
+                            fprintf(stderr, "ERROR line %d: Method '%s' not found in '%s' or its parents.\n",
                                     yylineno, mangled_call, obj_sym->attr.object.entity_name);
-				parse_error_count++;
-                        } else {
+                            parse_error_count++;
+                        }
+                         else {
                             /* check private access */
                             if(method_sym->attr.method.access == ACC_PRIVATE){
                                 fprintf(stderr, "ERROR line %d: Method '%s' is private.\n",
@@ -803,6 +892,7 @@ static int for_cnt = 0;
         | CHR    { $$ = DT_CHAR;   }
         | STRING { $$ = DT_STRING; }
         | BOOL   { $$ = DT_BOOL;   }
+        | VOID   { $$ = DT_VOID;   }
         ;
 
     array_decl

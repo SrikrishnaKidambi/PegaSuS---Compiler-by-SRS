@@ -42,6 +42,7 @@ STRING_CONST \"([^\\\"]|\\.)*\"
 "this"      { return THIS; }
 "break"		{ return BREAK; }
 "continue"	{ return CONTINUE; }
+"extends"   { return EXTENDS; }
 
 "=="        { return EQ; }
 ">"         { return GT; }
