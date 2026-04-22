@@ -2919,10 +2919,18 @@ return;
 // linefreq opcodes (non-template path mirrors template path exactly)
 else if(strcmp(op, "linefreq_inc") == 0){
     asmComment("linefreq_inc");
-    int off = getVarOffset(q->arg1);
-    asmEmit("    lw   t0, %d(s0)", off);
-    asmEmit("    addi t0, t0, 1");
-    asmEmit("    sw   t0, %d(s0)", off);
+    Symbol* csym = lookupForCodeGen(q->arg1);
+    if(csym && csym->scope_level == 0){
+        asmEmit("    la   t0, %s", csym->name);
+        asmEmit("    lw   t1, 0(t0)");
+        asmEmit("    addi t1, t1, 1");
+        asmEmit("    sw   t1, 0(t0)");
+    } else {
+        int off = getVarOffset(q->arg1);
+        asmEmit("    lw   t0, %d(s0)", off);
+        asmEmit("    addi t0, t0, 1");
+        asmEmit("    sw   t0, %d(s0)", off);
+    }
     count_loads++;
     count_stores++;
     return;

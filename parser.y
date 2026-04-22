@@ -35,8 +35,9 @@
     } LineFreqBlock;
 
     static LineFreqBlock lf_blocks[1024];
+    static int lf_open_stack[64];   // indices into lf_blocks[] of currently-open blocks
+    static int lf_open_top = -1;    // stack pointer
     static int lf_block_count = 0;
-
     Quad IR[10000];
     int IR_idx = 0;
     int tempVarCnt = 0;
@@ -223,32 +224,33 @@ static int for_cnt = 0;
                 char cname[64];
                 snprintf(cname, 64, "_lf_counter_%d", lf_id);
 
-                lf_blocks[lf_block_count].id         = lf_id;
-                lf_blocks[lf_block_count].start_line = start_ln;
-                lf_blocks[lf_block_count].end_line   = -1;
-                strncpy(lf_blocks[lf_block_count].counter_name, cname, 63);
-                lf_block_count++;
+                /* record this block and push its index onto the open-block stack */
+                int idx = lf_block_count++;
+                lf_blocks[idx].id         = lf_id;
+                lf_blocks[idx].start_line = start_ln;
+                lf_blocks[idx].end_line   = -1;
+                strncpy(lf_blocks[idx].counter_name, cname, 63);
+
+                lf_open_stack[++lf_open_top] = idx;   // ← push
 
                 Symbol* csym = insert_symbol(global_scope, cname,
-                             KIND_VAR, DT_INT, yylineno);
+                            KIND_VAR, DT_INT, yylineno);
                 if (csym) {
                     csym->is_initialized = 1;
-                    strncpy(csym->init_value, "0", 63);  /* asm_gen's emitLocalScalarInits will zero it once at prologue */
+                    strncpy(csym->init_value, "0", 63);
                 }
 
-                /* Increment fires BEFORE stmt_list — correct IR ordering */
                 emit("linefreq_inc", cname, "", "");
 
-                /* Now open the block scope */
                 SymTable* lfs = create_scope(SCOPE_BLOCK, cname, current_scope);
                 current_scope = lfs;
             }
         stmt_list RBRACE
             {
-                int idx = lf_block_count - 1;
+                /* pop the stack — this correctly closes whichever depth we're at */
+                int idx = lf_open_stack[lf_open_top--];   // ← pop
                 lf_blocks[idx].end_line = yylineno;
 
-                //print_table(current_scope);
                 current_scope = current_scope->parent;
             }
         ;
