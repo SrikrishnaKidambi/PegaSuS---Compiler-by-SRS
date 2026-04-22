@@ -185,7 +185,11 @@ extern int yydebug;
 #if ! defined YYSTYPE && ! defined YYSTYPE_IS_DECLARED
 union YYSTYPE
 {
+<<<<<<< HEAD
 #line 142 "parser.y"
+=======
+#line 141 "parser.y"
+>>>>>>> 81bb20b990f7ca4928607913dae3c09e9249d7a4
 
         int       ival;
         float     fval;
