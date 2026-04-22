@@ -13,18 +13,26 @@
            .word  2
 
     # -- string literals --
+    # -- snapshot variable name strings --
 
     # -- global objects (pointer slots) --
-    # -- I/O format strings --
-    .fmt_int:    .asciz  "%d\n"
-    .fmt_uint:    .asciz  "%u\n"
-    .fmt_float:    .asciz  "%f\n"
-    .fmt_str:    .asciz  "%s\n"
-    .fmt_char:    .asciz  "%c\n"
-    .fmt_scan_int:    .asciz  "%d"
-    .fmt_scan_float:    .asciz  "%f\n"
-    .fmt_scan_str:    .asciz  "%s\n"
 
+    # -- I/O format strings --
+    .fmt_int:        .asciz  "%d\n"
+    .fmt_uint:       .asciz  "%u\n"
+    .fmt_float:      .asciz  "%f\n"
+    .fmt_str:        .asciz  "%s\n"
+    .fmt_char:       .asciz  "%c\n"
+    .fmt_scan_int:   .asciz  "%d"
+    .fmt_scan_float: .asciz  "%f\n"
+    .fmt_scan_str:   .asciz  "%s\n"
+    .fmt_int_bare:   .asciz  "%d"
+
+    # -- linefreq report strings --
+    .lf_prefix:    .asciz  "Blocks Spanning line numbers "
+    .lf_sep:       .asciz  "-"
+    .lf_mid:       .asciz  ": Executed "
+    .lf_suffix:    .asciz  " times\n"
     .text
     .globl main
 

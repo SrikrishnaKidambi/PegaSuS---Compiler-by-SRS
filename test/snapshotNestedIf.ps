@@ -1,0 +1,23 @@
+int x = 100;
+int y = 50;
+int z = 0;
+
+@Snapshot <x, y, z> {
+    if(x > y){
+        z = x - y;
+        x = x - 10;
+    }
+    if(z > 30){
+        y = y + z;
+        z = 0;
+    }
+    x = x * 2;
+    rewind(1);
+    show(x);
+    show(y);
+    show(z);
+    rewind(1);
+    show(x);
+    show(y);
+    show(z);
+}

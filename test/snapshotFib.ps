@@ -1,0 +1,17 @@
+int a = 0;
+int b = 1;
+int c = 0;
+int count = 0;
+
+@Snapshot <a, b, c> {
+    for(count = 0; count < 8; count = count + 1){
+        c = a + b;
+        a = b;
+        b = c;
+    }
+    show(b);
+    rewind(4);
+    show(a);
+    show(b);
+    show(c);
+}

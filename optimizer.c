@@ -287,8 +287,13 @@ int dead_code_elimination(void)
      strcmp(op,"arg")==0    || strcmp(op,"func")==0    || \
      strcmp(op,"endfunc")==0|| strcmp(op,"entity")==0  || \
      strcmp(op,"end_entity")==0 || strcmp(op,"[]=")== 0 || \
-     strcmp(op,"array_init")==0 || strcmp(op,"[]") == 0) || \
-	 strcmp(op,"linefreq_inc")==0 || strcmp(op,"linefreq_report")==0
+     strcmp(op,"array_init")==0 || strcmp(op,"[]") == 0 || \
+	 strcmp(op,"linefreq_inc")==0 || strcmp(op,"linefreq_report")==0 ||\
+	 strcmp(op,"snapshot_begin")==0  || \
+     strcmp(op,"snapshot_end")==0    || \
+     strcmp(op,"snapshot_capture")==0|| \
+     strcmp(op,"snapshot_track")==0  || \
+     strcmp(op,"rewind")==0)
 	
     do {
         removed_this_round = 0;
@@ -394,7 +399,12 @@ static int is_sideeffect_op(const char* op){
             strcmp(op,"endfunc")==0 || strcmp(op,"entity")==0  ||
             strcmp(op,"end_entity")==0                         ||
             strcmp(op,"linefreq_inc")==0                       || 
-            strcmp(op,"linefreq_report")==0);                      
+            strcmp(op,"linefreq_report")==0 ||
+			strcmp(op,"snapshot_begin")==0   ||
+            strcmp(op,"snapshot_end")==0     ||
+            strcmp(op,"snapshot_capture")==0 ||
+            strcmp(op,"snapshot_track")==0   ||
+            strcmp(op,"rewind")==0);                     
 }
 
 // returns 1 if name is in the written[] set 
@@ -1180,7 +1190,7 @@ static int is_used_after(const char* name, int from){
 // If the quad's operator matches with any of these then we skip that quad.
 static int is_structural_op(const char* op){
 	static const char* structural[] = {
-		"label", "goto", "func", "endfunc", "entity", "end_entity", "method", "end_method", "constr", "end_constr", "param", NULL
+		"label", "goto", "func", "endfunc", "entity", "end_entity", "method", "end_method", "constr", "end_constr", "param", "snapshot_begin", "snapshot_end", "snapshot_capture", "snapshot_track", "rewind",NULL
 	};
 	for(int i = 0; structural[i]; i++){
 		if(strcmp(op, structural[i]) == 0){

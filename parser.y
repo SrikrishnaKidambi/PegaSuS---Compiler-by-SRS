@@ -43,6 +43,8 @@
     int labelCnt = 0;
     int parse_error_count = 0;
 
+    static int in_snapshot_block = 0;
+
     char* genVar();
     char* getLabel();
     void emit(char* op, char* arg1, char* arg2, char* result);
@@ -899,6 +901,7 @@ static int for_cnt = 0;
                 Symbol* sym = insert_symbol(current_scope, $2,
                                             KIND_VAR, $1, yylineno);
             emit("=", ir_name_of($4), "", ir_name_of($2));
+            if(in_snapshot_block) emit("snapshot_capture", "", "", "");
                 if (sym){
             sym->is_initialized = 1;
             if(isConstant($4)){
@@ -1470,7 +1473,8 @@ static int for_cnt = 0;
                 	parse_error_count++;
 		}
             } 
-            emit("=", $3, "", ir_name_of($1)); 
+            emit("=", $3, "", ir_name_of($1));
+            if(in_snapshot_block) emit("snapshot_capture", "", "", "");
             $$ = strdup($1); 
         }
         | IDENTIFIER ADD_ASSIGN assignment
@@ -1483,7 +1487,8 @@ static int for_cnt = 0;
             char* t = genVar(); 
             const char* irn = ir_name_of($1);
             emit("+", irn, $3, t); 
-            emit("=", t, "", irn); 
+            emit("=", t, "", irn);
+            if(in_snapshot_block) emit("snapshot_capture", "", "", ""); 
             $$ = t; 
         }
         | IDENTIFIER SUB_ASSIGN assignment
@@ -1497,7 +1502,8 @@ static int for_cnt = 0;
             char* t = genVar(); 
             const char* irn = ir_name_of($1);
             emit("-", irn, $3, t); 
-            emit("=", t, "", irn); 	
+            emit("=", t, "", irn);
+            if(in_snapshot_block) emit("snapshot_capture", "", "", "");
             $$ = t; 
         }
         | IDENTIFIER LBRACKET expression RBRACKET ASSIGN assignment
@@ -1511,6 +1517,7 @@ static int for_cnt = 0;
                 char* t1 = genVar();
                 emit("*", $3, width_str, t1);
                 emit("[]=", $1, t1, $6);
+                if(in_snapshot_block) emit("snapshot_capture", "", "", "");
                 $$ = $6;
             }
         | IDENTIFIER LBRACKET expression RBRACKET LBRACKET expression RBRACKET ASSIGN assignment
@@ -1528,6 +1535,7 @@ static int for_cnt = 0;
                 char* t2 = genVar(); emit("+", t1, $6, t2);
                 char* t3 = genVar(); emit("*", t2, width_str, t3);
                 emit("[]=", $1, t3, $9);
+                if(in_snapshot_block) emit("snapshot_capture", "", "", "");
                 $$ = $9;
             }
         | indexed_id ASSIGN assignment
@@ -2040,8 +2048,6 @@ static int for_cnt = 0;
     : SNAPSHOT LT snapshot_var_list GT
         {
             emit("snapshot_begin", $3, "", "");
-            /* emit one snapshot_track per variable so optimizer
-               treats each as live and never folds/propagates them */
             char buf[256];
             strncpy(buf, $3, 255);
             char* tok = strtok(buf, ",");
@@ -2056,21 +2062,21 @@ static int for_cnt = 0;
         {
             SymTable* bs = create_scope(SCOPE_BLOCK, "snapshot_block", current_scope);
             current_scope = bs;
+            in_snapshot_block = 1;  
         }
       snapshot_stmt_list RBRACE
         {
             emit("snapshot_end", "", "", "");
+            in_snapshot_block = 0;   
             print_table(current_scope);
             current_scope = current_scope->parent;
         }
     ;
     
     snapshot_stmt_list
-        : snapshot_stmt_list statement
-            { emit("snapshot_capture", "", "", ""); }
-        | statement
-            { emit("snapshot_capture", "", "", ""); }
-        ;
+    : snapshot_stmt_list statement
+    | statement
+    ;
 
     rewind_stmt
         : REWIND LPAREN expression RPAREN SEMICOLON
@@ -2182,6 +2188,7 @@ static int for_cnt = 0;
                                             KIND_VAR, $1, yylineno);
                     if (sym) sym->is_initialized = 1;
             emit("=", $4, "", ir_name_of($2));
+            if(in_snapshot_block) emit("snapshot_capture", "", "", "");
             }
         ;
 

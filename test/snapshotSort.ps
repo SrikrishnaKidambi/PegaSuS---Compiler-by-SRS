@@ -1,0 +1,25 @@
+int 1seq arr = {5, 3, 8, 1, 2};
+int n = 5;
+int i = 0;
+int j = 0;
+int key = 0;
+
+@Snapshot <i, j, key> {
+    for(i = 1; i < n; i = i + 1){
+        key = arr[i];
+        j = i - 1;
+        for(; j > 0 || j == 0; j = j - 1){
+            if(arr[j] > key){
+                arr[j + 1] = arr[j];
+            }
+            else{
+                break;
+            }
+        }
+        arr[j + 1] = key;
+    }
+    rewind(5);
+    show(i);
+    show(j);
+    show(key);
+}

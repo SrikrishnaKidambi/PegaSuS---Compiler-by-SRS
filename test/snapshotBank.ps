@@ -1,0 +1,11 @@
+int balance = 100;
+int fee = 10;
+
+@Snapshot <balance, fee> {
+    balance = balance - 30;  // Withdraw $30
+    fee = fee + 5;           // Add service fee
+    balance = balance - fee; // Deduct fee
+    rewind(2);               // Undo last 2 operations
+    show(balance);           // Should show original state
+    show(fee);               // Should show original state
+}

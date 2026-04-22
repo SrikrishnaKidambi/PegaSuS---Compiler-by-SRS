@@ -462,7 +462,21 @@ str_lit_table[str_lit_count - 1].content);
 // else already emitted by emitGlobalString so skip it
 }
 }
+//to add the snapshot_track ones also
+if(strcmp(q->op, "snapshot_track") == 0 && q->arg1 && q->arg1[0]){
+            char quoted[256];
+            snprintf(quoted, sizeof(quoted), "\"%s\"", q->arg1);
+            int before = str_lit_count;
+            const char* label = registerStringLiteral(quoted);
+            int is_new = str_lit_count > before;
+            if(label && is_new && strncmp(label, "str_", 4) == 0){
+                asmEmit("%s:    .asciz \"%s\"",
+                        label,
+                        str_lit_table[str_lit_count - 1].content);
+            }
+        }
 }
+
 }
 static void scanFloatLiterals(void){
     for(int i = 0; i < IR_idx; i++){
@@ -2594,22 +2608,22 @@ void genSnapshotBegin(const Quad* q){
     asmEmit("    call __snapshot_init");
 
     // For each variable emit: __snapshot_register_var(&var, "varname")
-    for(int i = 0; i < count; i++){
-        Symbol* sym = lookupForCodeGen(vars[i]);
-        spillAllRegs();
-        // Load address of variable into a0
-        if(sym && sym->scope_level == 0){
-            asmEmit("    la   a0, %s", sym->name);
-        } else if(sym){
-            asmEmit("    addi a0, s0, %d", getVarOffset(vars[i]));
-        } else {
-            asmComment("snapshot: variable not found");
-            continue;
-        }
-        // Load name string into a1 — register as string literal
-        asmEmit("    la   a1, __snap_str_%d", i);
-        asmEmit("    call __snapshot_register_var");
-    }
+    // for(int i = 0; i < count; i++){
+    //     Symbol* sym = lookupForCodeGen(vars[i]);
+    //     spillAllRegs();
+    //     // Load address of variable into a0
+    //     if(sym && sym->scope_level == 0){
+    //         asmEmit("    la   a0, %s", sym->name);
+    //     } else if(sym){
+    //         asmEmit("    addi a0, s0, %d", getVarOffset(vars[i]));
+    //     } else {
+    //         asmComment("snapshot: variable not found");
+    //         continue;
+    //     }
+    //     // Load name string into a1 — register as string literal
+    //     asmEmit("    la   a1, __snap_str_%d", i);
+    //     asmEmit("    call __snapshot_register_var");
+    // }
 }
 
 void genSnapshotEnd(const Quad* q){
@@ -2637,7 +2651,37 @@ void genRewind(const Quad* q){
     asmEmit("    call __snapshot_rewind");
 }
 
-
+static void scanSnapshotTrackStrings(void) {
+    for(int i = 0; i < IR_idx; i++) {
+        if(strcmp(IR[i].op, "snapshot_track") == 0) {
+            char quoted[256];
+            snprintf(quoted, sizeof(quoted), "\"%s\"", IR[i].arg1);
+            registerStringLiteral(quoted);
+        }
+    }
+}
+void genSnapshotTrack(const Quad* q){
+    asmComment("snapshot_track");
+    spillAllRegs();
+    
+    Symbol* sym = lookupForCodeGen(q->arg1);
+    if(sym && sym->scope_level == 0){
+        asmEmit("    la   a0, %s", sym->name);
+    } else if(sym){
+        asmEmit("    addi a0, s0, %d", getVarOffset(q->arg1));
+    } else {
+        asmComment("snapshot_track: var not found");
+        return;
+    }
+    
+    // Get the pre-registered label (don't register again!)
+    char quoted[256];
+    snprintf(quoted, sizeof(quoted), "\"%s\"", q->arg1);
+    const char* lbl = getStringLabel(quoted);  // ← Use getStringLabel, NOT registerStringLiteral
+    
+    asmEmit("    la   a1, %s", lbl ? lbl : "str_0");
+    asmEmit("    call __snapshot_register_var");
+}
 
 // This function is called for all quads in the generated IR code and then based on the operator present in the Quad corresponding function handler is called
 void genQuad(const Quad* q){
@@ -2668,6 +2712,8 @@ if(strcmp(op, "<<") == 0 || strcmp(op, ">>") == 0){
     emitShiftWithMode(q, m1, m2);
     return;
 }
+
+
 
 if(strcmp(op, "=") == 0){
 emitAssignWithMode(q, m1);
@@ -2834,6 +2880,12 @@ if(strcmp(op, "rewind") == 0){
 if(strcmp(op, "snapshot_capture") == 0){
     spillAllRegs();
     asmEmit("    call __snapshot_capture");
+    return;
+}
+
+
+if(strcmp(op, "snapshot_track") == 0){
+    genSnapshotTrack(q);
     return;
 }
 
@@ -3992,6 +4044,7 @@ void generateASM(void)
 
         // generating .data section with format of strings specified for outputting the strings or taking input
         // String literals are defined here using the format specifiers using the .asciz directive for internally generating a NULL-terminated string.
+        //scanSnapshotTrackStrings();
         scanFloatLiterals();
         genDataSection();
 

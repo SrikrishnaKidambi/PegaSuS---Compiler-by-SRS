@@ -1,0 +1,11 @@
+int i = 0;
+int sum = 0;
+
+@Snapshot <i, sum> {
+    for(i = 0; i < 5; i = i + 1){
+        sum = sum + i;
+    }
+    rewind(3);
+    show(i);
+    show(sum);
+}

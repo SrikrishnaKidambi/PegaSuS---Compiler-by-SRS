@@ -1,0 +1,13 @@
+int counter = 0;
+int total = 0;
+
+@Snapshot <counter, total> {
+    counter = counter + 1;   // counter = 1
+    total = total + 5;       // total = 5
+    counter = counter + 2;   // counter = 3
+    total = total + 10;      // total = 15
+    counter = counter + 1;   // counter = 4
+    rewind(3);               // Go back 3 states
+    show(counter);
+    show(total);
+}

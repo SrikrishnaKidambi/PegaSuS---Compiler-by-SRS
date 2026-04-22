@@ -1,0 +1,29 @@
+int 1seq arr = {2, 7, 11, 15, 20};
+int target = 15;
+int lo = 0;
+int hi = 4;
+int mid = 0;
+int found = 0;
+
+@Snapshot <lo, hi, mid> {
+    for(; lo < hi || lo == hi; ){
+        mid = (lo + hi) / 2;
+        if(arr[mid] == target){
+            found = 1;
+            break;
+        }
+        if(arr[mid] < target){
+            lo = mid + 1;
+        }
+        else{
+            hi = mid - 1;
+        }
+    }
+    if(found == 1){
+        show(mid);
+        rewind(2);
+        show(lo);
+        show(hi);
+        show(mid);
+    }
+}
